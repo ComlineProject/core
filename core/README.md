@@ -8,8 +8,11 @@ Made in Rust
 
 ## Resource Links
 https://createlang.rs/
+
 https://michael-f-bryan.github.io/static-analyser-in-rust/book/parse/parser.html
+
 https://michael-f-bryan.github.io/static-analyser-in-rust/book/codemap.html
+
 https://docs.rs/codemap/latest/codemap/
 
 

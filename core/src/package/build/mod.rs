@@ -39,11 +39,12 @@ pub fn build(package_path: &Path) -> Result<ProjectContext> {
     let config_path = package_path.join(
         format!("config.{}", CONGREGATION_EXTENSION)
     );
+    let config_name = config_path.file_name().unwrap().to_str().unwrap();
 
     if !config_path.exists() {
         bail!(
-            "Package directory has no configuration file {:?} at \"{}\"",
-            config_path.file_name().unwrap(), package_path.display()
+            "Package at '{}' has no configuration file '{}'",
+            package_path.display(), config_name
         )
     }
 

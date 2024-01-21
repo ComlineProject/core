@@ -1,6 +1,4 @@
 // Simple Schema
-// namespace tests::idl::simple
-
 import std::validators::string_bounds::StringBounds
 
 const POWER: u8 = 1

@@ -11,7 +11,7 @@ use comline_core::schema::idl::constants::SCHEMA_EXTENSION;
 #[allow(unused)]
 #[test]
 fn from_raw_to_unit() {
-    let path = &format!("tests/idl/simple.{}", SCHEMA_EXTENSION);
+    let path = &format!("tests/schema/simple.{}", SCHEMA_EXTENSION);
     let path = Path::new(path);
     let raw = std::fs::read_to_string(path).unwrap();
     let sourced = idl::parser_new::parse_source(
@@ -187,7 +187,7 @@ fn from_raw_to_unit() {
 
 #[test]
 fn compile_unit() {
-    let path = &format!("tests/idl/simple.{}", SCHEMA_EXTENSION);
+    let path = &format!("tests/schema/simple.{}", SCHEMA_EXTENSION);
     let path = Path::new(path);
     let unit = idl::parser_new::from_path(path).unwrap();
 
