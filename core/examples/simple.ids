@@ -1,0 +1,78 @@
+const AGREEMENT_KEY: string = "agreement_key"
+
+validator PasswordCheck {
+    min_chars: u32 = 16
+    max_chars: u32 = 60
+
+    validate = {
+        assert_valid(
+            self.parameters.0,
+            StringBounds(params.min_chars params.max_chars)
+            // StringBounds(min_chars=self.min_chars max_chars=self.max_chars)
+        )
+    }
+}
+
+
+
+@settings(versioned=False validate_fields=False)
+struct Credentials {
+
+    @validators([StringBounds(min_chars=8 max_chars=16)])
+    1# username: str = "test"
+
+    @validators=[PasswordCheck]
+    2# password: str
+}
+
+
+struct CredentialsOther {
+
+    @parameters.0.validators=[StringBounds(min_chars=8 max_chars=16]
+    #1 username: union(str null) = "test" | null
+
+    @validators=([PasswordCheck()])
+    #2 password: str
+}
+
+
+enum RegisterStatus {
+    Ok
+    UsernameTaken
+}
+
+
+error TellBackError {
+    message = "Could not get the provider to tell \"{self.back}\" back"
+
+    1# back: str
+}
+
+
+@provider=Server
+protocol Registry {
+
+    @argument.0.username.validate=true
+    #timeout_ms=100
+    #cooldown_ms=200
+    function register(Credentials) returns RegisterStatus
+
+    @return.0.validators=[StringBounds(min_chars=8)]
+    function my_username() returns str
+
+    @return.0.validators=[StringBounds(min_chars=8)]
+    function tell_back(str = "back") returns str throws TellBackError
+
+}
+
+
+struct TellBackResponse {
+
+}
+
+
+@provider=Server
+protocol Events {
+    async function poke()
+}
+

@@ -1,0 +1,25 @@
+const SOMETHING: str = test
+
+settings {
+  // Make indexing default in parts desired
+  indexed_schema=True // Everything indexed
+  indexed_structures=True
+  indexed_enums=True
+  indexed_protocols=True
+
+  // Forbid indexing for in parts desired
+  forbid_non_indexing=False
+  forbid_struct_indexing=False
+  forbid_enum_indexing=False
+  forbid_protocol_indexing=False
+}
+
+enum Motion {
+  1# Wave
+  2# Turn
+}
+
+struct Greet {
+
+}
+

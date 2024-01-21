@@ -1,0 +1,130 @@
+// IDC grammar
+syntax = _{
+	COMMENT* ~ MULTILINE_COMMENT*
+    ~ congregation
+    ~ assignment*
+}
+
+congregation = {
+	WS? ~ "congregation"
+    ~ WS ~ id
+}
+
+path = _{
+	WS? ~ (domain_namespaced | string)
+}
+
+dependency_address = {
+	WS? ~ domain_namespaced
+    ~ WS? ~ "@"
+    ~ WS? ~ domain_namespaced
+}
+
+assignment = {
+	WS? ~ (
+    	item_version_meta
+        | dependency_address
+        | domain_namespaced
+    )
+    ~ WS? ~ "=" ~ WS?
+    ~ (number | string | list | dictionary)
+}
+list = {
+    WS? ~ "[" ~ WS?
+    ~ (string | number | path)*
+    ~ WS? ~ "]" ~ WS?
+}
+dictionary = {
+	WS? ~ "{" ~ WS?
+    ~ key_value*
+    ~ WS? ~ "}" ~ WS?
+}
+key_value = {
+	WS? ~ (
+    	item_version_meta | dependency_address
+        | domain
+    )
+    ~ WS? ~ "="
+    ~ WS? ~ (
+    	domain_namespaced | string
+        | dictionary | list
+    )
+}
+
+// Common Rules
+item_version_meta = {
+	domain ~ "#" ~ version
+}
+version = { (number | id | ".")+ }
+variable = @{ (id | kind | ".")+ }
+domain = @{ (id | "::")+ }
+domain_namespaced = @{
+	(id | "::" | "_")+
+}
+number = @{ digit+ }
+id     = @{ (alpha | "_")+ }
+kind   = @{ (alpha | digit)+ }
+
+instantiation = {
+	(domain | domain_namespaced)
+    ~ "(" ~ domain ~ ")"
+}
+
+docstring = {
+	 "///" ~
+     (docstring_property | docstring_description)
+     ~ NEWLINE
+}
+docstring_property = {
+	" "* ~ "@" ~ " "* ~ domain
+    ~ " "* ~ ":"
+    ~ " "? ~ docstring_description
+}
+docstring_description = @{
+	(!NEWLINE ~ ANY)+
+}
+
+value = {
+	"true" | "false" | number
+    | string | string_interpolated
+    | instantiation
+	| variable | domain | domain_namespaced
+}
+
+any_string = { string | string_interpolated }
+
+string = _{
+	"\"" ~ string_inner ~ "\""
+}
+string_inner = @{ char* }
+
+string_interpolated = {
+	"f" ~ "\"" ~ string_interpolated_inner ~ "\""
+}
+string_interpolated_inner = _{
+	(string_interpolation | char)*
+}
+string_interpolation = _{
+	"{" ~ domain ~ "}"
+}
+
+char = {
+    !("\"" | "\\") ~ ANY
+    | "\\" ~ ("\"" | "\\" | "/" | "b" | "f" | "n" | "r" | "t")
+    | "\\" ~ ("u" ~ ASCII_HEX_DIGIT{4})
+}
+
+
+alpha = { 'a'..'z' | 'A'..'Z' }
+digit = { '0'..'9' }
+
+WS = _{ (" " | "\t" | "\n")+ }
+COMMENT = _{
+	!"///" ~
+	"//" ~ (!NEWLINE ~ ANY)* ~ NEWLINE
+}
+MULTILINE_COMMENT = _{
+	"/*"
+    ~ (MULTILINE_COMMENT | !"*/" ~ ANY)*
+    ~ "*/"
+}

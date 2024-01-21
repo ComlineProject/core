@@ -1,0 +1,9 @@
+[workspace]
+resolver = "2"
+members = [
+    "core",
+    "core_stdlib",
+]
+
+[profile.release]
+opt-level = 2

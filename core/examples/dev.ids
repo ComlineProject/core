@@ -1,0 +1,44 @@
+import std::str::StringBounds
+
+settings {
+    indexed-all=false
+    allow-debugging=true
+}
+
+
+@affects=[struct protocol]
+settings MailSettings {
+    indexed=true
+}
+
+
+@settings=MailSettings
+struct Mail {
+    1# sender: str
+    2# recipient: str
+}
+
+struct Article {
+    @validators=[StringBounds(min_chars=3 max_chars=32]
+    title: str
+
+    @validators=[StringBounds(min_chars=24 max_chars=412]
+    content: str
+}
+
+@hidden
+@settings=MailSettings
+protocol Mail {
+    async function send(mail: Mail)
+}
+
+
+// Maximum amount of articles that a provider can send
+const SENT_ARTICLES_MAX: u8 = 10
+
+protocol Feed {
+    // Fetches new articles since last fetch
+    @flexible async stream
+    #timeout=1000ms per_send_timeout=10s cooldown=10s
+    function fetch_articles() -> Article[SENT_ARTICLES_MAX]
+}
