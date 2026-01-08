@@ -16,6 +16,7 @@ pub type OrderIndex = u16;
 pub enum Direction { Client, Server, Both }
 
 
+/// Schema Abstract Syntax Tree
 #[derive(Debug, Eq, PartialEq, Hash)]
 #[derive(Serialize, Deserialize)]
 pub enum ASTUnit {

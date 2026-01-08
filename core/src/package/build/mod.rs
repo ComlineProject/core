@@ -105,7 +105,7 @@ unsafe fn interpret_schemas(
     for relative in schema_paths {
         let concrete_path = schemas_path.join(relative.0);
 
-        let ast = idl::parser_new::from_path(&concrete_path)?;
+        let ast = idl::parser::pest::parser_new::from_path(&concrete_path)?;
 
         let context = SchemaContext::with_ast(ast, relative.1);
 

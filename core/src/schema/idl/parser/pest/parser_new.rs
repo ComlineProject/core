@@ -15,7 +15,7 @@ use pest_derive::Parser;
 
 
 #[derive(Parser)]
-#[grammar = "schema/idl/idl.pest"]
+#[grammar = "schema/idl/parser/pest/idl.pest"]
 pub struct SchemaParser;
 
 

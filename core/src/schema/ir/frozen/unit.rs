@@ -16,8 +16,10 @@ pub type FrozenContextWhole = (SchemaContext, Vec<FrozenUnit>);
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FrozenUnit {
     // TODO: Are Tags really necessary anymore since we hash Frozen Units by blob, trees and commits?
+    //       Tag here means the same tag concept that CapNProto has
     // Tag(String),
     Namespace(String),
+    Name(String),
     Import(String),
     Constant {
         docstring: Option<String>,
@@ -113,5 +115,6 @@ pub fn schema_namespace_as_path(frozen: &[FrozenUnit]) -> Option<String> {
         return None
     };
 
+    // TODO: Since the variant FrozenUnit::Name was added, a split is not necessary anymore
     Some(namespace.split("::").collect::<Vec<_>>().join("/"))
 }

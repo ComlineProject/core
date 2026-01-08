@@ -14,7 +14,7 @@ fn from_raw_to_unit() {
     let path = &format!("tests/schema/simple.{}", SCHEMA_EXTENSION);
     let path = Path::new(path);
     let raw = std::fs::read_to_string(path).unwrap();
-    let sourced = idl::parser_new::parse_source(
+    let sourced = idl::parser::pest::parser_new::parse_source(
         raw, path.to_str().unwrap().to_owned()
     ).unwrap();
 
@@ -189,7 +189,7 @@ fn from_raw_to_unit() {
 fn compile_unit() {
     let path = &format!("tests/schema/simple.{}", SCHEMA_EXTENSION);
     let path = Path::new(path);
-    let unit = idl::parser_new::from_path(path).unwrap();
+    let unit = idl::parser::pest::parser_new::from_path(path).unwrap();
 
     let context = ir::context::SchemaContext::with_ast(
         unit, vec![path.file_stem().unwrap().to_str().unwrap().to_owned()]

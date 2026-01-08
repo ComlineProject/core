@@ -6,7 +6,7 @@ pub mod report;
 // Standard Uses
 
 // Local Uses
-use crate::schema::idl::parser_new;
+use crate::schema::idl::parser::pest::parser_new;
 use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
 
 // External Uses
