@@ -147,9 +147,7 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "(")]
         (),
         
-        #[rust_sitter::delimited(
-            $(Argument),*
-        )]
+        #[rust_sitter::repeat(non_empty = false)]
         Vec<Argument>,
         
         #[rust_sitter::leaf(text = ")")]
@@ -159,7 +157,7 @@ pub mod grammar {
         Option<ReturnType>,
     );
     
-    /// Function argument (simplified)
+    /// Function argument (simplified) - just a type for now
     #[derive(Debug)]
     pub struct Argument(Type);
     
