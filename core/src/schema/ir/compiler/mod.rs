@@ -26,12 +26,12 @@ pub trait Compile {
     fn from_source(source: &str) -> Self::Output {
         println!("Compiling source with rust-sitter...");
         
-        // Parse with rust-sitter grammar
+        // Parse with rust-sitter grammar (returns Document with Vec<Declaration>)
         match crate::schema::idl::grammar::parse(source) {
-            Ok(declaration) => {
-                // Wrap single declaration in Vec for unified interface
-                // TODO: Update grammar to parse multiple declarations (Vec<Declaration>)
-                Self::from_declarations(vec![declaration])
+            Ok(document) => {
+                // Extract declarations from Document (field 0 is Vec<Declaration>)
+                let declarations = document.0;
+                Self::from_declarations(declarations)
             }
             Err(e) => {
                 panic!("Parse error: {:?}", e);

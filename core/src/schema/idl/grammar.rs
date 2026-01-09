@@ -20,9 +20,16 @@ pub mod grammar {
         (),
     );
     
-    /// Language root - supports multiple declaration types  
+    /// Document root - supports multiple declarations
     #[derive(Debug)]
     #[rust_sitter::language]
+    pub struct Document(
+        #[rust_sitter::repeat(non_empty = true)]
+        pub Vec<Declaration>,
+    );
+    
+    /// Language declarations - different statement types  
+    #[derive(Debug)]
     pub enum Declaration {
         Import(Import),
         Const(Const),
@@ -148,13 +155,29 @@ pub mod grammar {
         (),
         
         #[rust_sitter::repeat(non_empty = false)]
-        Vec<Argument>,
+        Option<ArgumentList>,
         
         #[rust_sitter::leaf(text = ")")]
         (),
         
         #[rust_sitter::repeat(non_empty = false)]
         Option<ReturnType>,
+    );
+    
+    /// Argument list: first arg, then (comma + arg)*
+    #[derive(Debug)]
+    pub struct ArgumentList(
+        Argument,
+        #[rust_sitter::repeat(non_empty = false)]
+        Vec<CommaArgument>,
+    );
+    
+    /// Comma followed by an argument
+    #[derive(Debug)]
+    pub struct CommaArgument(
+        #[rust_sitter::leaf(text = ",")]
+        (),
+        Argument,
     );
     
     /// Function argument (simplified) - just a type for now
@@ -189,7 +212,23 @@ pub mod grammar {
         Str(StrType),
         String(StringType),
         Named(Identifier),
+        Array(ArrayType),
     }
+    
+    /// Array type: Type[] or Type[SIZE]
+    #[derive(Debug)]
+    pub struct ArrayType(
+        Box<Type>,
+        
+        #[rust_sitter::leaf(text = "[")]
+        (),
+        
+        #[rust_sitter::repeat(non_empty = false)]
+        Option<IntegerLiteral>,
+        
+        #[rust_sitter::leaf(text = "]")]
+        (),
+    );
     
     #[derive(Debug)]
     #[rust_sitter::leaf(text = "i8")]
@@ -255,7 +294,7 @@ pub mod grammar {
     
     #[derive(Debug)]
     pub struct IntegerLiteral(
-        #[rust_sitter::leaf(pattern = r"\d+", transform = |s| s.parse().unwrap())]
+        #[rust_sitter::leaf(pattern = r"-?\d+", transform = |s| s.parse().unwrap())]
         i64,
     );
     

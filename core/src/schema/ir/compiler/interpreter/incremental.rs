@@ -24,48 +24,101 @@ impl Compile for IncrementalInterpreter {
     type Output = ();
 
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
-        // Simple implementation: just print what we received
-        println!("=== Parsing {} declarations ===", declarations.len());
+        use crate::schema::ir::frozen::unit::FrozenUnit;
+        use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use crate::schema::ir::compiler::interpreted::primitive::Primitive;
+        
+        let mut frozen_units: Vec<FrozenUnit> = Vec::new();
         
         for decl in declarations {
             match decl {
                 Declaration::Import(import) => {
-                    println!("Import: {}", import.get_path());
+                    frozen_units.push(FrozenUnit::Import(import.get_path()));
                 }
                 Declaration::Const(const_decl) => {
-                    println!("Const: {} : {} = {}", 
-                        const_decl.get_name(),
-                        const_decl.get_type_name(),
-                        const_decl.get_value()
-                    );
+                    // Parse the type and value into KindValue
+                    let type_name = const_decl.get_type_name();
+                    let value_str = const_decl.get_value();
+                    
+                    let kind_value = match type_name.as_str() {
+                        "u8" => KindValue::Primitive(Primitive::U8(value_str.parse().ok())),
+                        "u16" => KindValue::Primitive(Primitive::U16(value_str.parse().ok())),
+                        "u32" => KindValue::Primitive(Primitive::U32(value_str.parse().ok())),
+                        "u64" => KindValue::Primitive(Primitive::U64(value_str.parse().ok())),
+                        "i8" => KindValue::Primitive(Primitive::S8(value_str.parse().ok())),
+                        "i16" => KindValue::Primitive(Primitive::S16(value_str.parse().ok())),
+                        "i32" => KindValue::Primitive(Primitive::S32(value_str.parse().ok())),
+                        "i64" => KindValue::Primitive(Primitive::S64(value_str.parse().ok())),
+                        "f32" | "f64" => KindValue::Namespaced(type_name, None), // Floats not in Primitive enum
+                        "bool" => KindValue::Primitive(Primitive::Boolean(value_str.parse().ok())),
+                        "str" | "string" => {
+                            // Remove quotes if present
+                            let cleaned = value_str.trim_matches('"');
+                            KindValue::Primitive(Primitive::String(Some(cleaned.to_string())))
+                        }
+                        _ => KindValue::Namespaced(type_name, None), // Custom type
+                    };
+                    
+                    frozen_units.push(FrozenUnit::Constant {
+                        docstring: None,
+                        name: const_decl.get_name(),
+                        kind_value,
+                    });
                 }
                 Declaration::Struct(struct_def) => {
-                    println!("Struct: {}", struct_def.get_name());
-                    for (field_name, field_type) in struct_def.get_fields() {
-                        println!("  {} : {}", field_name, field_type);
-                    }
+                    let field_units: Vec<FrozenUnit> = struct_def.get_fields()
+                        .into_iter()
+                        .map(|(field_name, field_type)| {
+                            FrozenUnit::Field {
+                                docstring: None,
+                                parameters: vec![],
+                                optional: false,
+                                name: field_name,
+                                kind_value: KindValue::Named(field_type, None),
+                            }
+                        })
+                        .collect();
+                    
+                    frozen_units.push(FrozenUnit::Struct {
+                        docstring: None,
+                        parameters: vec![],
+                        name: struct_def.get_name(),
+                        fields: field_units,
+                    });
                 }
                 Declaration::Enum(enum_def) => {
-                    println!("Enum: {}", enum_def.get_name());
-                    for variant in enum_def.get_variants() {
-                        println!("  {}", variant);
-                    }
+                    let variant_units: Vec<FrozenUnit> = enum_def.get_variants()
+                        .into_iter()
+                        .map(|variant_name| {
+                            FrozenUnit::EnumVariant(
+                                KindValue::EnumVariant(variant_name, None)
+                            )
+                        })
+                        .collect();
+                    
+                    frozen_units.push(FrozenUnit::Enum {
+                        docstring: None,
+                        name: enum_def.get_name(),
+                        variants: variant_units,
+                    });
                 }
                 Declaration::Protocol(protocol) => {
-                    println!("Protocol: {}", protocol.get_name());
-                    for (func_name, args, ret_type) in protocol.get_functions() {
-                        let ret_str = ret_type.map(|r| format!(" returns {}", r)).unwrap_or_default();
-                        println!("  function {}({}){}",
-                            func_name,
-                            args.join(", "),
-                            ret_str
-                        );
-                    }
+                    // TODO: Implement function conversion
+                    // For now, just create empty protocol
+                    frozen_units.push(FrozenUnit::Protocol {
+                        docstring: String::new(),
+                        parameters: vec![],
+                        name: protocol.get_name(),
+                        functions: vec![], // TODO: Convert functions
+                    });
                 }
             }
         }
         
-        println!("=== Parsing complete ===");
+        println!("Generated {} IR units", frozen_units.len());
+        for unit in &frozen_units {
+            println!("  {:?}", unit);
+        }
     }
 
     fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {

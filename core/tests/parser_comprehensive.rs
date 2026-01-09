@@ -111,14 +111,12 @@ enum DayOfWeek {
     }
 
     #[test]
-    #[ignore] // TODO: Requires comma-separated arguments (Phase B: Grammar Expansion)
     fn test_protocol_multiple_args() {
         let code = "protocol API { function process(str, u32, bool) returns i64 }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
-    #[ignore] // TODO: Requires comma-separated arguments (Phase B: Grammar Expansion)
     fn test_protocol_multiple_functions() {
         let code = r#"
 protocol UserService {
