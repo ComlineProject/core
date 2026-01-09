@@ -1,6 +1,6 @@
 // Relative Modules
 // mod cas;
-mod basic_storage;
+pub mod basic_storage;
 
 // Standard Uses
 use std::path::Path;
