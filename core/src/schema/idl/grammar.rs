@@ -103,4 +103,4 @@ pub mod idl_grammar {
 }
 
 // Re-export for convenience
-pub use idl_grammar::*;
+pub use grammar::*;

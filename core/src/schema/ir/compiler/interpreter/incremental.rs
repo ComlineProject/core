@@ -3,6 +3,7 @@
 // Local Uses
 use crate::schema::idl::ast::unit;
 use crate::schema::idl::ast::unit::ASTUnit;
+use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::Compile;
 use crate::schema::ir::compiler::interpreted::frozen_unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreted::primitive;
@@ -22,7 +23,58 @@ pub struct IncrementalInterpreter {
 impl Compile for IncrementalInterpreter {
     type Output = ();
 
+    fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
+        // Simple implementation: just print what we received
+        println!("=== Parsing {} declarations ===", declarations.len());
+        
+        for decl in declarations {
+            match decl {
+                Declaration::Import(import) => {
+                    println!("Import: {}", import.get_path());
+                }
+                Declaration::Const(const_decl) => {
+                    println!("Const: {} : {} = {}", 
+                        const_decl.get_name(),
+                        const_decl.get_type_name(),
+                        const_decl.get_value()
+                    );
+                }
+                Declaration::Struct(struct_def) => {
+                    println!("Struct: {}", struct_def.get_name());
+                    for (field_name, field_type) in struct_def.get_fields() {
+                        println!("  {} : {}", field_name, field_type);
+                    }
+                }
+                Declaration::Enum(enum_def) => {
+                    println!("Enum: {}", enum_def.get_name());
+                    for variant in enum_def.get_variants() {
+                        println!("  {}", variant);
+                    }
+                }
+                Declaration::Protocol(protocol) => {
+                    println!("Protocol: {}", protocol.get_name());
+                    for (func_name, args, ret_type) in protocol.get_functions() {
+                        let ret_str = ret_type.map(|r| format!(" returns {}", r)).unwrap_or_default();
+                        println!("  function {}({}){}",
+                            func_name,
+                            args.join(", "),
+                            ret_str
+                        );
+                    }
+                }
+            }
+        }
+        
+        println!("=== Parsing complete ===");
+    }
+
     fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {
+        // Legacy implementation
+        todo!()
+    }
+
+    fn from_sourced_whole(sourced: crate::schema::idl::ast::unit::SourcedWholeRc) -> Self::Output {
+        // Legacy implementation  
         todo!()
     }
 }
