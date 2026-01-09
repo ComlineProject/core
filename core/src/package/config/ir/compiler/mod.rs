@@ -6,7 +6,7 @@ pub mod report;
 use std::path::Path;
 
 // Crate Uses
-use crate::package::config::idl::ast::{ASTUnit, SourcedWhole};
+// use crate::package::config::idl::ast::{ASTUnit, SourcedWhole};
 
 // External Uses
 
@@ -14,9 +14,9 @@ use crate::package::config::idl::ast::{ASTUnit, SourcedWhole};
 pub trait Compile {
     type Output;
 
-    fn from_ast(ast: Vec<ASTUnit>) -> Self::Output;
+    // fn from_ast(ast: Vec<ASTUnit>) -> Self::Output;
 
-    fn from_sourced_whole(sourced: SourcedWhole) -> Self::Output;
+    // fn from_sourced_whole(sourced: SourcedWhole) -> Self::Output;
 
     fn from_source(source: &str) -> Self::Output;
 

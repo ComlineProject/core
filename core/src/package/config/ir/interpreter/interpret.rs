@@ -14,12 +14,12 @@ pub fn interpret_context(mut context: &ProjectContext)
 {
     let mut interpreted = vec![];
 
-    for node in &context.config.1 {
-        let file = context.config.0.files().first().unwrap();
+    for assignment in &context.config.assignments {
+        // let file = context.config.0.files().first().unwrap();
         // let span = file.range_of(node.0).unwrap();
 
         interpreted.append(
-            &mut freezing::interpret_node_into_frozen(context, &node.1)?
+            &mut freezing::interpret_node_into_frozen(context, assignment)?
         );
     }
 

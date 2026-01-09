@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 // Crate Uses
-use crate::package::config::idl::ast::{SourcedWhole as ProjectSourcedWhole};
+use crate::package::config::idl::grammar::Congregation;
 use crate::package::config::ir::frozen::FrozenUnit;
 // use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
 use crate::schema::ir::context::SchemaContext;
@@ -21,7 +21,7 @@ pub enum Origin {
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
     pub origin: Origin,
-    pub config: ProjectSourcedWhole,
+    pub config: Congregation,
     pub config_frozen: Option<Vec<FrozenUnit>>,
     pub schema_contexts: Vec<Rc<RefCell<SchemaContext>>>,
     pub relative_projects: Vec<ProjectContext>,
@@ -29,7 +29,7 @@ pub struct ProjectContext {
 
 
 impl ProjectContext {
-    pub fn with_config_from_origin(origin: Origin, config: ProjectSourcedWhole) -> Self {
+    pub fn with_config_from_origin(origin: Origin, config: Congregation) -> Self {
         Self {
             origin,
             config, config_frozen: None,
@@ -38,7 +38,7 @@ impl ProjectContext {
         }
     }
 
-    pub fn with_config(config: ProjectSourcedWhole) -> Self {
+    pub fn with_config(config: Congregation) -> Self {
         Self {
             origin: Origin::Virtual,
             config, config_frozen: None,
@@ -47,7 +47,7 @@ impl ProjectContext {
         }
     }
 
-    pub(crate) fn add_relative_project(mut self, sourced: ProjectSourcedWhole) {
+    pub(crate) fn add_relative_project(mut self, sourced: Congregation) {
         self.relative_projects.push(
             Self::with_config(sourced)
         )
