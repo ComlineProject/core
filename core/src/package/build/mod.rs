@@ -105,18 +105,17 @@ unsafe fn interpret_schemas(
     for relative in schema_paths {
         let concrete_path = schemas_path.join(relative.0);
 
-        let ast = idl::parser::pest::parser_new::from_path(&concrete_path)?;
-
-        let context = SchemaContext::with_ast(ast, relative.1);
-
-        let ptr = compiled_project as *const ProjectContext;
-        let ptr_mut = ptr as *mut ProjectContext;
-
-        unsafe {
-            (*ptr_mut).add_schema_context(
-                Rc::new(RefCell::new(context))
-            );
-        }
+        // TODO: Re-implement with rust-sitter parser
+        unimplemented!("Schema parsing not yet implemented with rust-sitter. See grammar.rs");
+        // let ast = idl::parser::pest::parser_new::from_path(&concrete_path)?;
+        // let context = SchemaContext::with_ast(ast, relative.1);
+        // let ptr = compiled_project as *const ProjectContext;
+        // let ptr_mut = ptr as *mut ProjectContext;
+        // unsafe {
+        //     (*ptr_mut).add_schema_context(
+        //         Rc::new(RefCell::new(context))
+        //     );
+        // }
     }
 
     compiler::interpret::interpret_context(compiled_project)

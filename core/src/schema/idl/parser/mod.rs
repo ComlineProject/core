@@ -1,4 +1,2 @@
-// Relative Modules
-pub mod pest;
-pub mod lalrpop;
-mod cstree;
+// Parser module - migrated to rust-sitter
+// Grammar defined in ../grammar.rs

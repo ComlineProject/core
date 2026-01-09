@@ -7,7 +7,8 @@ pub mod freezing;
 use std::path::Path;
 
 // Crate Uses
-use crate::package::config::idl::parser_new;
+// TODO: Re-implement with rust-sitter parser
+// use crate::package::config::idl::parser_new;
 use crate::package::config::idl::ast::{ASTUnit, SourcedWhole};
 use crate::package::config::ir::context::{Origin, ProjectContext};
 use crate::package::config::ir::compiler::Compile;
@@ -39,21 +40,23 @@ impl Compile for ProjectInterpreter {
 
     fn from_source(source: &str) -> Self::Output {
         println!("Compiling source: {}", source);
-        let ast = parser_new::parse_source(
-            source.to_owned(), "".to_owned()
-        ).unwrap();
-
-        Self::from_sourced_whole(ast)
+        // TODO: Re-implement with rust-sitter parser
+        unimplemented!("from_source not yet implemented with rust-sitter")
+        // let ast = parser_new::parse_source(
+        //     source.to_owned(), "".to_owned()
+        // ).unwrap();
+        // Self::from_sourced_whole(ast)
     }
 
     fn from_origin(origin: &Path) -> Self::Output {
-        let sourced = parser_new::from_path(origin).unwrap();
-        let mut context = ProjectContext::with_config_from_origin(
-            Origin::Disk(origin.to_path_buf()), sourced
-        );
-        context.config_frozen = Some(interpret::interpret_context(&context)
-            .map_err(|e| eyre!("{:?}", e))?);
-
-        Ok(context)
+        // TODO: Re-implement with rust-sitter parser
+        unimplemented!("from_origin not yet implemented with rust-sitter")
+        // let sourced = parser_new::from_path(origin).unwrap();
+        // let mut context = ProjectContext::with_config_from_origin(
+        //     Origin::Disk(origin.to_path_buf()), sourced
+        // );
+        // context.config_frozen = Some(interpret::interpret_context(&context)
+        //     .map_err(|e| eyre!("{:?}", e))?);
+        // Ok(context)
     }
 }
