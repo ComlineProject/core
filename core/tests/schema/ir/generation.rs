@@ -1,11 +1,12 @@
 // Comprehensive IR generation tests
 
 use comline_core::schema::idl::grammar;
-use comline_core::schema::ir::compiler::interpreter::IncrementalInterpreter;
 
 #[cfg(test)]
 mod ir_generation_tests {
     use super::*;
+    use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
+    use comline_core::schema::ir::compiler::Compile;
 
     #[test]
     fn test_simple_struct_ir() {
@@ -18,9 +19,11 @@ struct User {
         // Should not panic - basic smoke test
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse simple struct");
-        
+
         // Generate IR
-        IncrementalInterpreter::from_source(code);
+        let ir = IncrementalInterpreter::from_source(code);
+
+        assert!()
     }
 
     #[test]
@@ -34,8 +37,8 @@ enum Status {
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse enum");
-        
-        IncrementalInterpreter::from_source(code);
+
+        let ir = IncrementalInterpreter::from_source(code);
     }
 
     #[test]
@@ -49,7 +52,7 @@ protocol UserService {
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse protocol");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -63,7 +66,7 @@ const MIN_VALUE: i8 = -128
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse constants");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -72,7 +75,7 @@ const MIN_VALUE: i8 = -128
         let code = "import std";
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse import");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -87,7 +90,7 @@ struct Container {
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse struct with arrays");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -118,7 +121,7 @@ protocol API {
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse complete IDL");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -131,8 +134,11 @@ protocol Service {
 }
 "#;
         let result = grammar::parse(code);
-        assert!(result.is_ok(), "Failed to parse protocol with no-arg functions");
-        
+        assert!(
+            result.is_ok(),
+            "Failed to parse protocol with no-arg functions"
+        );
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -145,8 +151,11 @@ protocol EventService {
 }
 "#;
         let result = grammar::parse(code);
-        assert!(result.is_ok(), "Failed to parse protocol with no-return functions");
-        
+        assert!(
+            result.is_ok(),
+            "Failed to parse protocol with no-return functions"
+        );
+
         IncrementalInterpreter::from_source(code);
     }
 
@@ -170,7 +179,7 @@ struct Company {
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse multiple structs");
-        
+
         IncrementalInterpreter::from_source(code);
     }
 }

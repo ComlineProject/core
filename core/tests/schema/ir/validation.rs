@@ -2,11 +2,13 @@
 
 use comline_core::schema::idl::grammar;
 use comline_core::schema::ir::compiler::Compile;
-use comline_core::schema::ir::compiler::interpreter::IncrementalInterpreter;
+use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
 
 #[cfg(test)]
 mod ir_validation_tests {
     use super::*;
+    use comline_core::schema::ir::compiler::Compile;
+    use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
 
     // These tests would ideally validate the actual IR content,
     // but since from_declarations returns (), we verify no panics occur
