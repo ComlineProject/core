@@ -40,7 +40,7 @@ pub mod grammar {
 
     #[derive(Debug, Clone)]
     pub struct DependencyAddress {
-         #[rust_sitter::leaf(pattern = r"[a-zA-Z0-9_]+(::[a-zA-Z0-9_]+)*@[a-zA-Z0-9_]+(::[a-zA-Z0-9_]+)*", transform = |v| v.to_string())]
+         #[rust_sitter::leaf(pattern = r"[a-zA-Z0-9_]+(::[a-zA-Z0-9_]+)*@[a-zA-Z0-9_\.]+(::[a-zA-Z0-9_\.]+)*", transform = |v| v.to_string())]
          pub value: String,
     }
 
