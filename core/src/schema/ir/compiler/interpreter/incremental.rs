@@ -24,7 +24,7 @@ impl Compile for IncrementalInterpreter {
     type Output = ();
 
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
-        use crate::schema::ir::frozen::unit::FrozenUnit;
+        use crate::schema::ir::frozen::unit::{FrozenUnit, FrozenArgument};
         use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
         use crate::schema::ir::compiler::interpreted::primitive::Primitive;
         
@@ -103,13 +103,41 @@ impl Compile for IncrementalInterpreter {
                     });
                 }
                 Declaration::Protocol(protocol) => {
-                    // TODO: Implement function conversion
-                    // For now, just create empty protocol
+                    // Convert functions to FrozenUnit::Function
+                    let function_units: Vec<FrozenUnit> = protocol.get_functions()
+                        .into_iter()
+                        .map(|(func_name, arg_types, ret_type)| {
+                            // Convert arguments to FrozenArgument
+                            let frozen_args: Vec<FrozenArgument> = arg_types
+                                .into_iter()
+                                .enumerate()
+                                .map(|(idx, arg_type)| {
+                                    FrozenArgument {
+                                        name: format!("arg{}", idx), // Generic names for now
+                                        kind: KindValue::Namespaced(arg_type, None),
+                                    }
+                                })
+                                .collect();
+                            
+                            // Convert return type
+                            let return_kind = ret_type.map(|rt| KindValue::Namespaced(rt, None));
+                            
+                            FrozenUnit::Function {
+                                docstring: String::new(),
+                                name: func_name,
+                                synchronous: true, // Default to synchronous for now
+                                arguments: frozen_args,
+                                _return: return_kind,
+                                throws: vec![], // No error handling yet
+                            }
+                        })
+                        .collect();
+                    
                     frozen_units.push(FrozenUnit::Protocol {
                         docstring: String::new(),
                         parameters: vec![],
                         name: protocol.get_name(),
-                        functions: vec![], // TODO: Convert functions
+                        functions: function_units,
                     });
                 }
             }
