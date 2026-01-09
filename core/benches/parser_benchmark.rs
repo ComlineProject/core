@@ -1,6 +1,6 @@
-// Performance benchmark for rust-sitter parser
+// Criterion-based benchmark for rust-sitter parser
 
-use std::time::Instant;
+use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
 use comline_core::schema::idl::grammar;
 
 const SIMPLE_IDL: &str = r#"
@@ -16,26 +16,8 @@ import std
 const MAX_USERS: u32 = 1000
 const API_VERSION: str = "v1.0"
 
-enum Status {
-    Active
-    Inactive
-    Pending
-    Suspended
-}
-
-enum UserRole {
-    Admin
-    User
-    Guest
-    Moderator
-}
-
-struct Address {
-    street: str
-    city: str
-    zip: str
-    country: str
-}
+enum Status { Active, Inactive, Pending }
+enum UserRole { Admin, User, Guest }
 
 struct User {
     id: u64
@@ -43,80 +25,64 @@ struct User {
     email: str
     role: UserRole
     status: Status
-    address: Address
     tags: str[]
-    metadata: str[10]
-}
-
-struct UserList {
-    users: User[]
-    total: u32
-    page: u32
-    per_page: u32
 }
 
 protocol UserService {
     function getUser(u64) returns User
-    function getUserByEmail(str) returns User
     function createUser(str, str, UserRole) returns u64
-    function updateUser(u64, str, str) returns bool
+    function listUsers(u32, u32) returns User[]
     function deleteUser(u64) returns bool
-    function listUsers(u32, u32) returns UserList
-    function searchUsers(str) returns User[]
-    function countUsers() returns u32
-}
-
-protocol AuthService {
-    function login(str, str) returns str
-    function logout(str) returns bool
-    function validateToken(str) returns bool
-    function refreshToken(str) returns str
 }
 "#;
 
-fn benchmark_parse(name: &str, code: &str, iterations: usize) {
-    let start = Instant::now();
-    
-    for _ in 0..iterations {
-        let _ = grammar::parse(code);
-    }
-    
-    let duration = start.elapsed();
-    let avg_micros = duration.as_micros() / iterations as u128;
-    
-    println!("{}: {} iterations in {:?}", name, iterations, duration);
-    println!("  Average: {}μs per parse", avg_micros);
-    println!("  Throughput: {:.0} parses/second", 1_000_000.0 / avg_micros as f64);
-}
-
-fn main() {
-    println!("=== Rust-Sitter Parser Performance Benchmark ===\n");
-    
-    // Warm up
-    for _ in 0..100 {
-        let _ = grammar::parse(SIMPLE_IDL);
-    }
-    
-    println!("Simple IDL (4 lines):");
-    benchmark_parse("Simple", SIMPLE_IDL, 10_000);
-    println!();
-    
-    println!("Complex IDL (70+ lines):");
-    benchmark_parse("Complex", COMPLEX_IDL, 1_000);
-    println!();
-    
-    // Large file simulation
-    let mut large_idl = String::from("import std\n\n");
-    for i in 0..100 {
-        large_idl.push_str(&format!(
+fn generate_large_idl(num_structs: usize) -> String {
+    let mut idl = String::from("import std\n\n");
+    for i in 0..num_structs {
+        idl.push_str(&format!(
             "struct Entity{} {{\n    id: u64\n    name: str\n    data: str[]\n}}\n\n",
             i
         ));
     }
+    idl
+}
+
+fn parse_simple(c: &mut Criterion) {
+    c.bench_function("parse_simple_idl", |b| {
+        b.iter(|| grammar::parse(black_box(SIMPLE_IDL)))
+    });
+}
+
+fn parse_complex(c: &mut Criterion) {
+    c.bench_function("parse_complex_idl", |b| {
+        b.iter(|| grammar::parse(black_box(COMPLEX_IDL)))
+    });
+}
+
+fn parse_large(c: &mut Criterion) {
+    let mut group = c.benchmark_group("parse_large_idl");
     
-    println!("Large IDL (~500 lines, 100 structs):");
-    benchmark_parse("Large", &large_idl, 100);
-    println!();
+    for size in [10, 50, 100].iter() {
+        let idl = generate_large_idl(*size);
+        group.bench_with_input(BenchmarkId::from_parameter(size), &idl, |b, idl| {
+            b.iter(|| grammar::parse(black_box(idl)))
+        });
+    }
     
-    println!("✅ Benchmark complete!");
+    group.finish();
+}
+
+criterion_group!(benches, parse_simple, parse_complex, parse_large);
+
+fn main() {
+    benches();
+    
+    // Print report locations
+    println!("\n🎯 Benchmark HTML Reports:");
+    println!("📊 Main: target/criterion/report/index.html");
+    println!("\nIndividual:");
+    println!("  • Simple:  target/criterion/parse_simple_idl/report/index.html");
+    println!("  • Complex: target/criterion/parse_complex_idl/report/index.html");
+    println!("  • Large:   target/criterion/parse_large_idl/report/index.html");
+    println!("\n💡 Open these files in your browser to view detailed charts\n");
 }

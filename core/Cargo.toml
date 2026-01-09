@@ -42,6 +42,7 @@ rust-sitter-tool = "0.4.5" # Build-time grammar compilation
 
 [dev-dependencies]
 pretty_assertions = "1.4.0"
+criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]
 name = "parser_benchmark"
