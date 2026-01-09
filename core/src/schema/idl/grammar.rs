@@ -24,6 +24,7 @@ pub mod grammar {
 
     /// Language declarations - different statement types  
     #[derive(Debug)]
+    #[derive(Clone)]
     pub enum Declaration {
         Import(Import),
         Const(Const),
@@ -35,98 +36,140 @@ pub mod grammar {
     // ===== Imports & Constants =====
 
     /// Import: import identifier
-    #[derive(Debug)]
-    pub struct Import(#[rust_sitter::leaf(text = "import")] (), Identifier);
+    #[derive(Debug, Clone)]
+    pub struct Import {
+        #[rust_sitter::leaf(text = "import")]
+        _import: (),
+        pub path: Identifier
+    }
 
     /// Constant: const NAME: TYPE = VALUE
-    #[derive(Debug)]
-    pub struct Const(
-        #[rust_sitter::leaf(text = "const")] (),
-        Identifier,
-        #[rust_sitter::leaf(text = ":")] (),
-        Type,
-        #[rust_sitter::leaf(text = "=")] (),
-        Expression,
-    );
+    #[derive(Debug, Clone)]
+    pub struct Const {
+        #[rust_sitter::leaf(text = "const")]
+        _const: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = ":")]
+        _colon: (),
+        pub type_def: Type,
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub value: Expression,
+    }
 
     // ===== Struct Definition =====
 
     /// Struct: struct NAME { fields }
-    #[derive(Debug)]
-    pub struct Struct(
-        #[rust_sitter::leaf(text = "struct")] (),
-        Identifier,
-        #[rust_sitter::leaf(text = "{")] (),
-        #[rust_sitter::repeat(non_empty = false)] Vec<Field>,
-        #[rust_sitter::leaf(text = "}")] (),
-    );
+    #[derive(Debug, Clone)]
+    pub struct Struct {
+        #[rust_sitter::leaf(text = "struct")]
+        _struct: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub fields: Vec<Field>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
 
     /// Field: name: Type
-    #[derive(Debug)]
-    pub struct Field(Identifier, #[rust_sitter::leaf(text = ":")] (), Type);
+    #[derive(Debug, Clone)]
+    pub struct Field {
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = ":")]
+        _colon: (),
+        pub field_type: Type
+    }
 
     // ===== Enum Definition =====
 
     /// Enum: enum NAME { variants }
-    #[derive(Debug)]
-    pub struct Enum(
-        #[rust_sitter::leaf(text = "enum")] (),
-        Identifier,
-        #[rust_sitter::leaf(text = "{")] (),
-        #[rust_sitter::repeat(non_empty = true)] Vec<EnumVariant>,
-        #[rust_sitter::leaf(text = "}")] (),
-    );
+    #[derive(Debug, Clone)]
+    pub struct Enum {
+        #[rust_sitter::leaf(text = "enum")]
+        _enum: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = true)]
+        pub variants: Vec<EnumVariant>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
 
     /// Enum variant: IDENTIFIER
-    #[derive(Debug)]
-    pub struct EnumVariant(Identifier);
+    #[derive(Debug, Clone)]
+    pub struct EnumVariant {
+        pub name: Identifier
+    }
 
     // ===== Protocol Definition =====
 
     /// Protocol: protocol NAME { functions }
-    #[derive(Debug)]
-    pub struct Protocol(
-        #[rust_sitter::leaf(text = "protocol")] (),
-        Identifier,
-        #[rust_sitter::leaf(text = "{")] (),
-        #[rust_sitter::repeat(non_empty = false)] Vec<Function>,
-        #[rust_sitter::leaf(text = "}")] (),
-    );
+    #[derive(Debug, Clone)]
+    pub struct Protocol {
+        #[rust_sitter::leaf(text = "protocol")]
+        _protocol: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub functions: Vec<Function>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
 
     /// Function: function NAME(args) returns Type
-    #[derive(Debug)]
-    pub struct Function(
-        #[rust_sitter::leaf(text = "function")] (),
-        Identifier,
-        #[rust_sitter::leaf(text = "(")] (),
-        #[rust_sitter::repeat(non_empty = false)] Option<ArgumentList>,
-        #[rust_sitter::leaf(text = ")")] (),
-        #[rust_sitter::repeat(non_empty = false)] Option<ReturnType>,
-    );
+    #[derive(Debug, Clone)]
+    pub struct Function {
+        #[rust_sitter::leaf(text = "function")]
+        _fn: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "(")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub args: Option<ArgumentList>,
+        #[rust_sitter::leaf(text = ")")]
+        _close: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub return_type: Option<ReturnType>,
+    }
 
     /// Argument list: first arg, then (comma + arg)*
-    #[derive(Debug)]
-    pub struct ArgumentList(
-        Argument,
-        #[rust_sitter::repeat(non_empty = false)] Vec<CommaArgument>,
-    );
+    #[derive(Debug, Clone)]
+    pub struct ArgumentList {
+        pub first: Argument,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<CommaArgument>,
+    }
 
     /// Comma followed by an argument
-    #[derive(Debug)]
-    pub struct CommaArgument(#[rust_sitter::leaf(text = ",")] (), Argument);
+    #[derive(Debug, Clone)]
+    pub struct CommaArgument {
+        #[rust_sitter::leaf(text = ",")]
+        _comma: (),
+        pub arg: Argument
+    }
 
     /// Function argument (simplified) - just a type for now
-    #[derive(Debug)]
-    pub struct Argument(Type);
+    #[derive(Debug, Clone)]
+    pub struct Argument {
+        pub arg_type: Type
+    }
 
     /// Return type: returns Type
-    #[derive(Debug)]
-    pub struct ReturnType(#[rust_sitter::leaf(text = "returns")] (), Type);
+    #[derive(Debug, Clone)]
+    pub struct ReturnType {
+        #[rust_sitter::leaf(text = "returns")]
+        _arrow: (),
+        pub return_type: Type
+    }
 
     // ===== Types =====
 
     /// Type
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum Type {
         I8(I8Type),
         I16(I16Type),
@@ -142,222 +185,226 @@ pub mod grammar {
         Str(StrType),
         String(StringType),
         Named(Identifier),
-        Array(ArrayType),
+        Array(Box<ArrayType>),
     }
 
     /// Array type: Type[] or Type[SIZE]
-    #[derive(Debug)]
-    pub struct ArrayType(
-        Box<Type>,
-        #[rust_sitter::leaf(text = "[")] (),
-        #[rust_sitter::repeat(non_empty = false)] Option<IntegerLiteral>,
-        #[rust_sitter::leaf(text = "]")] (),
-    );
+    #[derive(Debug, Clone)]
+    pub struct ArrayType {
+        pub key: Type,
+        #[rust_sitter::leaf(text = "[")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub size: Option<IntegerLiteral>,
+        #[rust_sitter::leaf(text = "]")]
+        _close: (),
+    }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "i8")]
     pub struct I8Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "i16")]
     pub struct I16Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "i32")]
     pub struct I32Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "i64")]
     pub struct I64Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u8")]
     pub struct U8Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u16")]
     pub struct U16Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u32")]
     pub struct U32Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u64")]
     pub struct U64Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "f32")]
     pub struct F32Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "f64")]
     pub struct F64Type;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "bool")]
     pub struct BoolType;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "str")]
     pub struct StrType;
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "string")]
     pub struct StringType;
 
     // ===== Expressions (Simplified) =====
 
     /// Expression (simplified for now)
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     pub enum Expression {
         Integer(IntegerLiteral),
         String(StringLiteral),
         Identifier(Identifier),
     }
 
-    #[derive(Debug)]
-    pub struct IntegerLiteral(
-        #[rust_sitter::leaf(pattern = r"-?\d+", transform = |s| s.parse().unwrap())] i64,
-    );
+    #[derive(Debug, Clone)]
+    pub struct IntegerLiteral {
+        #[rust_sitter::leaf(pattern = r"-?\d+", transform = |s| s.parse().unwrap())]
+        pub value: i64,
+    }
 
-    #[derive(Debug)]
-    pub struct StringLiteral(
+    #[derive(Debug, Clone)]
+    pub struct StringLiteral {
         #[rust_sitter::leaf(pattern = r#""([^"]*)""#, transform = |s| s[1..s.len()-1].to_string())]
-        String,
-    );
+        pub value: String,
+    }
 
     /// Identifier: variable/type names
-    #[derive(Debug)]
-    pub struct Identifier(
+    #[derive(Debug, Clone)]
+    pub struct Identifier {
         #[rust_sitter::leaf(pattern = r"[a-zA-Z_][a-zA-Z0-9_]*", transform = |s| s.to_string())]
-        String,
-    );
+        pub text: String,
+    }
 
-    // Accessor methods for grammar types (must be inside module to access private fields)
+    // Accessor methods for grammar types
     impl Import {
         pub fn path(&self) -> String {
-            self.1 .0.clone()
+            self.path.text.clone()
         }
     }
 
     impl Const {
         pub fn name(&self) -> String {
-            self.1 .0.clone()
+            self.name.text.clone()
         }
         pub fn type_def(&self) -> &Type {
-            &self.3
+            &self.type_def
         }
         pub fn value(&self) -> &Expression {
-            &self.5
+            &self.value
         }
     }
 
     impl Struct {
         pub fn name(&self) -> String {
-            self.1 .0.clone()
+            self.name.text.clone()
         }
         pub fn fields(&self) -> &Vec<Field> {
-            &self.3
+            &self.fields
         }
     }
 
     impl Field {
         pub fn name(&self) -> String {
-            self.0 .0.clone()
+            self.name.text.clone()
         }
         pub fn field_type(&self) -> &Type {
-            &self.2
+            &self.field_type
         }
     }
 
     impl Enum {
         pub fn name(&self) -> String {
-            self.1 .0.clone()
+            self.name.text.clone()
         }
         pub fn variants(&self) -> &Vec<EnumVariant> {
-            &self.3
+            &self.variants
         }
     }
 
     impl Protocol {
         pub fn name(&self) -> String {
-            self.1 .0.clone()
+            self.name.text.clone()
         }
         pub fn functions(&self) -> &Vec<Function> {
-            &self.3
+            &self.functions
         }
     }
 
     impl Function {
         pub fn name(&self) -> String {
-            self.1 .0.clone()
+            self.name.text.clone()
         }
         pub fn args(&self) -> &Option<ArgumentList> {
-            &self.3
+            &self.args
         }
         pub fn return_type(&self) -> &Option<ReturnType> {
-            &self.5
+            &self.return_type
         }
     }
 
     impl ArgumentList {
         pub fn first(&self) -> &Argument {
-            &self.0
+            &self.first
         }
         pub fn rest(&self) -> &Vec<CommaArgument> {
-            &self.1
+            &self.rest
         }
     }
 
     impl CommaArgument {
         pub fn arg_type(&self) -> &Argument {
-            &self.1
+            &self.arg
         }
     }
 
     impl Identifier {
         pub fn as_str(&self) -> &str {
-            &self.0
+            &self.text
         }
         pub fn to_string(&self) -> String {
-            self.0.clone()
+            self.text.clone()
         }
     }
 
     impl IntegerLiteral {
         pub fn value(&self) -> i64 {
-            self.0
+            self.value
         }
     }
 
     impl StringLiteral {
         pub fn value(&self) -> &str {
-            &self.0
+            &self.value
         }
     }
 
     impl ArrayType {
         pub fn elem_type(&self) -> &Type {
-            &self.0
+            &self.key
         }
     }
 
     impl EnumVariant {
         pub fn identifier(&self) -> &Identifier {
-            &self.0
+            &self.name
         }
     }
 
     impl Argument {
         pub fn arg_type(&self) -> &Type {
-            &self.0
+            &self.arg_type
         }
     }
 
     impl ReturnType {
         pub fn return_type(&self) -> &Type {
-            &self.1
+            &self.return_type
         }
     }
 }

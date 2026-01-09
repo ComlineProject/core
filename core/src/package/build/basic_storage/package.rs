@@ -58,7 +58,7 @@ pub(crate) fn freeze_project(
         }
 
         let frozen_meta = basic_storage_schema::serialize::to_processed(
-            schema_ref.frozen_schema.as_ref().unwrap()
+            schema_ref.frozen_schema.borrow().as_ref().unwrap()
         );
         let schema_path = schemas_path.join(&schema_ref.namespace_joined());
 
@@ -94,7 +94,7 @@ pub(crate) fn freeze_and_compare_packages(
         }
 
         let frozen_meta = basic_storage_schema::serialize::to_processed(
-            schema_ref.frozen_schema.as_ref().unwrap()
+            schema_ref.frozen_schema.borrow().as_ref().unwrap()
         );
 
         let schema_path = schemas_path.join(&schema_ref.namespace_as_path());

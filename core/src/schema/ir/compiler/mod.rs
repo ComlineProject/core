@@ -7,7 +7,7 @@ pub mod report;
 
 // Local Uses
 use crate::schema::idl::grammar::Declaration;
-use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
+// use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
 
 // External Uses
 
@@ -19,10 +19,6 @@ pub trait Compile {
     /// Compile from rust-sitter AST (new approach)
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output;
     
-    /// Legacy method - compile from old ASTUnit format
-    /// TODO: Remove once migration to Declaration is complete
-    fn from_ast(ast: Vec<ASTUnit>) -> Self::Output;
-
     fn from_source(source: &str) -> Self::Output {
         println!("Compiling source with rust-sitter...");
         
@@ -38,8 +34,4 @@ pub trait Compile {
             }
         }
     }
-
-    /// Legacy method for old parser integration
-    /// TODO: Remove once migration complete
-    fn from_sourced_whole(sourced: SourcedWholeRc) -> Self::Output;
 }

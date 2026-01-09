@@ -1,8 +1,8 @@
 // Standard Uses
 
 // Local Uses
-use crate::schema::idl::ast::unit;
-use crate::schema::idl::ast::unit::ASTUnit;
+// use crate::schema::idl::ast::unit;
+// use crate::schema::idl::ast::unit::ASTUnit;
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
@@ -192,6 +192,7 @@ impl Compile for IncrementalInterpreter {
         frozen_units
     }
 
+    /*
     fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {
         // Legacy implementation
         todo!()
@@ -201,9 +202,8 @@ impl Compile for IncrementalInterpreter {
         // Legacy implementation
         todo!()
     }
+    */
 }
-
-// Helper function to convert Type to KindValue
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
     KindValue::Namespaced(type_to_string(type_def), None)
 }

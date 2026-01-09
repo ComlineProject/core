@@ -5,10 +5,13 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 // Crate Uses
-use crate::schema::idl::ast::unit::{SourcedWholeRc, SpannedUnit};
+use crate::package::config::idl::grammar::Congregation;
+// use crate::package::config::ir::frozen::FrozenUnit;
+// use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
+use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::interpreter::semi_frozen;
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::utils::codemap::Span;
+use crate::utils::codemap::{Span, CodeMap};
 
 // External Uses
 
@@ -17,16 +20,16 @@ use crate::utils::codemap::Span;
 pub struct CompileState {
     pub complete: bool,
     pub namespace: Option<String>,
-    pub imports: HashMap<Rc<SpannedUnit>, semi_frozen::Import>,
-    pub consts: HashMap<Rc<SpannedUnit>, semi_frozen::Constant>,
-    pub structures: HashMap<Rc<SpannedUnit>, semi_frozen::Structure>,
-    pub protocols: HashMap<Rc<SpannedUnit>, semi_frozen::Protocol>,
+    // pub imports: HashMap<Rc<SpannedUnit>, semi_frozen::Import>,
+    // pub consts: HashMap<Rc<SpannedUnit>, semi_frozen::Constant>,
+    // pub structures: HashMap<Rc<SpannedUnit>, semi_frozen::Structure>,
+    // pub protocols: HashMap<Rc<SpannedUnit>, semi_frozen::Protocol>,
 }
 
 impl CompileState {
     pub(crate) fn to_frozen(&self) -> Vec<FrozenUnit> {
         let interpreted = vec![
-            FrozenUnit::Namespace(self.namespace.clone().unwrap())
+            FrozenUnit::Namespace(self.namespace.clone().unwrap_or_default())
         ];
 
         interpreted
@@ -45,21 +48,20 @@ impl CompileState {
 pub struct SchemaContext {
     //pub name: String,
     pub namespace: Vec<String>,
-    pub schema: SourcedWholeRc,
-    pub frozen_schema: Option<Vec<FrozenUnit>>,
+    // stored raw declarations from rust-sitter
+    pub declarations: Vec<Declaration>,
+    // mutable frozen schema storage
+    pub frozen_schema: RefCell<Option<Vec<FrozenUnit>>>,
+    // source map for reporting
+    pub codemap: CodeMap,
     // pub project_context: Option<&'a RefCell<ProjectContext<'a>>>,
     pub compile_state: RefCell<CompileState>
 }
 
 impl SchemaContext {
-    pub fn with_ast(schema: SourcedWholeRc, namespace: Vec<String>) -> Self {
-        Self { namespace, schema, frozen_schema: None, compile_state: Default::default() }
+    pub fn with_declarations(declarations: Vec<Declaration>, namespace: Vec<String>, codemap: CodeMap) -> Self {
+        Self { namespace, declarations, frozen_schema: RefCell::new(None), codemap, compile_state: Default::default() }
     }
-    /*
-    pub fn with_ast(schema: SourcedWholeRc, name: String) -> Self {
-        Self { name, schema, frozen_schema: None, compile_state: Default::default() }
-    }
-    */
 
     pub fn namespace_snake(&self) -> String { self.namespace.join("_") }
     pub fn namespace_joined(&self) -> String { self.namespace.join("::") }

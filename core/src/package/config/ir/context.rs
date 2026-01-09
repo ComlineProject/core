@@ -6,7 +6,6 @@ use std::path::PathBuf;
 // Crate Uses
 use crate::package::config::idl::grammar::Congregation;
 use crate::package::config::ir::frozen::FrozenUnit;
-// use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
 use crate::schema::ir::context::SchemaContext;
 
 // External Uses
@@ -70,21 +69,6 @@ impl ProjectContext {
     pub(crate) fn find_schema_by_import(
         &self, import: &str
     ) -> Option<&Rc<RefCell<SchemaContext>>> {
-        // TODO: At AST parsing or compilation meta stage a namespace is not present
-        //       so the namespace should be checked on schema context (schema_context.namespace)
-        /*
-        for schema_context in self.schema_contexts.iter() {
-            let units = &schema_context.borrow().schema.1;
-            if let Some(unit) = units.find_namespace() {
-                if let SchemaASTUnit::Namespace(_, namespace) = &unit.1 {
-                    if namespace == import {
-                        return Some(schema_context)
-                    }
-                }
-            }
-        }
-        */
-
         for schema_context in &self.schema_contexts {
             let schema_ctx = schema_context.borrow();
             let target_namespace = schema_ctx.namespace_joined();

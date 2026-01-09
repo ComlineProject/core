@@ -105,17 +105,27 @@ unsafe fn interpret_schemas(
     for relative in schema_paths {
         let concrete_path = schemas_path.join(relative.0);
 
-        // TODO: Re-implement with rust-sitter parser
-        unimplemented!("Schema parsing not yet implemented with rust-sitter. See grammar.rs");
-        // let ast = idl::parser::pest::parser_new::from_path(&concrete_path)?;
-        // let context = SchemaContext::with_ast(ast, relative.1);
-        // let ptr = compiled_project as *const ProjectContext;
-        // let ptr_mut = ptr as *mut ProjectContext;
-        // unsafe {
-        //     (*ptr_mut).add_schema_context(
-        //         Rc::new(RefCell::new(context))
-        //     );
-        // }
+        let source = std::fs::read_to_string(&concrete_path)?;
+        
+        // Initialize CodeMap for error reporting
+        let mut codemap = crate::utils::codemap::CodeMap::new();
+        codemap.insert_file(concrete_path.to_string_lossy().to_string(), source.clone());
+
+        match crate::schema::idl::grammar::parse(&source) {
+            Ok(document) => {
+                let context = SchemaContext::with_declarations(document.0, relative.1, codemap);
+                unsafe {
+                    let ptr = compiled_project as *const ProjectContext;
+                    let ptr_mut = ptr as *mut ProjectContext;
+                    (*ptr_mut).add_schema_context(
+                        Rc::new(RefCell::new(context))
+                    );
+                }
+            }
+            Err(e) => {
+                bail!("Failed to parse schema at {}: {:?}", concrete_path.display(), e);
+            }
+        }
     }
 
     compiler::interpret::interpret_context(compiled_project)
@@ -196,7 +206,8 @@ pub fn generate_code_for_context(
 
     for schema_context in context.schema_contexts.iter() {
         let schema_ctx = schema_context.borrow();
-        let frozen_schema = schema_ctx.frozen_schema.as_ref().unwrap();
+        let frozen_schema_opt = schema_ctx.frozen_schema.borrow();
+        let frozen_schema = frozen_schema_opt.as_ref().unwrap();
         let file_path = target_path.join(
             format!("{}.{}", &schema_ctx.namespace.join("/"), extension)
         );
