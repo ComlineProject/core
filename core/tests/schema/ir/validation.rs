@@ -26,8 +26,17 @@ struct TestStruct {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        // Verify IR generation doesn't panic
-        IncrementalInterpreter::from_source(code);
+        // Verify IR generation content
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, fields, .. } => {
+                assert_eq!(name, "TestStruct");
+                assert_eq!(fields.len(), 4);
+                // We could check individual field types here
+            }
+            _ => panic!("Expected Struct"),
+        }
     }
 
     #[test]
@@ -45,7 +54,15 @@ enum Color {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Enum { name, .. } => {
+                assert_eq!(name, "Color");
+                // TODO: Verify variants count when exposed
+            }
+            _ => panic!("Expected Enum"),
+        }
     }
 
     #[test]
@@ -61,7 +78,15 @@ protocol TestService {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { name, functions, .. } => {
+                assert_eq!(name, "TestService");
+                assert_eq!(functions.len(), 4);
+            }
+            _ => panic!("Expected Protocol"),
+        }
     }
 
     #[test]
@@ -78,7 +103,14 @@ protocol ReturnTypes {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                assert_eq!(functions.len(), 5);
+            }
+            _ => panic!("Expected Protocol"),
+        }
     }
 
     #[test]
@@ -96,7 +128,14 @@ const STR_VAL: str = "hello"
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 8); // 8 constants
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Constant { name, .. } => {
+                assert_eq!(name, "U8_VAL");
+            }
+            _ => panic!("Expected Constant"),
+        }
     }
 
     #[test]
@@ -119,7 +158,15 @@ protocol Service {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 3); // inner, outer, service
+        match &ir_units[1] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, fields, .. } => {
+                assert_eq!(name, "Outer");
+                assert_eq!(fields.len(), 2);
+            }
+            _ => panic!("Expected Outer Struct"),
+        }
     }
 
     #[test]
@@ -140,7 +187,15 @@ struct Inner {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 2); // Struct + Inner Struct
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, fields, .. } => {
+                assert_eq!(name, "ArrayTest");
+                assert_eq!(fields.len(), 5);
+            }
+            _ => panic!("Expected ArrayTest Struct"),
+        }
     }
 
     #[test]
@@ -168,7 +223,9 @@ protocol API {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        // import + 2 consts + enum + struct + protocol = 6 units
+        assert_eq!(ir_units.len(), 6);
     }
 
     #[test]
@@ -239,6 +296,8 @@ protocol MessagingService {
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
         
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        // import + 3 consts + 2 enums + 4 structs + 2 protocols = 12 units
+        assert_eq!(ir_units.len(), 12);
     }
 }

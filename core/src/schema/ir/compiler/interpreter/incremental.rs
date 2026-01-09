@@ -15,7 +15,7 @@ pub struct IncrementalInterpreter {}
 
 #[allow(unused)]
 impl Compile for IncrementalInterpreter {
-    type Output = ();
+    type Output = Vec<FrozenUnit>;
 
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
         println!("Processing {} declarations...", declarations.len());
@@ -188,6 +188,8 @@ impl Compile for IncrementalInterpreter {
         for unit in &frozen_units {
             println!("  {:?}", unit);
         }
+        // Return the generated IR units for testing/validation
+        frozen_units
     }
 
     fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {

@@ -20,10 +20,20 @@ struct User {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse simple struct");
 
-        // Generate IR
-        let ir = IncrementalInterpreter::from_source(code);
+        // Generate IR and validate content
+        let ir_units = IncrementalInterpreter::from_source(code);
 
-        assert!()
+        // Should generate 1 IR unit (the struct)
+        assert_eq!(ir_units.len(), 1, "Expected 1 IR unit");
+
+        // Validate it's a Struct with correct structure
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, fields, .. } => {
+                assert_eq!(name, "User", "Struct name should be 'User'");
+                assert_eq!(fields.len(), 2, "Should have 2 fields");
+            }
+            _ => panic!("Expected Struct IR unit, got {:?}", ir_units[0]),
+        }
     }
 
     #[test]
@@ -38,7 +48,17 @@ enum Status {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse enum");
 
-        let ir = IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        
+        assert_eq!(ir_units.len(), 1);
+        
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Enum { name, .. } => {
+                assert_eq!(name, "Status");
+                // Note: We'd check variants here, but currently just validating name
+            }
+            _ => panic!("Expected Enum unit"),
+        }
     }
 
     #[test]
@@ -53,7 +73,16 @@ protocol UserService {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse protocol");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { name, functions, .. } => {
+                assert_eq!(name, "UserService");
+                assert_eq!(functions.len(), 3);
+            }
+            _ => panic!("Expected Protocol unit"),
+        }
     }
 
     #[test]
@@ -67,7 +96,17 @@ const MIN_VALUE: i8 = -128
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse constants");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        
+        assert_eq!(ir_units.len(), 4); // 4 constants
+        
+        // Just verify types
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Constant { name, .. } => {
+                assert_eq!(name, "MAX_USERS");
+            }
+            _ => panic!("Expected Constant unit"),
+        }
     }
 
     #[test]
@@ -76,7 +115,14 @@ const MIN_VALUE: i8 = -128
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse import");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Import(path) => {
+                assert_eq!(path, "std");
+            }
+            _ => panic!("Expected Import unit"),
+        }
     }
 
     #[test]
@@ -91,7 +137,15 @@ struct Container {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse struct with arrays");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, fields, .. } => {
+                assert_eq!(name, "Container");
+                assert_eq!(fields.len(), 3);
+            }
+            _ => panic!("Expected Struct unit"),
+        }
     }
 
     #[test]
@@ -122,7 +176,9 @@ protocol API {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse complete IDL");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        // Expecting: 1 import, 1 const, 1 enum, 1 struct, 1 protocol = 5 units
+        assert_eq!(ir_units.len(), 5);
     }
 
     #[test]
@@ -139,7 +195,14 @@ protocol Service {
             "Failed to parse protocol with no-arg functions"
         );
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                assert_eq!(functions.len(), 2);
+            }
+            _ => panic!("Expected Protocol"),
+        }
     }
 
     #[test]
@@ -156,7 +219,14 @@ protocol EventService {
             "Failed to parse protocol with no-return functions"
         );
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                assert_eq!(functions.len(), 2);
+            }
+            _ => panic!("Expected Protocol"),
+        }
     }
 
     #[test]
@@ -180,6 +250,13 @@ struct Company {
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse multiple structs");
 
-        IncrementalInterpreter::from_source(code);
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 3);
+        match &ir_units[2] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { name, .. } => {
+                assert_eq!(name, "Company");
+            }
+            _ => panic!("Expected Struct"),
+        }
     }
 }
