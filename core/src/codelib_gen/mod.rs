@@ -13,12 +13,16 @@ pub type GeneratorFn = fn(&Vec<FrozenUnit>) -> String;
 pub type Generator = (GeneratorFn, &'static str);
 
 
+pub mod rust;
+
 #[allow(unused)]
 /// Find a generator function from the external codelib-gen library
-pub fn find_generator(name: &str, version: &str)
+pub fn find_generator(name: &str, _version: &str)
     -> Option<(&'static GeneratorFn, &'static str)>
 {
-    // TODO: Rust ABI Stable code needs to be done, traits and so on and load here
-    todo!()
+    match name {
+        "rust" => Some((&(rust::generate_rust as GeneratorFn), "rust")),
+        _ => None,
+    }
 }
 
