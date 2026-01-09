@@ -11,12 +11,11 @@ use std::cell::RefCell;
 use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
 use crate::package::config::ir::interpreter::ProjectInterpreter;
 use crate::package::config::ir::{
-    compiler, compiler::Compile,
+    compiler,
     // frozen as frozen_project,
     frozen::basic_storage as basic_storage_project,
     context::ProjectContext
 };
-use crate::schema::idl;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::ir::{
     frozen::basic_storage as basic_storage_schema,
@@ -139,6 +138,7 @@ pub fn freeze_project_auto(
     )
 }
 
+#[allow(unused)]
 fn generate_code_for_targets(
     compiled_project: &ProjectContext,
     base_path: &Path

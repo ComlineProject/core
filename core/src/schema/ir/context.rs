@@ -1,11 +1,9 @@
 // Standard Uses
-use std::rc::Rc;
 use std::cell::RefCell;
-use std::collections::HashMap;
 use std::path::PathBuf;
 
 // Crate Uses
-use crate::package::config::idl::grammar::Congregation;
+// use crate::package::config::idl::grammar::Congregation;
 // use crate::package::config::ir::frozen::FrozenUnit;
 // use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
 use crate::schema::idl::grammar::Declaration;
@@ -26,6 +24,7 @@ pub struct CompileState {
     // pub protocols: HashMap<Rc<SpannedUnit>, semi_frozen::Protocol>,
 }
 
+#[allow(unused)]
 impl CompileState {
     pub(crate) fn to_frozen(&self) -> Vec<FrozenUnit> {
         let interpreted = vec![
@@ -35,11 +34,11 @@ impl CompileState {
         interpreted
     }
 
-    pub(crate) fn get_any_object(&self, name: &str) -> Option<&(Span, String)> {
+    pub(crate) fn get_any_object(&self, _name: &str) -> Option<&(Span, String)> {
         todo!()
     }
 
-    pub(crate) fn get_const(&self, name: &str) -> Option<semi_frozen::Constant> {
+    pub(crate) fn get_const(&self, _name: &str) -> Option<semi_frozen::Constant> {
         todo!()
     }
 }
@@ -68,6 +67,7 @@ impl SchemaContext {
     pub fn namespace_as_path(&self) -> PathBuf { PathBuf::from(&self.namespace.join("/")) }
 
 
+    #[allow(unused)]
     pub(crate) fn sanitize_units(self) {
         todo!()
     }

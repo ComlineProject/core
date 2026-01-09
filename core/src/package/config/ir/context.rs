@@ -27,6 +27,7 @@ pub struct ProjectContext {
 }
 
 
+#[allow(unused)]
 impl ProjectContext {
     pub fn with_config_from_origin(origin: Origin, config: Congregation) -> Self {
         Self {
@@ -52,7 +53,7 @@ impl ProjectContext {
         )
     }
 
-    pub(crate) fn add_relative_project_context(mut self, context: Rc<ProjectContext>) {
+    pub(crate) fn add_relative_project_context(mut self, _context: Rc<ProjectContext>) {
         todo!()
     }
 
@@ -83,7 +84,7 @@ impl ProjectContext {
 
     // TODO: Might not be necessary a parts finder, depending on how the above fits
     pub(crate) fn find_schema_by_import_namespace_parts(
-        &self, import: &str
+        &self, _import: &str
     ) {
         todo!()
     }
@@ -124,7 +125,7 @@ impl ProjectContext {
     */
 
     pub(crate) fn find_relative_project_context(
-        &self, import: &str
+        &self, _import: &str
     ) -> Option<&ProjectContext> {
         todo!()
     }

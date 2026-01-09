@@ -1,4 +1,4 @@
-use crate::schema::ir::frozen::unit::FrozenUnit;
+// use crate::schema::ir::frozen::unit::FrozenUnit;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -33,7 +33,7 @@ impl<'a> SymbolTable<'a> {
     pub fn get(&self, name: &str) -> Option<SymbolType> {
         self.symbols.get(name).cloned()
     }
-    
+
     pub fn contains(&self, name: &str) -> bool {
         self.symbols.contains_key(name)
     }

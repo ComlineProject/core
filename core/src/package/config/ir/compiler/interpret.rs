@@ -1,14 +1,12 @@
 // Standard Uses
-use std::rc::Rc;
 
-// Crate Uses
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::compiler::Compile; // for from_declarations
 
 // External Uses
-use eyre::{Result, eyre};
+use eyre::Result;
 
 
 pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {

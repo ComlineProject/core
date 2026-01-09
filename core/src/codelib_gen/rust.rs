@@ -1,5 +1,5 @@
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use crate::schema::ir::compiler::interpreted::kind_search::{KindValue};
 
 pub fn generate_rust(units: &Vec<FrozenUnit>) -> String {
     let mut output = String::new();

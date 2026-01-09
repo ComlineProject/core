@@ -1,6 +1,4 @@
 // Relative Modules
-// pub mod ast;
-// pub mod parser;
 pub mod grammar;  // Rust-sitter generated parser
 
 

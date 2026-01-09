@@ -70,7 +70,7 @@ pub(crate) fn freeze_project(
 
 
 pub(crate) fn freeze_and_compare_packages(
-    previous_project: &[ProjectFrozenUnit], previous_schemas: &[Vec<SchemaFrozenUnit>],
+    _previous_project: &[ProjectFrozenUnit], _previous_schemas: &[Vec<SchemaFrozenUnit>],
     latest_project_ctx: &ProjectContext,
     latest_version_path: &Path
 ) -> Result<()> {

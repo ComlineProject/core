@@ -2,7 +2,7 @@ pub mod symbols;
 pub mod validator;
 
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::compiler::report::CompileError;
+// use crate::schema::ir::compiler::report::CompileError;
 
 #[derive(Debug, PartialEq, Clone)]
 pub struct ValidationError {

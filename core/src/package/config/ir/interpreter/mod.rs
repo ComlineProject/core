@@ -4,8 +4,8 @@ pub mod interpret;
 pub mod freezing;
 
 // Standard Uses
+// Standard Uses
 use std::path::Path;
-use std::rc::Rc;
 
 // Crate Uses
 // use crate::package::config::idl::parser_new;
@@ -18,7 +18,7 @@ use crate::package::config::ir::compiler::Compile;
 use crate::package::config::idl::grammar::Congregation;
 
 // External Uses
-use eyre::{Result, eyre};
+use eyre::Result;
 
 
 #[allow(unused)]
