@@ -18,7 +18,7 @@ impl Compile for IncrementalInterpreter {
     type Output = Vec<FrozenUnit>;
 
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
-        println!("Processing {} declarations...", declarations.len());
+        tracing::debug!("Processing {} declarations...", declarations.len());
 
         let mut frozen_units: Vec<FrozenUnit> = vec![];
 
@@ -184,9 +184,9 @@ impl Compile for IncrementalInterpreter {
             }
         }
 
-        println!("Generated {} IR units", frozen_units.len());
+        tracing::debug!("Generated {} IR units", frozen_units.len());
         for unit in &frozen_units {
-            println!("  {:?}", unit);
+            tracing::trace!("  {:?}", unit);
         }
         // Return the generated IR units for testing/validation
         frozen_units

@@ -20,7 +20,7 @@ pub trait Compile {
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output;
     
     fn from_source(source: &str) -> Self::Output {
-        println!("Compiling source with rust-sitter...");
+        tracing::debug!("Compiling source with rust-sitter...");
         
         // Parse with rust-sitter grammar (returns Document with Vec<Declaration>)
         match crate::schema::idl::grammar::parse(source) {

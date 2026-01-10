@@ -61,7 +61,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         // For now, if no schema diff, we check project diff?
         // Or default to patch if we run this (implies user wants to publish).
         // Decision: Keep version unchanged - don't bump for no changes.
-        println!("No schema changes detected.");
+        tracing::debug!("No schema changes detected.");
         
         // Analyze schema changes (should be empty)
         let schema_changes = if !previous_schemas.is_empty() && !latest_schemas.is_empty() {
