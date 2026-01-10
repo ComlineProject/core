@@ -3,22 +3,28 @@
 pub mod package;
 
 // Standard Uses
-use std::path::Path;
 use std::fs::File;
 use std::io::Write;
+use std::path::Path;
 
 // Crate Uses
 use crate::package::build::basic_storage_project;
 use crate::package::build::basic_storage_schema;
 use crate::package::config::ir::context::ProjectContext;
+use crate::schema::ir::diff::{analyze_schema_changes, SchemaChanges};
 
 // External Uses
 use eyre::Result;
 
+/// Information returned from build processing
+pub struct BuildInfo {
+    pub version_bump: package::VersionBump,
+    pub previous_version: Option<String>,
+    pub current_version: String,
+    pub schema_changes: Option<SchemaChanges>,
+}
 
-pub fn process_changes(
-    project_path: &Path, latest_project: &ProjectContext
-) -> Result<()> {
+pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> Result<BuildInfo> {
     let frozen_path = project_path.join(".frozen");
 
     check_frozen_data_integrity(project_path)?;
@@ -28,14 +34,11 @@ pub fn process_changes(
 
     let versions_path = package_path.join("versions/");
 
-    let previous_version = basic_storage_project::get_latest_version(
-        &frozen_path
-    ).unwrap();
+    let previous_version = basic_storage_project::get_latest_version(&frozen_path).unwrap();
     let previous_version_path = versions_path.join(previous_version.to_string());
 
     let previous_project =
-        basic_storage_project::deserialize::all_from_origin(&previous_version_path)
-            .unwrap();
+        basic_storage_project::deserialize::all_from_origin(&previous_version_path).unwrap();
 
     let previous_schemas =
         basic_storage_schema::deserialize::all_from_version_frozen(&previous_version_path)?;
@@ -59,14 +62,14 @@ pub fn process_changes(
         package::VersionBump::Patch => latest_version.patch += 1,
         package::VersionBump::None => {
             // No changes detected? Maybe only metadata? Or config changed?
-            // For now, if no schema diff, we check project diff? 
+            // For now, if no schema diff, we check project diff?
             // Or default to patch if we run this (implies user wants to publish).
             // Let's assume Patch for now if "None" but we were asked to process changes.
-            println!("No schema changes detected."); 
-            // Return early if we want to prevent empty publications, 
+            println!("No schema changes detected.");
+            // Return early if we want to prevent empty publications,
             // OR bump patch if force-publishing.
             // Sticking to Patch for "something happened" default.
-            latest_version.patch += 1; 
+            latest_version.patch += 1;
         }
     }
 
@@ -82,16 +85,41 @@ pub fn process_changes(
     std::fs::create_dir_all(&latest_version_path)?;
 
     package::freeze_and_compare_packages(
-        &previous_project, &previous_schemas,
+        &previous_project,
+        &previous_schemas,
         &latest_project,
-        &latest_version_path
+        &latest_version_path,
     )?;
 
-    File::options().append(true).open(&index_path)?.write(
-        format!("\n{}", latest_version.to_string()).as_ref()
-    )?;
+    File::options()
+        .append(true)
+        .open(&index_path)?
+        .write(format!("\n{}", latest_version.to_string()).as_ref())?;
 
-    Ok(())
+    // Analyze schema changes for detailed output
+    let schema_changes = if !previous_schemas.is_empty() && !latest_schemas.is_empty() {
+        // Flatten schemas for comparison
+        let prev_flat: Vec<_> = previous_schemas
+            .iter()
+            .flat_map(|s| s.iter())
+            .cloned()
+            .collect();
+        let latest_flat: Vec<_> = latest_schemas
+            .iter()
+            .flat_map(|s| s.iter())
+            .cloned()
+            .collect();
+        Some(analyze_schema_changes(&prev_flat, &latest_flat))
+    } else {
+        None
+    };
+
+    Ok(BuildInfo {
+        version_bump: bump,
+        previous_version: Some(previous_version.to_string()),
+        current_version: latest_version.to_string(),
+        schema_changes,
+    })
 }
 
 #[allow(unused)]
@@ -105,8 +133,9 @@ fn check_frozen_data_integrity(package_path: &Path) -> Result<()> {
 
 #[allow(unused)]
 pub(crate) fn process_initial_freezing(
-    project_path: &Path, latest_project: &ProjectContext
-) -> Result<()> {
+    project_path: &Path,
+    latest_project: &ProjectContext,
+) -> Result<BuildInfo> {
     let frozen_path = project_path.join(".frozen/");
 
     /*
@@ -123,7 +152,14 @@ pub(crate) fn process_initial_freezing(
     }
     */
 
-    package::freeze_project(
-        &latest_project, &project_path
-    )
+    package::freeze_project(&latest_project, &project_path)?;
+
+    use crate::package::config::ir::frozen::MINIMUM_VERSION;
+
+    Ok(BuildInfo {
+        version_bump: package::VersionBump::None,
+        previous_version: None,
+        current_version: MINIMUM_VERSION.to_string(),
+        schema_changes: None,
+    })
 }

@@ -1,20 +1,22 @@
 // Relative Modules
+pub mod document;
 pub mod package;
 pub mod schema;
-pub mod document;
 
 // Standard Uses
 
 // Crate Uses
-use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::autodoc::schema::Document;
 use crate::schema::ir::diff;
 use crate::schema::ir::diff::Differ;
-use crate::autodoc::schema::Document;
+use crate::schema::ir::frozen::unit::FrozenUnit;
 
 // External Uses
 
-
-
+// FIXME: This function uses an old diff API that no longer exists
+// The autodoc system is incomplete (has todo!() markers) and not currently used
+// Commenting out to allow compilation - will need refactoring when autodoc is implemented
+/*
 #[allow(unused)]
 pub fn document_differences(from: &Vec<FrozenUnit>, to: &Vec<FrozenUnit>) -> Document {
     let mut listeners: Vec<Box<dyn Differ>> = vec![Document::new()];
@@ -23,6 +25,7 @@ pub fn document_differences(from: &Vec<FrozenUnit>, to: &Vec<FrozenUnit>) -> Doc
 
     *listeners.remove(0).downcast::<Document>().unwrap()
 }
+*/
 
 /*
 #[allow(unused)]
