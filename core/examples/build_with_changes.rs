@@ -65,11 +65,13 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 BreakingChange::ChangedFunctionSignature { protocol_name, function_name, details } => {
                     println!("  - Changed `{}::{}()`: {}", protocol_name, function_name, details);
                 }
-                BreakingChange::RemoveEnum { name } => {
+                BreakingChange::RemovedEnum { name } => {
                     println!("  - Removed enum `{}`", name);
                 }
                 BreakingChange::RemovedEnumVariant { enum_name, variant } => {
-                    println!("  - Removed variant `{}::{}` BreakingChange::RemovedProtocol { name } => {
+                    println!("  - Removed variant `{}::{}`", enum_name, variant);
+                }
+                BreakingChange::RemovedProtocol { name } => {
                     println!("  - Removed protocol `{}`", name);
                 }
             }

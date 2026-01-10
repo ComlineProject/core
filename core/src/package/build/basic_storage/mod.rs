@@ -54,31 +54,57 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     }
 
     let bump = package::check_difference(&previous_schemas, &latest_schemas);
+    
+    // If no changes detected, return current version without bumping
+    if bump == package::VersionBump::None {
+        // No changes detected? Maybe only metadata? Or config changed?
+        // For now, if no schema diff, we check project diff?
+        // Or default to patch if we run this (implies user wants to publish).
+        // Decision: Keep version unchanged - don't bump for no changes.
+        println!("No schema changes detected.");
+        
+        // Analyze schema changes (should be empty)
+        let schema_changes = if !previous_schemas.is_empty() && !latest_schemas.is_empty() {
+            let prev_flat: Vec<_> = previous_schemas
+                .iter()
+                .flat_map(|s| s.iter())
+                .cloned()
+                .collect();
+            let latest_flat: Vec<_> = latest_schemas
+                .iter()
+                .flat_map(|s| s.iter())
+                .cloned()
+                .collect();
+            Some(analyze_schema_changes(&prev_flat, &latest_flat))
+        } else {
+            None
+        };
+        
+        // Return early - no need to freeze or bump version
+        return Ok(BuildInfo {
+            version_bump: bump,
+            previous_version: Some(previous_version.to_string()),
+            current_version: previous_version.to_string(), // Keep same version
+            schema_changes,
+        });
+    }
+    
+    // Apply version bump
     let mut latest_version = previous_version.clone();
-
     match bump {
-        package::VersionBump::Major => latest_version.major += 1,
-        package::VersionBump::Minor => latest_version.minor += 1,
-        package::VersionBump::Patch => latest_version.patch += 1,
-        package::VersionBump::None => {
-            // No changes detected? Maybe only metadata? Or config changed?
-            // For now, if no schema diff, we check project diff?
-            // Or default to patch if we run this (implies user wants to publish).
-            // Let's assume Patch for now if "None" but we were asked to process changes.
-            println!("No schema changes detected.");
-            // Return early if we want to prevent empty publications,
-            // OR bump patch if force-publishing.
-            // Sticking to Patch for "something happened" default.
+        package::VersionBump::Major => {
+            latest_version.major += 1;
+            latest_version.minor = 0;
+            latest_version.patch = 0;
+        }
+        package::VersionBump::Minor => {
+            latest_version.minor += 1;
+            latest_version.patch = 0;
+        }
+        package::VersionBump::Patch => {
             latest_version.patch += 1;
         }
-    }
-
-    // Reset lower fields on bump
-    if bump == package::VersionBump::Major {
-        latest_version.minor = 0;
-        latest_version.patch = 0;
-    } else if bump == package::VersionBump::Minor {
-        latest_version.patch = 0;
+        package::VersionBump::None => unreachable!("Handled above"),
     }
 
     let latest_version_path = versions_path.join(latest_version.to_string());
