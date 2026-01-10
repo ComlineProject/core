@@ -111,7 +111,7 @@ fn display_schema_changes(changes: &SchemaChanges) {
         println!("\n🔵 Modifications ({}):", changes.modifications.len());
         for modification in &changes.modifications {
             match modification {
-                crate::schema::ir::diff::Modification::FieldMadeOptional { type_name, field_name } => {
+                comline_core::schema::ir::diff::Modification::FieldMadeOptional { type_name, field_name } => {
                     println!("  ~ Field `{}.{}` marked as optional", type_name, field_name);
                 }
             }
