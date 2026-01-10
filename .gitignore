@@ -20,7 +20,5 @@ Cargo.lock
 # Development temporary directory
 __TEMP__/
 
-# TODO: This exclusion might be temporary, or the directory in this
-#       location might move to elsewhere
-# Development test data directory
-__TEST_DATA__/
+# Generated frozen packages (build artifacts)
+.frozen/

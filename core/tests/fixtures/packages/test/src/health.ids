@@ -1,0 +1,13 @@
+// Health Schema
+
+struct Capabilities {
+    names: str
+}
+
+/// Health check an address
+@provider=Any
+protocol HealthCheck {
+    function alive() -> bool;
+    function capabilities() -> Capabilities;
+}
+

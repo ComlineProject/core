@@ -92,7 +92,7 @@ impl Compile for IncrementalInterpreter {
                             FrozenUnit::Field {
                                 docstring: None,
                                 parameters: vec![],
-                                optional: false,
+                                optional: field.optional(),
                                 name: fname,
                                 kind_value: KindValue::Namespaced(type_str, None),
                             }

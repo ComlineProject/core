@@ -20,11 +20,10 @@ pub mod grammar {
     /// Document root - supports multiple declarations
     #[derive(Debug)]
     #[rust_sitter::language]
-    pub struct Document(#[rust_sitter::repeat(non_empty = true)] pub Vec<Declaration>);
+    pub struct Document(#[rust_sitter::repeat(non_empty = false)] pub Vec<Declaration>);
 
     /// Language declarations - different statement types  
-    #[derive(Debug)]
-    #[derive(Clone)]
+    #[derive(Debug, Clone)]
     pub enum Declaration {
         Import(Import),
         Const(Const),
@@ -40,7 +39,7 @@ pub mod grammar {
     pub struct Import {
         #[rust_sitter::leaf(text = "import")]
         _import: (),
-        pub path: Identifier
+        pub path: ScopedIdentifier,
     }
 
     /// Constant: const NAME: TYPE = VALUE
@@ -76,10 +75,12 @@ pub mod grammar {
     /// Field: name: Type
     #[derive(Debug, Clone)]
     pub struct Field {
+        #[rust_sitter::leaf(text = "optional")]
+        pub optional: Option<()>,
         pub name: Identifier,
         #[rust_sitter::leaf(text = ":")]
         _colon: (),
-        pub field_type: Type
+        pub field_type: Type,
     }
 
     // ===== Enum Definition =====
@@ -101,14 +102,27 @@ pub mod grammar {
     /// Enum variant: IDENTIFIER
     #[derive(Debug, Clone)]
     pub struct EnumVariant {
-        pub name: Identifier
+        pub name: Identifier,
     }
 
     // ===== Protocol Definition =====
 
+    // ===== Annotation Definition =====
+    #[derive(Debug, Clone)]
+    pub struct Annotation {
+        #[rust_sitter::leaf(text = "@")]
+        _at: (),
+        pub key: Identifier,
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub value: Expression,
+    }
+
     /// Protocol: protocol NAME { functions }
     #[derive(Debug, Clone)]
     pub struct Protocol {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Vec<Annotation>,
         #[rust_sitter::leaf(text = "protocol")]
         _protocol: (),
         pub name: Identifier,
@@ -123,6 +137,8 @@ pub mod grammar {
     /// Function: function NAME(args) returns Type
     #[derive(Debug, Clone)]
     pub struct Function {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Vec<Annotation>,
         #[rust_sitter::leaf(text = "function")]
         _fn: (),
         pub name: Identifier,
@@ -134,6 +150,8 @@ pub mod grammar {
         _close: (),
         #[rust_sitter::repeat(non_empty = false)]
         pub return_type: Option<ReturnType>,
+        #[rust_sitter::leaf(text = ";")]
+        _semi: (),
     }
 
     /// Argument list: first arg, then (comma + arg)*
@@ -149,21 +167,21 @@ pub mod grammar {
     pub struct CommaArgument {
         #[rust_sitter::leaf(text = ",")]
         _comma: (),
-        pub arg: Argument
+        pub arg: Argument,
     }
 
     /// Function argument (simplified) - just a type for now
     #[derive(Debug, Clone)]
     pub struct Argument {
-        pub arg_type: Type
+        pub arg_type: Type,
     }
 
     /// Return type: returns Type
     #[derive(Debug, Clone)]
     pub struct ReturnType {
-        #[rust_sitter::leaf(text = "returns")]
+        #[rust_sitter::leaf(text = "->")]
         _arrow: (),
-        pub return_type: Type
+        pub return_type: Type,
     }
 
     // ===== Types =====
@@ -184,7 +202,7 @@ pub mod grammar {
         Bool(BoolType),
         Str(StrType),
         String(StringType),
-        Named(Identifier),
+        Named(ScopedIdentifier),
         Array(Box<ArrayType>),
     }
 
@@ -274,10 +292,17 @@ pub mod grammar {
         pub value: String,
     }
 
-    /// Identifier: variable/type names
+    /// Simple Identifier: variable/type names (no ::)
     #[derive(Debug, Clone)]
     pub struct Identifier {
         #[rust_sitter::leaf(pattern = r"[a-zA-Z_][a-zA-Z0-9_]*", transform = |s| s.to_string())]
+        pub text: String,
+    }
+
+    /// Scoped Identifier: paths with :: (e.g. package::module::Type)
+    #[derive(Debug, Clone)]
+    pub struct ScopedIdentifier {
+        #[rust_sitter::leaf(pattern = r"[a-zA-Z_][a-zA-Z0-9_]*(::[a-zA-Z_][a-zA-Z0-9_]*)*", transform = |s| s.to_string())]
         pub text: String,
     }
 
@@ -310,6 +335,9 @@ pub mod grammar {
     }
 
     impl Field {
+        pub fn optional(&self) -> bool {
+            self.optional.is_some()
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -328,6 +356,9 @@ pub mod grammar {
     }
 
     impl Protocol {
+        pub fn annotations(&self) -> &Vec<Annotation> {
+            &self.annotations
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -337,6 +368,9 @@ pub mod grammar {
     }
 
     impl Function {
+        pub fn annotations(&self) -> &Vec<Annotation> {
+            &self.annotations
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -405,6 +439,28 @@ pub mod grammar {
     impl ReturnType {
         pub fn return_type(&self) -> &Type {
             &self.return_type
+        }
+    }
+
+    impl ScopedIdentifier {
+        pub fn as_str(&self) -> &str {
+            &self.text
+        }
+        pub fn to_string(&self) -> String {
+            self.text.clone()
+        }
+    }
+
+    impl Annotation {
+        pub fn key(&self) -> String {
+            self.key.text.clone()
+        }
+        pub fn value(&self) -> String {
+            match &self.value {
+                Expression::Integer(i) => i.value.to_string(),
+                Expression::String(s) => s.value.clone(),
+                Expression::Identifier(i) => i.text.clone(),
+            }
         }
     }
 }
