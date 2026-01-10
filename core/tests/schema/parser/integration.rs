@@ -31,10 +31,10 @@ struct UserList {
 }
 
 protocol UserService {
-    function createUser(str, str) returns u64
-    function getUser(u64) returns User
-    function listUsers() returns UserList
-    function deleteUser(u64) returns bool
+    function createUser(str, str) -> u64;
+    function getUser(u64) -> User;
+    function listUsers() -> UserList;
+    function deleteUser(u64) -> bool;
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -67,17 +67,17 @@ struct Collection {
     fn test_multiple_protocols() {
         let code = r#"
 protocol AuthService {
-    function login(str, str) returns str
-    function logout(str) returns bool
+    function login(str, str) -> str;
+    function logout(str) -> bool;
 }
 
 protocol DataService {
-    function query(str) returns str
-    function update(u64, str) returns bool
+    function query(str) -> str;
+    function update(u64, str) -> bool;
 }
 
 protocol AdminService {
-    function reset() returns bool
+    function reset() -> bool;
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -122,9 +122,9 @@ struct Conversation {
 }
 
 protocol MessagingService {
-    function sendMessage(str, str, str) returns u64
-    function getConversation(u64) returns Conversation
-    function markAsRead(u64) returns bool
+    function sendMessage(str, str, str) -> u64;
+    function getConversation(u64) -> Conversation;
+    function markAsRead(u64) -> bool;
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -148,12 +148,12 @@ const NAME: str = "test"
     fn test_function_variations() {
         let code = r#"
 protocol TestService {
-    function noArgs() returns str
-    function oneArg(u64) returns bool
-    function twoArgs(str, u32) returns str
-    function manyArgs(u8, u16, u32, u64, str, bool) returns i64
-    function noReturn(str)
-    function arrayArg(str[]) returns u32
+    function noArgs() -> str;
+    function oneArg(u64) -> bool;
+    function twoArgs(str, u32) -> str;
+    function manyArgs(u8, u16, u32, u64, str, bool) -> i64;
+    function noReturn(str);
+    function arrayArg(str[]) -> u32;
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -201,7 +201,7 @@ struct Data { // inline struct comment
 // Protocol comment  
 protocol Service { // inline protocol comment
     // Function comment
-    function test(u64) returns str // inline function comment
+    function test(u64) -> str; // inline function comment
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -211,10 +211,10 @@ protocol Service { // inline protocol comment
     fn test_whitespace_tolerance() {
         let code = "struct   Test   {   field  :  str   }";
         assert!(grammar::parse(code).is_ok());
-        
+
         let code2 = "struct\tTest\t{\tfield:\tstr\t}";
         assert!(grammar::parse(code2).is_ok());
-        
+
         let code3 = "\n\n\nstruct Test {\n\n\nfield: str\n\n\n}\n\n\n";
         assert!(grammar::parse(code3).is_ok());
     }

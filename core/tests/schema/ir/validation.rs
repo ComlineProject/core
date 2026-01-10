@@ -1,18 +1,18 @@
 // IR validation tests - verify actual FrozenUnit content
 
 use comline_core::schema::idl::grammar;
-use comline_core::schema::ir::compiler::Compile;
 use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
+use comline_core::schema::ir::compiler::Compile;
 
 #[cfg(test)]
 mod ir_validation_tests {
     use super::*;
-    use comline_core::schema::ir::compiler::Compile;
     use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
+    use comline_core::schema::ir::compiler::Compile;
 
     // These tests would ideally validate the actual IR content,
-    // but since from_declarations returns (), we verify no panics occur
-    
+    // but since from_declarations -> (), we verify no panics occur
+
     #[test]
     fn test_struct_field_types() {
         let code = r#"
@@ -25,7 +25,7 @@ struct TestStruct {
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         // Verify IR generation content
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
@@ -53,7 +53,7 @@ enum Color {
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
@@ -69,19 +69,23 @@ enum Color {
     fn test_function_arguments_mapping() {
         let code = r#"
 protocol TestService {
-    function noArgs() returns str
-    function oneArg(u64) returns bool
-    function twoArgs(str, u32) returns i64
-    function manyArgs(u8, u16, u32, u64, str, bool) returns str
+    function noArgs() -> str;
+    function oneArg(u64) -> bool;
+    function twoArgs(str, u32) -> i64;
+    function manyArgs(u8, u16, u32, u64, str, bool) -> str;
 }
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { name, functions, .. } => {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol {
+                name,
+                functions,
+                ..
+            } => {
                 assert_eq!(name, "TestService");
                 assert_eq!(functions.len(), 4);
             }
@@ -93,16 +97,16 @@ protocol TestService {
     fn test_function_return_types() {
         let code = r#"
 protocol ReturnTypes {
-    function getU64() returns u64
-    function getStr() returns str
-    function getBool() returns bool
-    function getArray() returns str[]
-    function noReturn(u64)
+    function getU64() -> u64;
+    function getStr() -> str;
+    function getBool() -> bool;
+    function getArray() -> str[];
+    function noReturn(u64);
 }
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
@@ -127,7 +131,7 @@ const STR_VAL: str = "hello"
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 8); // 8 constants
         match &ir_units[0] {
@@ -151,13 +155,13 @@ struct Outer {
 }
 
 protocol Service {
-    function get() returns Outer
-    function process(Outer) returns bool
+    function get() -> Outer;
+    function process(Outer) -> bool;
 }
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 3); // inner, outer, service
         match &ir_units[1] {
@@ -186,7 +190,7 @@ struct Inner {
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 2); // Struct + Inner Struct
         match &ir_units[0] {
@@ -217,12 +221,12 @@ struct Data {
 }
 
 protocol API {
-    function get(u64) returns Data
+    function get(u64) -> Data;
 }
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         // import + 2 consts + enum + struct + protocol = 6 units
         assert_eq!(ir_units.len(), 6);
@@ -280,22 +284,22 @@ struct Conversation {
 }
 
 protocol UserService {
-    function createUser(str, str, UserRole) returns u64
-    function getUser(u64) returns User
-    function updateUser(u64, str) returns bool
-    function deleteUser(u64) returns bool
-    function listUsers(u32, u32) returns User[]
+    function createUser(str, str, UserRole) -> u64;
+    function getUser(u64) -> User;
+    function updateUser(u64, str) -> bool;
+    function deleteUser(u64) -> bool;
+    function listUsers(u32, u32) -> User[];
 }
 
 protocol MessagingService {
-    function sendMessage(u64, u64, MessageType, str) returns u64
-    function getConversation(u64) returns Conversation
-    function markAsRead(u64) returns bool
+    function sendMessage(u64, u64, MessageType, str) -> u64;
+    function getConversation(u64) -> Conversation;
+    function markAsRead(u64) -> bool;
 }
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
-        
+
         let ir_units = IncrementalInterpreter::from_source(code);
         // import + 3 consts + 2 enums + 4 structs + 2 protocols = 12 units
         assert_eq!(ir_units.len(), 12);

@@ -16,7 +16,7 @@ struct User {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors.len(), 1);
@@ -32,7 +32,7 @@ struct Post {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert_eq!(errors.len(), 1);
@@ -55,7 +55,7 @@ struct Post {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_ok());
 }
 
@@ -63,28 +63,32 @@ struct Post {
 fn test_protocol_unknown_arg_type() {
     let code = r#"
 protocol Service {
-    function get(UnknownType) returns bool
+    function get(UnknownType) -> bool;
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
-    assert!(result.unwrap_err()[0].message.contains("Unknown type 'UnknownType'"));
+    assert!(result.unwrap_err()[0]
+        .message
+        .contains("Unknown type 'UnknownType'"));
 }
 
 #[test]
 fn test_protocol_unknown_return_type() {
     let code = r#"
 protocol Service {
-    function get() returns UnknownType
+    function get() -> UnknownType;
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
-    assert!(result.unwrap_err()[0].message.contains("Unknown type 'UnknownType'"));
+    assert!(result.unwrap_err()[0]
+        .message
+        .contains("Unknown type 'UnknownType'"));
 }
 
 #[test]
@@ -94,10 +98,12 @@ const USER: User = "invalid"
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     // Constants must be primitives (for now)
     assert!(result.is_err());
-    assert!(result.unwrap_err()[0].message.contains("only primitives allowed"));
+    assert!(result.unwrap_err()[0]
+        .message
+        .contains("only primitives allowed"));
 }
 
 #[test]
@@ -110,11 +116,13 @@ struct List {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
     let errors = result.unwrap_err();
     // Should fail for MissingType (once or twice depending on how deep we check)
-    assert!(errors.iter().any(|e| e.message.contains("Unknown type 'MissingType'")));
+    assert!(errors
+        .iter()
+        .any(|e| e.message.contains("Unknown type 'MissingType'")));
 }
 
 #[test]
@@ -130,7 +138,7 @@ struct NodeB {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let result = validate(&ir);
-    
+
     assert!(result.is_err());
     let errors = result.unwrap_err();
     assert!(errors[0].message.contains("Cycle detected"));

@@ -49,9 +49,9 @@ enum Status {
         assert!(result.is_ok(), "Failed to parse enum");
 
         let ir_units = IncrementalInterpreter::from_source(code);
-        
+
         assert_eq!(ir_units.len(), 1);
-        
+
         match &ir_units[0] {
             comline_core::schema::ir::frozen::unit::FrozenUnit::Enum { name, .. } => {
                 assert_eq!(name, "Status");
@@ -65,19 +65,23 @@ enum Status {
     fn test_protocol_with_functions_ir() {
         let code = r#"
 protocol UserService {
-    function getUser(u64) returns str
-    function createUser(str, str) returns u64
-    function deleteUser(u64) returns bool
+    function getUser(u64) -> str;
+    function createUser(str, str) -> u64;
+    function deleteUser(u64) -> bool;
 }
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse protocol");
 
         let ir_units = IncrementalInterpreter::from_source(code);
-        
+
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { name, functions, .. } => {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol {
+                name,
+                functions,
+                ..
+            } => {
                 assert_eq!(name, "UserService");
                 assert_eq!(functions.len(), 3);
             }
@@ -97,9 +101,9 @@ const MIN_VALUE: i8 = -128
         assert!(result.is_ok(), "Failed to parse constants");
 
         let ir_units = IncrementalInterpreter::from_source(code);
-        
+
         assert_eq!(ir_units.len(), 4); // 4 constants
-        
+
         // Just verify types
         match &ir_units[0] {
             comline_core::schema::ir::frozen::unit::FrozenUnit::Constant { name, .. } => {
@@ -168,9 +172,9 @@ struct User {
 }
 
 protocol API {
-    function get(u64) returns User
-    function list() returns User[]
-    function delete(u64) returns bool
+    function get(u64) -> User;
+    function list() -> User[];
+    function delete(u64) -> bool;
 }
 "#;
         let result = grammar::parse(code);
@@ -185,8 +189,8 @@ protocol API {
     fn test_protocol_no_args_ir() {
         let code = r#"
 protocol Service {
-    function reset() returns bool
-    function status() returns str
+    function reset() -> bool;
+    function status() -> str;
 }
 "#;
         let result = grammar::parse(code);
@@ -209,8 +213,8 @@ protocol Service {
     fn test_protocol_no_return_ir() {
         let code = r#"
 protocol EventService {
-    function notify(str)
-    function log(str, u32)
+    function notify(str);
+    function log(str, u32);
 }
 "#;
         let result = grammar::parse(code);
