@@ -19,7 +19,7 @@ impl ReportDetails {
     pub(crate) fn fetch(
         schema_context: &Ref<'_, SchemaContext>, span: &Span
     ) -> Option<Self> {
-        let pos = schema_context.schema.0.files().first()
+        let pos = schema_context.codemap.files().first()
             .unwrap().range_of(*span).unwrap();
 
         Some(Self { line: Default::default(), pos })

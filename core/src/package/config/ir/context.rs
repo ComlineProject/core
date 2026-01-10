@@ -4,9 +4,8 @@ use std::cell::RefCell;
 use std::path::PathBuf;
 
 // Crate Uses
-use crate::package::config::idl::ast::{SourcedWhole as ProjectSourcedWhole};
+use crate::package::config::idl::grammar::Congregation;
 use crate::package::config::ir::frozen::FrozenUnit;
-// use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
 use crate::schema::ir::context::SchemaContext;
 
 // External Uses
@@ -21,15 +20,16 @@ pub enum Origin {
 #[derive(Debug, Clone)]
 pub struct ProjectContext {
     pub origin: Origin,
-    pub config: ProjectSourcedWhole,
+    pub config: Congregation,
     pub config_frozen: Option<Vec<FrozenUnit>>,
     pub schema_contexts: Vec<Rc<RefCell<SchemaContext>>>,
     pub relative_projects: Vec<ProjectContext>,
 }
 
 
+#[allow(unused)]
 impl ProjectContext {
-    pub fn with_config_from_origin(origin: Origin, config: ProjectSourcedWhole) -> Self {
+    pub fn with_config_from_origin(origin: Origin, config: Congregation) -> Self {
         Self {
             origin,
             config, config_frozen: None,
@@ -38,7 +38,7 @@ impl ProjectContext {
         }
     }
 
-    pub fn with_config(config: ProjectSourcedWhole) -> Self {
+    pub fn with_config(config: Congregation) -> Self {
         Self {
             origin: Origin::Virtual,
             config, config_frozen: None,
@@ -47,42 +47,29 @@ impl ProjectContext {
         }
     }
 
-    pub(crate) fn add_relative_project(mut self, sourced: ProjectSourcedWhole) {
+    pub(crate) fn add_relative_project(mut self, sourced: Congregation) {
         self.relative_projects.push(
             Self::with_config(sourced)
         )
     }
 
-    pub(crate) fn add_relative_project_context(mut self, context: Rc<ProjectContext>) {
+    pub(crate) fn add_relative_project_context(mut self, _context: Rc<ProjectContext>) {
         todo!()
     }
 
     pub(crate) fn add_schema_context(&mut self, context: Rc<RefCell<SchemaContext>>) {
         self.schema_contexts.push(context);
     }
-
+    
+    /*
     pub(crate) fn sanitize_units(self) {
         todo!()
     }
-
+    */
+    
     pub(crate) fn find_schema_by_import(
         &self, import: &str
     ) -> Option<&Rc<RefCell<SchemaContext>>> {
-        // TODO: At AST parsing or compilation meta stage a namespace is not present
-        //       so the namespace should be checked on schema context (schema_context.namespace)
-        /*
-        for schema_context in self.schema_contexts.iter() {
-            let units = &schema_context.borrow().schema.1;
-            if let Some(unit) = units.find_namespace() {
-                if let SchemaASTUnit::Namespace(_, namespace) = &unit.1 {
-                    if namespace == import {
-                        return Some(schema_context)
-                    }
-                }
-            }
-        }
-        */
-
         for schema_context in &self.schema_contexts {
             let schema_ctx = schema_context.borrow();
             let target_namespace = schema_ctx.namespace_joined();
@@ -97,7 +84,7 @@ impl ProjectContext {
 
     // TODO: Might not be necessary a parts finder, depending on how the above fits
     pub(crate) fn find_schema_by_import_namespace_parts(
-        &self, import: &str
+        &self, _import: &str
     ) {
         todo!()
     }
@@ -138,7 +125,7 @@ impl ProjectContext {
     */
 
     pub(crate) fn find_relative_project_context(
-        &self, import: &str
+        &self, _import: &str
     ) -> Option<&ProjectContext> {
         todo!()
     }

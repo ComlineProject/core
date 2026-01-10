@@ -1,6 +1,6 @@
 // Relative Modules
 // mod cas;
-mod basic_storage;
+pub mod basic_storage;
 
 // Standard Uses
 use std::path::Path;
@@ -11,12 +11,11 @@ use std::cell::RefCell;
 use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
 use crate::package::config::ir::interpreter::ProjectInterpreter;
 use crate::package::config::ir::{
-    compiler, compiler::Compile,
+    compiler,
     // frozen as frozen_project,
     frozen::basic_storage as basic_storage_project,
     context::ProjectContext
 };
-use crate::schema::idl;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::ir::{
     frozen::basic_storage as basic_storage_schema,
@@ -39,11 +38,12 @@ pub fn build(package_path: &Path) -> Result<ProjectContext> {
     let config_path = package_path.join(
         format!("config.{}", CONGREGATION_EXTENSION)
     );
+    let config_name = config_path.file_name().unwrap().to_str().unwrap();
 
     if !config_path.exists() {
         bail!(
-            "Package directory has no configuration file {:?} at \"{}\"",
-            config_path.file_name().unwrap(), package_path.display()
+            "Package at '{}' has no configuration file '{}'",
+            package_path.display(), config_name
         )
     }
 
@@ -104,17 +104,26 @@ unsafe fn interpret_schemas(
     for relative in schema_paths {
         let concrete_path = schemas_path.join(relative.0);
 
-        let ast = idl::parser_new::from_path(&concrete_path)?;
+        let source = std::fs::read_to_string(&concrete_path)?;
+        
+        // Initialize CodeMap for error reporting
+        let mut codemap = crate::utils::codemap::CodeMap::new();
+        codemap.insert_file(concrete_path.to_string_lossy().to_string(), source.clone());
 
-        let context = SchemaContext::with_ast(ast, relative.1);
-
-        let ptr = compiled_project as *const ProjectContext;
-        let ptr_mut = ptr as *mut ProjectContext;
-
-        unsafe {
-            (*ptr_mut).add_schema_context(
-                Rc::new(RefCell::new(context))
-            );
+        match crate::schema::idl::grammar::parse(&source) {
+            Ok(document) => {
+                let context = SchemaContext::with_declarations(document.0, relative.1, codemap);
+                unsafe {
+                    let ptr = compiled_project as *const ProjectContext;
+                    let ptr_mut = ptr as *mut ProjectContext;
+                    (*ptr_mut).add_schema_context(
+                        Rc::new(RefCell::new(context))
+                    );
+                }
+            }
+            Err(e) => {
+                bail!("Failed to parse schema at {}: {:?}", concrete_path.display(), e);
+            }
         }
     }
 
@@ -129,6 +138,7 @@ pub fn freeze_project_auto(
     )
 }
 
+#[allow(unused)]
 fn generate_code_for_targets(
     compiled_project: &ProjectContext,
     base_path: &Path
@@ -196,7 +206,8 @@ pub fn generate_code_for_context(
 
     for schema_context in context.schema_contexts.iter() {
         let schema_ctx = schema_context.borrow();
-        let frozen_schema = schema_ctx.frozen_schema.as_ref().unwrap();
+        let frozen_schema_opt = schema_ctx.frozen_schema.borrow();
+        let frozen_schema = frozen_schema_opt.as_ref().unwrap();
         let file_path = target_path.join(
             format!("{}.{}", &schema_ctx.namespace.join("/"), extension)
         );

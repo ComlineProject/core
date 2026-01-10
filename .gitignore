@@ -19,3 +19,6 @@ Cargo.lock
 
 # Development temporary directory
 __TEMP__/
+
+# Generated frozen packages (build artifacts)
+.frozen/

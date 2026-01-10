@@ -25,19 +25,25 @@ serde = "1.0.164"
 serde_derive = "1.0.164"
 
 # Lexing, Parsing
-pest = "2.6.0"
-pest_derive = "2.6.0"
-chumsky = "0.9.2"
-ariadne = { version = "0.3.0", features = ["auto-color"] }
+rust-sitter = "0.4.5"                                      # Pure Rust incremental parser with tree-sitter
+chumsky = "0.9.2"                                          # Kept for potential error recovery helpers
+ariadne = { version = "0.3.0", features = ["auto-color"] } # Error reporting
+
 toml_edit = "0.21.0"
 handlebars = "4.3.7"
-#lex = "0.6.0"
-
 
 # Hashing
 blake3 = "1.4.1"
 lz4_flex = "0.11.1"
 
 
+[build-dependencies]
+rust-sitter-tool = "0.4.5" # Build-time grammar compilation
+
 [dev-dependencies]
 pretty_assertions = "1.4.0"
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "parser_benchmark"
+harness = false

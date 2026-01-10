@@ -1,0 +1,15 @@
+// Simple test IDL file to verify parser works
+
+struct Message {
+    sender: str
+    content: str
+}
+
+enum Status {
+    Ok
+    Error
+}
+
+protocol Chat {
+    function send(Message) returns Status
+}

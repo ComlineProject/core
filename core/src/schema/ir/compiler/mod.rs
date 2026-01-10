@@ -6,8 +6,8 @@ pub mod report;
 // Standard Uses
 
 // Local Uses
-use crate::schema::idl::parser_new;
-use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
+use crate::schema::idl::grammar::Declaration;
+// use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
 
 // External Uses
 
@@ -16,18 +16,22 @@ use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
 pub trait Compile {
     type Output;
 
-    fn from_ast(ast: Vec<ASTUnit>) -> Self::Output;
-
+    /// Compile from rust-sitter AST (new approach)
+    fn from_declarations(declarations: Vec<Declaration>) -> Self::Output;
+    
     fn from_source(source: &str) -> Self::Output {
-        println!("Compiling source: {}", source);
-
-        let sourced = parser_new::parse_source(
-            source.to_owned(), "TODO".to_owned() // TODO: We need the source name here
-        ).unwrap();
-
-        Self::from_sourced_whole(sourced)
+        println!("Compiling source with rust-sitter...");
+        
+        // Parse with rust-sitter grammar (returns Document with Vec<Declaration>)
+        match crate::schema::idl::grammar::parse(source) {
+            Ok(document) => {
+                // Extract declarations from Document (field 0 is Vec<Declaration>)
+                let declarations = document.0;
+                Self::from_declarations(declarations)
+            }
+            Err(e) => {
+                panic!("Parse error: {:?}", e);
+            }
+        }
     }
-
-
-    fn from_sourced_whole(sourced: SourcedWholeRc) -> Self::Output;
 }

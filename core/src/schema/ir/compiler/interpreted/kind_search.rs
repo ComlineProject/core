@@ -196,21 +196,26 @@ pub(crate) fn to_kind_only(
 fn to_namespaced_kind_only(
     schema_context: &Ref<'_, SchemaContext>, kind: &(Span, String)
 ) -> Option<KindValue> {
-    let state = schema_context.compile_state.borrow();
+    use crate::schema::idl::grammar::Declaration;
 
-    for (_, structure) in state.structures.iter() {
-        if structure.name.1 == kind.1 {
-            return Some(KindValue::Namespaced(
-                structure.name.1.clone(), None
-            ))
-        }
-    }
-
-    for (_, constant) in state.consts.iter() {
-        if constant.name.1 == kind.1 {
-            return Some(KindValue::Namespaced(
-                constant.name.1.clone(), None
-            ))
+    for decl in &schema_context.declarations {
+        match decl {
+            Declaration::Struct(s) => {
+                if s.name.text == kind.1 {
+                    return Some(KindValue::Namespaced(s.name.text.clone(), None));
+                }
+            }
+            Declaration::Const(c) => {
+                if c.name.text == kind.1 {
+                    return Some(KindValue::Namespaced(c.name.text.clone(), None));
+                }
+            }
+             Declaration::Enum(e) => {
+                if e.name.text == kind.1 {
+                    return Some(KindValue::Namespaced(e.name.text.clone(), None));
+                }
+            }
+            _ => {}
         }
     }
 

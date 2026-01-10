@@ -1,173 +1,232 @@
 // Standard Uses
 
 // Local Uses
-use crate::schema::idl::ast::unit;
-use crate::schema::idl::ast::unit::ASTUnit;
+// use crate::schema::idl::ast::unit;
+// use crate::schema::idl::ast::unit::ASTUnit;
+use crate::schema::idl::grammar::Declaration;
+use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
-use crate::schema::ir::compiler::interpreted::frozen_unit::FrozenUnit;
-use crate::schema::ir::compiler::interpreted::primitive;
-use crate::schema::ir::compiler::interpreted::primitive::KindValue;
-use crate::schema::ir::compiler::interpreted::report::ReportDetails;
-use crate::schema::ir::context::Context;
+use crate::schema::ir::frozen::unit::FrozenUnit;
 
 // External Uses
 
-
 #[allow(unused)]
-pub struct IncrementalInterpreter {
-    context: Context
-}
+pub struct IncrementalInterpreter {}
 
 #[allow(unused)]
 impl Compile for IncrementalInterpreter {
-    type Output = ();
+    type Output = Vec<FrozenUnit>;
 
+    fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
+        println!("Processing {} declarations...", declarations.len());
+
+        let mut frozen_units: Vec<FrozenUnit> = vec![];
+
+        for decl in declarations {
+            match decl {
+                Declaration::Import(import) => {
+                    frozen_units.push(FrozenUnit::Import(import.path()));
+                }
+                Declaration::Const(const_decl) => {
+                    let name = const_decl.name();
+                    let type_def = const_decl.type_def();
+                    let value = const_decl.value();
+
+                    // Determine type name
+                    let type_name = match type_def {
+                        crate::schema::idl::grammar::Type::U8(_) => "u8",
+                        crate::schema::idl::grammar::Type::U16(_) => "u16",
+                        crate::schema::idl::grammar::Type::U32(_) => "u32",
+                        crate::schema::idl::grammar::Type::U64(_) => "u64",
+                        crate::schema::idl::grammar::Type::I8(_) => "i8",
+                        crate::schema::idl::grammar::Type::I16(_) => "i16",
+                        crate::schema::idl::grammar::Type::I32(_) => "i32",
+                        crate::schema::idl::grammar::Type::I64(_) => "i64",
+                        crate::schema::idl::grammar::Type::F32(_)
+                        | crate::schema::idl::grammar::Type::F64(_) => "float",
+                        crate::schema::idl::grammar::Type::Bool(_) => "bool",
+                        crate::schema::idl::grammar::Type::Str(_) => "str",
+                        crate::schema::idl::grammar::Type::String(_) => "string",
+                        crate::schema::idl::grammar::Type::Named(id) => id.as_str(),
+                        crate::schema::idl::grammar::Type::Array(_) => "array",
+                    };
+
+                    // Parse value
+                    let kind_value = match (type_name, value) {
+                        (
+                            "u8" | "u16" | "u32" | "u64",
+                            crate::schema::idl::grammar::Expression::Integer(int_lit),
+                        ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
+                        (
+                            "i8" | "i16" | "i32" | "i64",
+                            crate::schema::idl::grammar::Expression::Integer(int_lit),
+                        ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
+                        ("bool", _) => KindValue::Primitive(Primitive::Boolean(Some(false))),
+                        (
+                            "str" | "string",
+                            crate::schema::idl::grammar::Expression::String(str_lit),
+                        ) => KindValue::Primitive(Primitive::String(Some(
+                            str_lit.value().to_string(),
+                        ))),
+                        _ => KindValue::Namespaced(type_name.to_string(), None),
+                    };
+
+                    frozen_units.push(FrozenUnit::Constant {
+                        docstring: None,
+                        name,
+                        kind_value,
+                    });
+                }
+                Declaration::Struct(struct_def) => {
+                    let struct_name = struct_def.name();
+                    let fields = struct_def.fields();
+
+                    let field_units: Vec<FrozenUnit> = fields
+                        .iter()
+                        .map(|field| {
+                            let fname = field.name();
+                            let field_type = field.field_type();
+
+                            let type_str = type_to_string(field_type);
+
+                            FrozenUnit::Field {
+                                docstring: None,
+                                parameters: vec![],
+                                optional: field.optional(),
+                                name: fname,
+                                kind_value: KindValue::Namespaced(type_str, None),
+                            }
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Struct {
+                        docstring: None,
+                        parameters: vec![],
+                        name: struct_name,
+                        fields: field_units,
+                    });
+                }
+                Declaration::Enum(enum_def) => {
+                    let enum_name = enum_def.name();
+                    let variants = enum_def.variants();
+
+                    let variant_units: Vec<FrozenUnit> = variants
+                        .iter()
+                        .map(|variant| {
+                            FrozenUnit::EnumVariant(KindValue::EnumVariant(
+                                variant.identifier().to_string(),
+                                None,
+                            ))
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Enum {
+                        docstring: None,
+                        name: enum_name,
+                        variants: variant_units,
+                    });
+                }
+                Declaration::Protocol(protocol) => {
+                    let protocol_name = protocol.name();
+                    let functions = protocol.functions();
+
+                    let function_units: Vec<FrozenUnit> = functions
+                        .iter()
+                        .map(|func| {
+                            let func_name = func.name();
+                            let args_opt = func.args();
+                            let ret_opt = func.return_type();
+
+                            let arguments = if let Some(arg_list) = args_opt {
+                                let first_arg = arg_list.first();
+                                let rest_args = arg_list.rest();
+
+                                let mut args =
+                                    vec![crate::schema::ir::frozen::unit::FrozenArgument {
+                                        name: "arg0".to_string(),
+                                        kind: type_to_kind_value(first_arg.arg_type()),
+                                    }];
+
+                                for (i, comma_arg) in rest_args.iter().enumerate() {
+                                    let arg = comma_arg.arg_type();
+                                    args.push(crate::schema::ir::frozen::unit::FrozenArgument {
+                                        name: format!("arg{}", i + 1),
+                                        kind: type_to_kind_value(arg.arg_type()),
+                                    });
+                                }
+                                args
+                            } else {
+                                vec![]
+                            };
+
+                            let return_type = ret_opt
+                                .as_ref()
+                                .map(|rt| type_to_kind_value(rt.return_type()));
+
+                            FrozenUnit::Function {
+                                name: func_name,
+                                arguments,
+                                _return: return_type,
+                                synchronous: true,
+                                docstring: String::new(),
+                                throws: vec![],
+                            }
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Protocol {
+                        docstring: String::new(),
+                        name: protocol_name,
+                        functions: function_units,
+                        parameters: vec![],
+                    });
+                }
+            }
+        }
+
+        println!("Generated {} IR units", frozen_units.len());
+        for unit in &frozen_units {
+            println!("  {:?}", unit);
+        }
+        // Return the generated IR units for testing/validation
+        frozen_units
+    }
+
+    /*
     fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {
+        // Legacy implementation
         todo!()
     }
+
+    fn from_sourced_whole(sourced: crate::schema::idl::ast::unit::SourcedWholeRc) -> Self::Output {
+        // Legacy implementation
+        todo!()
+    }
+    */
+}
+fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
+    KindValue::Namespaced(type_to_string(type_def), None)
 }
 
-#[allow(unused)]
-impl IncrementalInterpreter {
-    pub fn interpret_unit(&self) -> Result<Vec<FrozenUnit>, ReportDetails> {
-        let mut interpreted: Vec<FrozenUnit> = vec![];
-
-        for unit in &self.context.main.1 {
-            use crate::schema::idl::ast::unit::ASTUnit::*;
-            match unit {
-                Namespace(n) => {
-                    // let namespace = n;
-                    interpreted.push(FrozenUnit::Namespace(n.clone()));
-                },
-                Import(_) => {
-                    let import = self.interpret_node( unit)?;
-                    interpreted.push(import);
-                }
-                Constant { .. } => {
-                    let constant = self.interpret_node(unit)?;
-                    interpreted.push(constant);
-                }
-                Enum { .. } => {
-                    let r#enum = self.interpret_node( unit)?;
-                    interpreted.push(r#enum);
-                }
-                /*
-                Unit::Settings { .. } => {}
-                Unit::Struct { .. } => {}
-                Unit::Protocol { .. } => {}
-                Unit::Error { .. } => {}
-                Unit::Validator { .. } => {}
-                */
-                //r => panic!("Left to impl: {:?}", r)
-                _ => {}
-            }
+fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
+    match type_def {
+        crate::schema::idl::grammar::Type::U8(_) => "u8".to_string(),
+        crate::schema::idl::grammar::Type::U16(_) => "u16".to_string(),
+        crate::schema::idl::grammar::Type::U32(_) => "u32".to_string(),
+        crate::schema::idl::grammar::Type::U64(_) => "u64".to_string(),
+        crate::schema::idl::grammar::Type::I8(_) => "i8".to_string(),
+        crate::schema::idl::grammar::Type::I16(_) => "i16".to_string(),
+        crate::schema::idl::grammar::Type::I32(_) => "i32".to_string(),
+        crate::schema::idl::grammar::Type::I64(_) => "i64".to_string(),
+        crate::schema::idl::grammar::Type::F32(_) | crate::schema::idl::grammar::Type::F64(_) => {
+            "float".to_string()
         }
-
-
-        Ok(interpreted)
-    }
-
-    pub fn interpret_node(&self, node: &ASTUnit) -> Result<FrozenUnit, ReportDetails> {
-        use crate::schema::idl::ast::unit::ASTUnit::*;
-        match node {
-            Tag(_) => {
-
-            }
-            Namespace(n) => {
-                let mut found: Option<&Context> = None;
-
-                for relative_ctx in &self.context.relative_contexts {
-                    if unit::namespace(&relative_ctx.main.1) == n {
-                        if found.is_some() {
-                            return Err(ReportDetails {
-                                kind: "namespace".to_string(),
-                                message: format!(
-                                    "Found namespace {} when its already declared in {}",
-                                    &n, &relative_ctx.main.0.filename()
-                                ),
-                                start: 0, end: 0,
-                            })
-                        }
-
-                        found = Some(relative_ctx)
-                    }
-                }
-            }
-            Import(i) => {
-                let relative_unit = self.context.find_whole_unit_by_import(&i);
-
-                if relative_unit.is_none() {
-                    let relative_unit = relative_unit.unwrap();
-
-                    return Err(ReportDetails {
-                        kind: "import".to_string(),
-                        message: format!("Could not find namespace of {}", relative_unit.0.filename()),
-                        start: 0, end: 0,
-                    })
-                }
-
-                return Ok(FrozenUnit::Import(i.clone()))
-            },
-            Constant { name, kind, default_value, .. } => {
-                let kind_value = primitive::to_kind_value(kind, default_value);
-
-                return Ok(FrozenUnit::Constant {
-                    docstring: None,
-                    name: name.clone(), kind_value
-                })
-            }
-            Enum { name, variants, .. } => {
-                let mut frozen_variants: Vec<FrozenUnit> = vec![];
-
-                for variant in variants {
-                    pub(crate) fn to_variant(variant: &ASTUnit) -> KindValue {
-                        match variant {
-                            EnumVariant { name, kind } => {
-                                if kind.is_none() {
-                                    return KindValue::EnumVariant(
-                                        name.clone(),None
-                                    )
-                                }
-
-                                return KindValue::EnumVariant(
-                                    name.clone(), None
-                                )
-                            },
-                            _ => panic!("Should not be here")
-                        }
-                    }
-
-                    frozen_variants.push(FrozenUnit::EnumVariant(
-                        to_variant(variant, )
-                    ));
-                }
-
-                return Ok(FrozenUnit::Enum {
-                    docstring: None,
-                    name: name.clone(), variants: frozen_variants
-                })
-            }
-            /*
-            EnumVariant { .. } => {}
-            Settings { .. } => {}
-            Struct { .. } => {}
-            Protocol { .. } => {}
-            Function { .. } => {}
-            Error { .. } => {}
-            Validator { .. } => {}
-            Field { .. } => {}
-            Parameter { .. } => {}
-            Property { .. } => {}
-            ExpressionBlock { .. } => {}
-            */
-            _ => {}
+        crate::schema::idl::grammar::Type::Bool(_) => "bool".to_string(),
+        crate::schema::idl::grammar::Type::Str(_) => "str".to_string(),
+        crate::schema::idl::grammar::Type::String(_) => "string".to_string(),
+        crate::schema::idl::grammar::Type::Named(id) => id.to_string(),
+        crate::schema::idl::grammar::Type::Array(arr) => {
+            format!("{}[]", type_to_string(arr.elem_type()))
         }
-
-        panic!()
     }
-
-}
-
-pub fn into_frozen_unit() -> FrozenUnit {
-    todo!()
 }
