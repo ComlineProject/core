@@ -32,17 +32,17 @@ pub enum FrozenUnit {
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct Dependency {
-    pub(crate) author: String,
-    pub(crate) project: String,
-    pub(crate) version: String
+    pub author: String,
+    pub project: String,
+    pub version: String
 }
 
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct LanguageDetails {
-    pub(crate) name: String,
-    pub(crate) versions: Vec<String>,
-    pub(crate) generation_path: Option<String>
+    pub name: String,
+    pub versions: Vec<String>,
+    pub generation_path: Option<String>
 }
 
 // TODO: Optimization might be possible here, and for other structures
