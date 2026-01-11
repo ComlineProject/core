@@ -75,25 +75,21 @@ fn test_schema_lifecycle() {
     fs::write(&ping_file, src_minor).unwrap();
 
     let result = build(&package_path).expect("Minor update build failed");
-    // NOTE: Current CAS heuristic only detects Major when schema files are added/removed
-    // Adding a struct within the same file is detected as Minor
-    assert_eq!(result.current_version, "0.1.0", "Adding content should produce 0.1.0");
+    assert_eq!(result.current_version, "0.1.0", "Adding struct should produce 0.1.0 (Minor)");
     assert_eq!(result.previous_version, Some("0.0.1".to_string()), "Previous version should be 0.0.1");
 
-    // 3. Another change: Remove the struct we just added
-    println!("Applying another change...");
+    // 3. Major change: Remove the struct we just added
+    println!("Applying Major change (removing struct)...");
     fs::write(&ping_file, clean_src).unwrap();
 
-    let result = build(&package_path).expect("Second update build failed");
-    // Removing content within same file is also Minor with current heuristic
-    assert_eq!(result.current_version, "0.2.0", "Removing content should produce 0.2.0");
+    let result = build(&package_path).expect("Major update build failed");
+    // With proper schema diffing: removing a struct is detected as breaking → Major
+    assert_eq!(result.current_version, "1.0.0", "Removing struct should produce 1.0.0 (Major)");
     assert_eq!(result.previous_version, Some("0.1.0".to_string()), "Previous version should be 0.1.0");
     
     // Verify CAS still has all commits via object store
     let store = ObjectStore::new(&package_path);
-    //The fact that we got 3 successful builds means all commits are stored
-    println!("✓ Successfully built 3 versions with CAS: 0.0.1 → 0.1.0 → 0.2.0");
-    
-    // TODO: Implement proper schema diffing to detect Major changes
-    // (e.g., removing top-level declarations, breaking API changes)
+    // The fact that we got 3 successful builds means all commits are stored
+    println!("✓ Successfully built 3 versions with CAS: 0.0.1 → 0.1.0 → 1.0.0");
+    println!("✓ Proper schema diffing working: adding struct=Minor, removing struct=Major");
 }

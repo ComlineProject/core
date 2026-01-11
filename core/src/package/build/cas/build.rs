@@ -140,24 +140,57 @@ pub fn process_changes(
         });
     }
     
-    // Compute version bump and schema changes by analyzing differences
-    // We need to compare previous schemas with current ones
-    // For now, use a simple heuristic: if tree changed, it's at least Minor
-    // TODO: Properly reconstruct previous schemas from prev_tree and compare
+    // Analyze schema changes using proper diffing
+    // Load previous schemas from parent tree and compare with current
+    use crate::schema::ir::diff::analyze_schema_changes;
+    use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
     
-    // Simple heuristic for version bumping:
-    // - If number of schemas changed → Major (schema added/removed)
-    // - Otherwise → Minor (schema modified)
-    let prev_schema_count = prev_tree.entries.len();
-    let current_schema_count = root_tree.entries.len();
+    let mut aggregated_bump = VersionBump::None;
+    let mut all_schema_changes = vec![];
     
-    let version_bump = if prev_schema_count != current_schema_count {
-        // Schema added or removed → Major
-        VersionBump::Major
-    } else {
-        // Schema modified → Minor (could be more sophisticated)
-        VersionBump::Minor
-    };
+    // Compare each schema file
+    for (idx, entry) in prev_tree.entries.iter().enumerate() {
+        // Load previous schema from tree
+        if entry.mode == EntryMode::Tree {
+            let prev_schema_tree_bytes = store.read(&entry.hash)?;
+            let prev_schema_tree = Tree::from_bytes(&prev_schema_tree_bytes)?;
+            let prev_schema = load_schema_from_tree(&store, &prev_schema_tree)?;
+            
+            // Get corresponding current schema (if it exists)
+            if idx < latest_schemas.len() {
+                let current_schema = &latest_schemas[idx];
+                
+                // Analyze changes
+                let changes = analyze_schema_changes(&prev_schema, current_schema);
+                
+                // Determine version bump for this schema
+                let schema_bump = if changes.is_breaking() {
+                    VersionBump::Major
+                } else if changes.is_feature() {
+                    VersionBump::Minor
+                } else if !changes.modifications.is_empty() {
+                    VersionBump::Patch
+                } else {
+                    VersionBump::None
+                };
+                
+                // Aggregate: take maximum bump across all schemas
+                aggregated_bump = aggregated_bump.max(schema_bump);
+                all_schema_changes.push(changes);
+            } else {
+                // Schema was removed → Major
+                aggregated_bump = VersionBump::Major;
+            }
+        }
+    }
+    
+    // Check for new schemas (added)
+    if root_tree.entries.len() > prev_tree.entries.len() {
+        // New schema added → Minor (at least)
+        aggregated_bump = aggregated_bump.max(VersionBump::Minor);
+    }
+    
+    let version_bump = aggregated_bump;
     
     // Parse and bump version
     let prev_version = semver::Version::parse(&parent_commit.version)?;
@@ -183,10 +216,30 @@ pub fn process_changes(
     
     tracing::info!("CAS: New commit {} created ({})", commit_hash, new_version);
     
+    // Merge all schema changes for reporting
+    let merged_changes = if all_schema_changes.is_empty() {
+        None
+    } else {
+        Some(merge_schema_changes(all_schema_changes))
+    };
+    
     Ok(BuildInfo {
         version_bump,
         previous_version: Some(parent_commit.version.clone()),
         current_version: new_version.to_string(),
-        schema_changes: None, // TODO: Compute actual changes
+        schema_changes: merged_changes,
     })
+}
+
+/// Merge multiple SchemaChanges into one for reporting
+fn merge_schema_changes(changes: Vec<SchemaChanges>) -> SchemaChanges {
+    let mut merged = SchemaChanges::default();
+    
+    for change in changes {
+        merged.breaking_changes.extend(change.breaking_changes);
+        merged.new_features.extend(change.new_features);
+        merged.modifications.extend(change.modifications);
+    }
+    
+    merged
 }
