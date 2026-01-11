@@ -1,5 +1,5 @@
 // Relative Modules
-// mod cas;
+pub mod cas;  // CAS module (public for tests)
 pub mod basic_storage;
 
 // Standard Uses

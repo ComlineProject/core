@@ -1,7 +1,7 @@
 // Tests for schema integration (blob.rs)
 
 use comline_core::package::build::cas::ObjectStore;
-use comline_core::schema::ir::compiler::kind_search::{KindValue, Primitive};
+use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use comline_core::schema::ir::frozen::cas::blob::{
     blob_to_frozen_unit, build_tree_from_schema, frozen_unit_to_blob,
     load_schema_from_tree,
@@ -40,7 +40,7 @@ fn test_build_tree_from_schema() {
             docstring: None,
             name: "User".to_string(),
             fields: vec![],
-            impls: vec![],
+            parameters: vec![],
         },
         FrozenUnit::Enum {
             docstring: None,

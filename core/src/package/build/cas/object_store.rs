@@ -42,8 +42,8 @@ impl ObjectStore {
             fs::create_dir_all(parent)?;
         }
         
-        fs::write(&path, compressed)?;
         tracing::trace!("Wrote object {} ({} bytes compressed)", hash, compressed.len());
+        fs::write(&path, compressed)?;
         
         Ok(hash)
     }

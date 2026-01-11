@@ -1,9 +1,9 @@
 // Schema integration utilities for CAS
 // Converts FrozenUnits to CAS blobs and builds trees
 
-use super::objects::{Blob, Tree, TreeEntry, EntryMode};
-use super::object_store::ObjectStore;
-use super::storage::Hash;
+use crate::package::build::cas::objects::{Blob, Tree, TreeEntry, EntryMode};
+use crate::package::build::cas::object_store::ObjectStore;
+use crate::package::build::cas::storage::Hash;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use eyre::{eyre, Result};
 
@@ -57,6 +57,7 @@ fn get_unit_name(unit: &FrozenUnit, index: usize) -> String {
         FrozenUnit::Protocol { name, .. } => format!("protocol_{}", name),
         FrozenUnit::Constant { name, .. } => format!("const_{}", name),
         FrozenUnit::Import { .. } => format!("import_{}", index),
+        _ => format!("unit_{}", index), // Catch-all for other variants
     }
 }
 

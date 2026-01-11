@@ -4,3 +4,4 @@ pub mod object_store_tests;
 pub mod objects_tests;
 pub mod schema_integration_tests;
 pub mod commit_tests;
+pub mod refs_tests;

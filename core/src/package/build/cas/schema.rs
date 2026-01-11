@@ -1,17 +1,9 @@
-// Standard Uses
+// Schema-level CAS operations  
+// This module is currently not used but reserved for future schema-level operations
 
-// Crate Uses
-use crate::schema::ir::frozen::unit::FrozenUnit;
-
-
-// External Uses
 use eyre::Result;
 
-
-#[allow(unused)]
-pub(crate) fn check_difference(
-    previous: &[FrozenUnit], latest: &[FrozenUnit]
-) -> Result<Vec<FrozenUnit>>{
-    todo!()
+// Placeholder for future schema CAS operations
+pub fn _placeholder() -> Result<()> {
+    Ok(())
 }
-
