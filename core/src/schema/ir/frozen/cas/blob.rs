@@ -1,63 +1,87 @@
-// Standard Uses
+// Schema integration utilities for CAS
+// Converts FrozenUnits to CAS blobs and builds trees
 
-// Crate Uses
+use super::objects::{Blob, Tree, TreeEntry, EntryMode};
+use super::object_store::ObjectStore;
+use super::storage::Hash;
+use crate::schema::ir::frozen::unit::FrozenUnit;
+use eyre::{eyre, Result};
 
-// External Uses
-use lz4_flex;
-use eyre::{bail, Result};
-
-
-#[derive(Debug, PartialEq)]
-pub enum FrozenBlob {
-    Content(String)
+/// Convert a FrozenUnit to a Blob
+pub fn frozen_unit_to_blob(unit: &FrozenUnit) -> Result<Blob> {
+    // Serialize FrozenUnit using bincode
+    let serialized = bincode::serialize(unit)
+        .map_err(|e| eyre!("Failed to serialize FrozenUnit: {}", e))?;
+    
+    Ok(Blob::new(serialized))
 }
 
-/// Serializes a vector of frozen blobs into semi-human readable text suitable for storage
-pub fn to_processed(nodes: Vec<FrozenBlob>) -> (String, Vec<u8>) {
-    let mut content = String::new();
+/// Deserialize a Blob back to FrozenUnit
+pub fn blob_to_frozen_unit(blob: &Blob) -> Result<FrozenUnit> {
+    bincode::deserialize(&blob.content)
+        .map_err(|e| eyre!("Failed to deserialize FrozenUnit from blob: {}", e))
+}
 
-    for node in nodes {
-        match node {
-            FrozenBlob::Content(c) => {
-                if !content.is_empty() {
-                    panic!("There should not be more than one content node!")
-                }
-                content = c;
-            }
+/// Build a tree from a collection of FrozenUnits
+/// Each FrozenUnit becomes a blob entry in the tree
+pub fn build_tree_from_schema(
+    schema: &[FrozenUnit],
+    store: &ObjectStore,
+) -> Result<Tree> {
+    let mut tree = Tree::new();
+    
+    for (index, unit) in schema.iter().enumerate() {
+        // Convert unit to blob
+        let blob = frozen_unit_to_blob(unit)?;
+        let blob_bytes = blob.to_bytes()?;
+        
+        // Write blob to store and get hash
+        let hash = store.write(&blob_bytes)?;
+        
+        // Generate a name for this entry
+        // Use the unit's name if available, otherwise use index
+        let name = get_unit_name(unit, index);
+        
+        tree.add_entry(EntryMode::Blob, name, hash);
+    }
+    
+    Ok(tree)
+}
+
+/// Extract a meaningful name from a FrozenUnit
+fn get_unit_name(unit: &FrozenUnit, index: usize) -> String {
+    match unit {
+        FrozenUnit::Namespace(ns) => format!("namespace_{}", ns),
+        FrozenUnit::Struct { name, .. } => format!("struct_{}", name),
+        FrozenUnit::Enum { name, .. } => format!("enum_{}", name),
+        FrozenUnit::Protocol { name, .. } => format!("protocol_{}", name),
+        FrozenUnit::Constant { name, .. } => format!("const_{}", name),
+        FrozenUnit::Import { .. } => format!("import_{}", index),
+    }
+}
+
+/// Load a FrozenUnit from the store by its hash
+pub fn load_frozen_unit_from_store(store: &ObjectStore, hash: &Hash) -> Result<FrozenUnit> {
+    // Read blob bytes from store
+    let blob_bytes = store.read(hash)?;
+    
+    // Deserialize blob
+    let blob = Blob::from_bytes(&blob_bytes)?;
+    
+    // Convert blob to FrozenUnit
+    blob_to_frozen_unit(&blob)
+}
+
+/// Load an entire schema from a tree
+pub fn load_schema_from_tree(store: &ObjectStore, tree: &Tree) -> Result<Vec<FrozenUnit>> {
+    let mut schema = Vec::new();
+    
+    for entry in &tree.entries {
+        if entry.mode == EntryMode::Blob {
+            let unit = load_frozen_unit_from_store(store, &entry.hash)?;
+            schema.push(unit);
         }
     }
-
-    let blob = format!("blob {} {}", content.as_bytes().len(), content);
-
-    // Since we have header + content size + content together, lets hash it
-    let hash = blake3::hash(blob.as_bytes());
-
-    let compressed_blob = lz4_flex::compress_prepend_size(blob.as_bytes());
-
-    (hash.to_string(), compressed_blob)
-}
-
-
-pub fn from_processed(hash: String, processed: Vec<u8>) -> Result<Vec<FrozenBlob>> {
-    let uncompressed = lz4_flex::decompress_size_prepended(&processed).unwrap();
-
-    let processed_hash = blake3::hash(&uncompressed);
-
-    if processed_hash.to_string() != hash {
-        bail!(
-            "Object hash is '{}' after decompressed, but expected {}",
-            processed_hash, hash
-        );
-    }
-
-    let raw = String::from_utf8(uncompressed)?;
-    let (id, content) = raw.split_at("blob 10 ".len());
-    let (_, size) = id.split_at("blob ".len());
-    let size: usize = size.split_whitespace().next().unwrap().parse()?;
-
-    if size != content.len() {
-        bail!("Context size is '{}' but expected was '{}'", content.len(), size)
-    }
-
-    Ok(vec![FrozenBlob::Content(content.to_owned())])
+    
+    Ok(schema)
 }

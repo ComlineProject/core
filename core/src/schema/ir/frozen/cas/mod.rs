@@ -1,6 +1,6 @@
 // Relative Modules
-pub mod commit;
+pub mod blob;    // FrozenUnit ↔ Blob conversion
+pub mod commit;  // Commit creation utilities
 pub mod tree;
-pub mod blob;
 pub mod meta;
 
