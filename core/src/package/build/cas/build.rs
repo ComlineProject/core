@@ -140,9 +140,24 @@ pub fn process_changes(
         });
     }
     
-    // TODO: Compute version bump and schema changes
-    // For now, default to minor bump
-    let version_bump = VersionBump::Minor;
+    // Compute version bump and schema changes by analyzing differences
+    // We need to compare previous schemas with current ones
+    // For now, use a simple heuristic: if tree changed, it's at least Minor
+    // TODO: Properly reconstruct previous schemas from prev_tree and compare
+    
+    // Simple heuristic for version bumping:
+    // - If number of schemas changed → Major (schema added/removed)
+    // - Otherwise → Minor (schema modified)
+    let prev_schema_count = prev_tree.entries.len();
+    let current_schema_count = root_tree.entries.len();
+    
+    let version_bump = if prev_schema_count != current_schema_count {
+        // Schema added or removed → Major
+        VersionBump::Major
+    } else {
+        // Schema modified → Minor (could be more sophisticated)
+        VersionBump::Minor
+    };
     
     // Parse and bump version
     let prev_version = semver::Version::parse(&parent_commit.version)?;
