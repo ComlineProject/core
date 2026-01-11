@@ -1,5 +1,10 @@
 // CAS-based build process implementation
 // Mirrors basic_storage but uses content-addressable storage
+//
+// Build Process: Append-Only Commit Chain
+// - Each build creates a new commit pointing to previous
+// - History is never modified or deleted
+// - refs/heads/main always moves forward, never rewinds
 
 use super::objects::{Commit, Tree, EntryMode};
 use super::object_store::ObjectStore;

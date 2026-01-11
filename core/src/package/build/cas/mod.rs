@@ -1,6 +1,18 @@
-// Content Addressable Storage (CAS) System
-// 
-// Git-inspired object storage for immutable versioning of schemas.
+// Content Addressable Storage (CAS) for Comline
+// Git-inspired immutable storage for schema versioning
+//
+// CAS Design Philosophy: Append-Only Immutable Storage
+//
+// Comline's CAS is designed for permanent, linear versioning:
+// - Commits form an unbroken chain via parent links
+// - Objects are NEVER deleted or garbage collected  
+// - All versions remain buildable forever
+// - No branches, force pushes, or history rewriting
+//
+// This ensures 100% reproducible builds for any historical version.
+// Every commit is reachable by traversing backwards from refs/heads/main.
+
+// Moduleschemas.
 // Objects are stored by their blake3 hash with lz4 compression.
 
 // Modules
