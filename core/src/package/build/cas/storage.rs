@@ -1,8 +1,10 @@
-// Core storage primitives for Content Addressable Storage
+// Core storage primitives for CAS
+// - Blake3 hashing for content addressing
+// - LZ4 compression for space efficiency
 
 use blake3;
 use eyre::{eyre, Result};
-use serde::{Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize};
 use std::fmt;
 use std::path::PathBuf;
 

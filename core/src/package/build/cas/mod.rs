@@ -21,6 +21,7 @@ pub mod object_store;  // CAS operations (read/write)
 pub mod objects;       // Blob, Tree, Commit types
 pub mod refs;          // Git-style references management
 pub mod build;         // Build process implementation
+pub mod version;       // Version bump types
 mod package;
 mod schema;
 
@@ -28,6 +29,7 @@ mod schema;
 pub use storage::{Hash, compress, decompress};
 pub use object_store::ObjectStore;
 pub use refs::{update_ref, read_ref, ref_exists, main_ref};
+pub use version::VersionBump;
 
 // Standard Uses
 use std::path::Path;

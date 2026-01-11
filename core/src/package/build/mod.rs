@@ -1,6 +1,5 @@
 // Relative Modules
 pub mod cas;  // CAS module (public for tests)
-pub mod basic_storage;
 
 // Standard Uses
 use std::cell::RefCell;
@@ -14,12 +13,10 @@ use crate::package::config::ir::interpreter::ProjectInterpreter;
 use crate::package::config::ir::{
     compiler,
     context::ProjectContext,
-    // frozen as frozen_project,
-    frozen::basic_storage as basic_storage_project,
 };
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::ir::{
-    context::SchemaContext, diff::SchemaChanges, frozen::basic_storage as basic_storage_schema,
+    context::SchemaContext, diff::SchemaChanges,
 };
 
 // External Uses
@@ -29,7 +26,7 @@ use serde_derive::{Deserialize, Serialize};
 
 /// Builds the package, which step-by-step means:
 /// - Compile configuration and schemas
-/// - Freeze the results into frozen objects
+/// - Freeze the results into CAS (immutable storage)
 /// - Generate code for targets (optional)
 /// - Document changes (optional)
 pub fn build(package_path: &Path) -> Result<BuildResult> {
@@ -50,12 +47,11 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
         interpret_schemas(&latest_project, package_path)?;
     }
 
-    // TODO: This basic storage setup is temporary, it helps in getting development going
-    //       in the rest of things, but it should definitely be substituted with the CAS
-    let build_info = if basic_storage_project::has_any_frozen_content(package_path) {
-        basic_storage::process_changes(&package_path, &latest_project)?
+    // Use CAS for immutable version storage
+    let build_info = if cas::refs::ref_exists(package_path, cas::refs::main_ref()) {
+        cas::build::process_changes(&package_path, &latest_project)?
     } else {
-        basic_storage::process_initial_freezing(&package_path, &latest_project)?
+        cas::build::process_initial_freezing(&package_path, &latest_project)?
     };
 
     // generate_code_for_targets(&latest_project, project_path)?;
@@ -133,9 +129,8 @@ unsafe fn interpret_schemas(compiled_project: &ProjectContext, package_path: &Pa
     compiler::interpret::interpret_context(compiled_project)
 }
 
-pub fn freeze_project_auto(latest_project: &ProjectContext, project_path: &Path) -> Result<()> {
-    basic_storage::package::freeze_project(&latest_project, &project_path)
-}
+// Removed: freeze_project_auto() - no longer needed with CAS
+// CAS automatically handles freezing via process_initial_freezing/process_changes
 
 #[allow(unused)]
 fn generate_code_for_targets(compiled_project: &ProjectContext, base_path: &Path) -> Result<()> {
@@ -213,8 +208,8 @@ pub fn generate_code_for_context(
 
 pub struct BuildOptions {}
 
-/// Re-export VersionBump from basic_storage for public API
-pub use basic_storage::package::VersionBump;
+/// Re-export VersionBump from CAS for public API
+pub use cas::VersionBump;
 
 /// Result of a successful build operation
 #[derive(Debug, Clone)]

@@ -9,14 +9,21 @@
 use super::objects::{Commit, Tree, EntryMode};
 use super::object_store::ObjectStore;
 use super::refs::{main_ref, ref_exists, read_ref, update_ref};
-use super::storage::Hash;
-use crate::package::build::basic_storage::package::VersionBump;
-use crate::package::build::basic_storage::BuildInfo;
+use super::version::VersionBump;
 use crate::package::config::ir::context::ProjectContext;
+use crate::schema::ir::diff::SchemaChanges;
 use crate::schema::ir::frozen::cas::blob::build_tree_from_schema;
 use crate::schema::ir::frozen::cas::commit::{create_initial_commit, create_version_commit};
 use eyre::Result;
 use std::path::Path;
+
+/// Information returned from build processing
+pub struct BuildInfo {
+    pub version_bump: VersionBump,
+    pub previous_version: Option<String>,
+    pub current_version: String,
+    pub schema_changes: Option<SchemaChanges>,
+}
 
 /// Process initial freezing using CAS (first build)
 pub fn process_initial_freezing(

@@ -1,8 +1,11 @@
-// CAS Object Types: Blob, Tree, Commit (Git-inspired)
+// CAS Object Types
+// - Blob: Stores raw content
+// - Tree: Organizes objects hierarchically
+// - Commit: Tracks version history
 
 use super::storage::Hash;
 use eyre::{eyre, Result};
-use serde::{Deserialize, Serialize};
+use serde_derive::{Deserialize, Serialize};
 
 // ========== Blob ==========
 

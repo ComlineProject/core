@@ -1,5 +1,5 @@
-// Relative Module
-pub mod basic_storage;
+// Relative Modules
+// Removed: basic_storage - replaced by CAS
 // pub(crate) mod cas;
 pub mod loader;
 
