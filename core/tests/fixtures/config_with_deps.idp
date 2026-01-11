@@ -1,0 +1,16 @@
+congregation myapi
+specification_version = 1
+
+dependencies = {
+    stdlib = {
+        version = "1.0.0"
+        uri = "comline://registry.comline.io/stdlib"
+        hash = "blake3:abc123"
+    }
+    
+    uuid = {
+        version = "4.1.0"
+        uri = "comline://registry.comline.io/uuid"
+        hash = "blake3:def456"
+    }
+}

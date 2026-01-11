@@ -25,7 +25,14 @@ impl Compile for IncrementalInterpreter {
         for decl in declarations {
             match decl {
                 Declaration::Import(import) => {
+                    // Legacy import support
                     frozen_units.push(FrozenUnit::Import(import.path()));
+                }
+                Declaration::Use(use_stmt) => {
+                    // New use statement - for now, just extract path
+                    // TODO: Implement full use resolution with parent::, glob, multi, alias
+                    let path_str = extract_use_path(&use_stmt.path);
+                    frozen_units.push(FrozenUnit::Import(path_str));
                 }
                 Declaration::Const(const_decl) => {
                     let name = const_decl.name();
@@ -227,6 +234,28 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
         crate::schema::idl::grammar::Type::Named(id) => id.to_string(),
         crate::schema::idl::grammar::Type::Array(arr) => {
             format!("{}[]", type_to_string(arr.elem_type()))
+        }
+    }
+}
+
+/// Extract path string from UsePath enum
+/// TODO: This is a placeholder - should integrate with full resolver
+fn extract_use_path(use_path: &crate::schema::idl::grammar::UsePath) -> String {
+    use crate::schema::idl::grammar::UsePath;
+    
+    match use_path {
+        UsePath::Absolute(scoped) => scoped.to_string(),
+        UsePath::Relative(rel) => {
+            // Convert parent::path to absolute later in resolver
+            format!("{:?}::{}", rel.prefix, rel.path.to_string())
+        }
+        UsePath::Glob(glob) => {
+            format!("{}::*", glob.path.to_string())
+        }
+        UsePath::Multi(multi) => {
+            // For now, just use the base path
+            // TODO: Handle multi-imports properly
+            multi.path.to_string()
         }
     }
 }

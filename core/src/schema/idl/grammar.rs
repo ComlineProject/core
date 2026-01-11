@@ -25,7 +25,8 @@ pub mod grammar {
     /// Language declarations - different statement types  
     #[derive(Debug, Clone)]
     pub enum Declaration {
-        Import(Import),
+        Import(Import),  // Legacy - kept for compatibility
+        Use(Use),        // New: use keyword with enhanced features
         Const(Const),
         Struct(Struct),
         Enum(Enum),
@@ -34,12 +35,87 @@ pub mod grammar {
 
     // ===== Imports & Constants =====
 
-    /// Import: import identifier
+    /// Import: import identifier (Legacy - for backward compatibility)
     #[derive(Debug, Clone)]
     pub struct Import {
         #[rust_sitter::leaf(text = "import")]
         _import: (),
         pub path: ScopedIdentifier,
+    }
+
+    // ===== Use Statements (New Import System) =====
+
+    /// Use: use path [as alias]
+    #[derive(Debug, Clone)]
+    pub struct Use {
+        #[rust_sitter::leaf(text = "use")]
+        _use: (),
+        pub path: UsePath,
+        pub alias: Option<UseAlias>,
+    }
+
+    /// Use path - can be absolute, relative, glob, or multi-import
+    #[derive(Debug, Clone)]
+    pub enum UsePath {
+        Absolute(ScopedIdentifier),
+        Relative(RelativePath),
+        Glob(GlobPath),
+        Multi(MultiPath),
+    }
+
+    /// Relative path: self::path or parent::path
+    #[derive(Debug, Clone)]
+    pub struct RelativePath {
+        pub prefix: RelativePrefix,
+        #[rust_sitter::leaf(text = "::")]
+        _sep: (),
+        pub path: ScopedIdentifier,
+    }
+
+    /// Relative prefix: self, parent, crate
+    #[derive(Debug, Clone)]
+    pub enum RelativePrefix {
+        #[rust_sitter::leaf(text = "self")]
+        Self_,
+        #[rust_sitter::leaf(text = "parent")]
+        Parent,
+        #[rust_sitter::leaf(text = "crate")]
+        Crate,
+    }
+
+    /// Glob path: mypackage::types::*
+    #[derive(Debug, Clone)]
+    pub struct GlobPath {
+        pub path: ScopedIdentifier,
+        #[rust_sitter::leaf(text = "::")]
+        _sep: (),
+        #[rust_sitter::leaf(text = "*")]
+        _star: (),
+    }
+
+    /// Multi-import: mypackage::{User, Post, Comment}
+    #[derive(Debug, Clone)]
+    pub struct MultiPath {
+        pub path: ScopedIdentifier,
+        #[rust_sitter::leaf(text = "::")]
+        _sep: (),
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::delimited(
+            #[rust_sitter::leaf(text = ",")]
+            ()
+        )]
+        pub items: Vec<Identifier>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// Use alias: as NewName
+    #[derive(Debug, Clone)]
+    pub struct UseAlias {
+        #[rust_sitter::leaf(text = "as")]
+        _as: (),
+        pub name: Identifier,
     }
 
     /// Constant: const NAME: TYPE = VALUE

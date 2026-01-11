@@ -1,0 +1,11 @@
+// Test parsing of use statements
+use mypackage::types::User;
+use parent::common::Error;
+use std::http::Request;
+use mypackage::{User, Post, Comment};
+use mypackage::utils::*;
+use external::uuid::Uuid as UUID;
+
+struct Example {
+    id: u64
+}

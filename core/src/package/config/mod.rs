@@ -1,6 +1,7 @@
 // Relative Modules
 pub mod idl;
 pub mod ir;
+pub mod dependency;  // NEW: Dependency configuration
 
 // Standard Uses
 use std::path::Path;
