@@ -104,23 +104,22 @@ pub fn process_changes(
     
     // Build new tree from current schemas
     let mut root_tree = Tree::new();
-    let mut latest_schemas = vec![];
+    let mut current_schemas = vec![];
     
     for (idx, schema_ctx) in latest_project.schema_contexts.iter().enumerate() {
         let schema_ref = schema_ctx.borrow();
         let frozen_ref = schema_ref.frozen_schema.borrow();
         
         if let Some(frozen_schema) = frozen_ref.as_ref() {
-            latest_schemas.push(frozen_schema.clone());
+            current_schemas.push(frozen_schema.clone());
             
             // Build subtree for this schema
             let schema_tree = build_tree_from_schema(frozen_schema, &store)?;
             let tree_bytes = schema_tree.to_bytes()?;
             let tree_hash = store.write(&tree_bytes)?;
             
-            // Use index as name
+            // Use index as name (stable across builds for same file set)
             let name = format!("schema_{}", idx);
-            
             root_tree.add_entry(EntryMode::Tree, name, tree_hash);
         }
     }
@@ -140,54 +139,112 @@ pub fn process_changes(
         });
     }
     
-    // Analyze schema changes using proper diffing
-    // Load previous schemas from parent tree and compare with current
-    use crate::schema::ir::diff::analyze_schema_changes;
+    // Analyze schema changes using proper multi-file diffing
+    use crate::schema::ir::diff::{analyze_schema_changes, NewFeature, BreakingChange};
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
+    use crate::schema::ir::frozen::unit::FrozenUnit;
     
     let mut aggregated_bump = VersionBump::None;
-    let mut all_schema_changes = vec![];
+    let mut all_changes = SchemaChanges::default();
     
-    // Compare each schema file
-    for (idx, entry) in prev_tree.entries.iter().enumerate() {
-        // Load previous schema from tree
+    // Load all previous schemas
+    let mut prev_schemas = vec![];
+    for entry in &prev_tree.entries {
         if entry.mode == EntryMode::Tree {
             let prev_schema_tree_bytes = store.read(&entry.hash)?;
             let prev_schema_tree = Tree::from_bytes(&prev_schema_tree_bytes)?;
             let prev_schema = load_schema_from_tree(&store, &prev_schema_tree)?;
-            
-            // Get corresponding current schema (if it exists)
-            if idx < latest_schemas.len() {
-                let current_schema = &latest_schemas[idx];
-                
-                // Analyze changes
-                let changes = analyze_schema_changes(&prev_schema, current_schema);
-                
-                // Determine version bump for this schema
-                let schema_bump = if changes.is_breaking() {
-                    VersionBump::Major
-                } else if changes.is_feature() {
-                    VersionBump::Minor
-                } else if !changes.modifications.is_empty() {
-                    VersionBump::Patch
-                } else {
-                    VersionBump::None
-                };
-                
-                // Aggregate: take maximum bump across all schemas
-                aggregated_bump = aggregated_bump.max(schema_bump);
-                all_schema_changes.push(changes);
-            } else {
-                // Schema was removed → Major
-                aggregated_bump = VersionBump::Major;
-            }
+            prev_schemas.push(prev_schema);
         }
     }
     
-    // Check for new schemas (added)
-    if root_tree.entries.len() > prev_tree.entries.len() {
-        // New schema added → Minor (at least)
+    let prev_count = prev_schemas.len();
+    let current_count = current_schemas.len();
+    
+    // 1. Compare schemas that exist in both (min of the two counts)
+    let common_count = prev_count.min(current_count);
+    for idx in 0..common_count {
+        let file_changes = analyze_schema_changes(&prev_schemas[idx], &current_schemas[idx]);
+        
+        let schema_bump = if file_changes.is_breaking() {
+            VersionBump::Major
+        } else if file_changes.is_feature() {
+            VersionBump::Minor
+        } else if !file_changes.modifications.is_empty() {
+            VersionBump::Patch
+        } else {
+            VersionBump::None
+        };
+        
+        aggregated_bump = aggregated_bump.max(schema_bump);
+        all_changes.breaking_changes.extend(file_changes.breaking_changes);
+        all_changes.new_features.extend(file_changes.new_features);
+        all_changes.modifications.extend(file_changes.modifications);
+    }
+    
+    // 2. Handle NEW schemas (current_count > prev_count)
+    if current_count > prev_count {
+        tracing::debug!("New schema files detected: {}", current_count - prev_count);
+        
+        for idx in prev_count..current_count {
+            // All declarations in new files are new features
+            for unit in &current_schemas[idx] {
+                match unit {
+                    FrozenUnit::Struct { name, fields, .. } => {
+                        all_changes.new_features.push(NewFeature::AddedStruct {
+                            name: name.clone(),
+                            field_count: fields.len(),
+                        });
+                    }
+                    FrozenUnit::Enum { name, variants, .. } => {
+                        all_changes.new_features.push(NewFeature::AddedEnum {
+                            name: name.clone(),
+                            variant_count: variants.len(),
+                        });
+                    }
+                    FrozenUnit::Protocol { name, functions, .. } => {
+                        all_changes.new_features.push(NewFeature::AddedProtocol {
+                            name: name.clone(),
+                            function_count: functions.len(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
         aggregated_bump = aggregated_bump.max(VersionBump::Minor);
+    }
+    
+    // 3. Handle REMOVED schemas (prev_count > current_count)
+    if prev_count > current_count {
+        tracing::debug!("Schema files removed: {}", prev_count - current_count);
+        
+        for idx in current_count..prev_count {
+            // All declarations in removed files are breaking changes
+            for unit in &prev_schemas[idx] {
+                match unit {
+                    FrozenUnit::Struct { name, .. } => {
+                        all_changes.breaking_changes.push(BreakingChange::RemovedStruct {
+                            name: name.clone(),
+                        });
+                    }
+                    FrozenUnit::Enum { name, .. } => {
+                        all_changes.breaking_changes.push(BreakingChange::RemovedEnum {
+                            name: name.clone(),
+                        });
+                    }
+                    FrozenUnit::Protocol { name, .. } => {
+                        all_changes.breaking_changes.push(BreakingChange::RemovedProtocol {
+                            name: name.clone(),
+                        });
+                    }
+                    _ => {}
+                }
+            }
+        }
+        
+        aggregated_bump = VersionBump::Major;
     }
     
     let version_bump = aggregated_bump;
@@ -216,11 +273,11 @@ pub fn process_changes(
     
     tracing::info!("CAS: New commit {} created ({})", commit_hash, new_version);
     
-    // Merge all schema changes for reporting
-    let merged_changes = if all_schema_changes.is_empty() {
+    // Return aggregated changes
+    let merged_changes = if all_changes.is_empty() {
         None
     } else {
-        Some(merge_schema_changes(all_schema_changes))
+        Some(all_changes)
     };
     
     Ok(BuildInfo {
@@ -229,17 +286,4 @@ pub fn process_changes(
         current_version: new_version.to_string(),
         schema_changes: merged_changes,
     })
-}
-
-/// Merge multiple SchemaChanges into one for reporting
-fn merge_schema_changes(changes: Vec<SchemaChanges>) -> SchemaChanges {
-    let mut merged = SchemaChanges::default();
-    
-    for change in changes {
-        merged.breaking_changes.extend(change.breaking_changes);
-        merged.new_features.extend(change.new_features);
-        merged.modifications.extend(change.modifications);
-    }
-    
-    merged
 }
