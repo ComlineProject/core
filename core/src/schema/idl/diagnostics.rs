@@ -89,34 +89,43 @@ pub fn print_parse_error(
                     let help_text = get_suggestion(token);
                     (msg, help_text)
                 } else {
-                    ("parse error".to_string(), None)
+                    ("syntax error".to_string(), None)
                 }
             } else {
-                ("parse error".to_string(), None)
+                ("syntax error".to_string(), None)
             }
         }
-        _ => ("parse error".to_string(), None),
+        _ => ("syntax error".to_string(), None),
     };
     
     // Create diagnostic
     let mut files = SimpleFiles::new();
     let file_id = files.add(filename, source);
     
+    // If the error spans multiple lines, show just the end position for clarity
+    let (span_start, span_end, label_message) = if start_pos.line != end_pos.line {
+        // Multi-line error - just highlight the end position
+        (end_pos.byte_offset, end_pos.byte_offset + 1, "error here")
+    } else {
+        // Single-line error - show the full span
+        (error.start, error.end, "unexpected here")
+    };
+    
     let mut diagnostic = CsDiagnostic::error()
         .with_message(&message)
         .with_labels(vec![
-            Label::primary(file_id, error.start..error.end)
-                .with_message("unexpected here"),
+            Label::primary(file_id, span_start..span_end)
+                .with_message(label_message),
         ]);
     
     if let Some(help_msg) = help {
         diagnostic = diagnostic.with_notes(vec![help_msg]);
     }
     
-    // Add note about valid types for common mistakes
-    if message.contains("string") {
+    // Add context-specific notes
+    if message.contains("string") || message.contains("int") || message.contains("float") {
         diagnostic = diagnostic.with_notes(vec![
-            "valid primitive types: u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, str".to_string()
+            "note: valid primitive types: u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, str".to_string()
         ]);
     }
     

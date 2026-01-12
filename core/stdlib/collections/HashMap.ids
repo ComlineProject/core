@@ -2,16 +2,11 @@
 // Key-value map for efficient lookups
 
 struct HashMap {
-    capacity: u64;
-    size: u64;
+    capacity: u64
 }
 
 protocol HashMapOps {
     function new() -> HashMap;
-    function insert(key: str, value: str);
-    function get(key: str) -> str;
-    function remove(key: str) -> str;
-    function contains_key(key: str) -> bool;
     function size() -> u64;
     function clear();
 }

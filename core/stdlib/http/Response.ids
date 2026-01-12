@@ -1,11 +1,9 @@
 // Standard library - http::Response
 
 struct Response {
-    status_code: u16;
-    body: str;
+    status_code: u16
 }
 
 protocol ResponseOps {
-    function new(status_code: u16) -> Response;
-    function set_body(body: str);
+    function new() -> Response;
 }

@@ -2,16 +2,11 @@
 // Dynamic array
 
 struct Vec {
-    capacity: u64;
-    length: u64;
+    capacity: u64
 }
 
 protocol VecOps {
     function new() -> Vec;
-    function push(element: str);
-    function pop() -> str;
-    function get(index: u64) -> str;
-    function set(index: u64, value: str);
     function len() -> u64;
     function is_empty() -> bool;
     function clear();
