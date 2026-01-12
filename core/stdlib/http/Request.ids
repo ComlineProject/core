@@ -9,9 +9,9 @@ enum HttpMethod {
 
 struct Request {
     method: HttpMethod;
-    uri: string;
+    uri: str;
 }
 
 protocol RequestOps {
-    function new(method: HttpMethod, uri: string) -> Request;
+    function new(method: HttpMethod, uri: str) -> Request;
 }

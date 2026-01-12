@@ -186,6 +186,28 @@ impl ImportResolver {
             alias: None,
         })
     }
+    
+    /// Load a schema from a resolved import
+    /// Returns the parsed schema document
+    pub fn load_schema(
+        &self,
+        resolved: &ResolvedImport,
+    ) -> Result<crate::schema::idl::grammar::Document, String> {
+        // If we have a schema_path, load from filesystem
+        if let Some(path) = &resolved.schema_path {
+            let source = std::fs::read_to_string(path)
+                .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
+            
+            crate::schema::idl::grammar::parse(&source)
+                .map_err(|e| format!("Parse error in {}: {:?}", path.display(), e))
+        } else {
+            // TODO: Load from same package - need package root path
+            Err(format!(
+                "Cannot load schema for {:?} - no schema path",
+                resolved.absolute_namespace
+            ))
+        }
+    }
 }
 
 #[cfg(test)]

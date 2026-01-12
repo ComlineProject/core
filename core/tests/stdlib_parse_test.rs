@@ -3,7 +3,7 @@ use comline_core::schema::idl::grammar;
 
 #[test]
 fn test_stdlib_hashmap_parses() {
-    let source = std::fs::read_to_string("stdlib/collections/HashMap.ids")
+    let source = std::fs::read_to_string("core/stdlib/collections/HashMap.ids")
         .expect("Failed to read HashMap.ids");
     
     let result = grammar::parse(&source);

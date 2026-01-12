@@ -2,10 +2,10 @@
 
 struct Response {
     status_code: u16;
-    body: string;
+    body: str;
 }
 
 protocol ResponseOps {
     function new(status_code: u16) -> Response;
-    function set_body(body: string);
+    function set_body(body: str);
 }
