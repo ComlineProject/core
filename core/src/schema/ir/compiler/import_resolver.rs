@@ -198,8 +198,21 @@ impl ImportResolver {
             let source = std::fs::read_to_string(path)
                 .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
             
-            crate::schema::idl::grammar::parse(&source)
-                .map_err(|e| format!("Parse error in {}: {:?}", path.display(), e))
+            match crate::schema::idl::grammar::parse(&source) {
+                Ok(doc) => Ok(doc),
+                Err(errors) => {
+                    // Print beautiful diagnostics for each error
+                    eprintln!("\n{} Errors parsing schema {}:", errors.len(), path.display());
+                    for error in &errors {
+                        crate::schema::idl::diagnostics::print_parse_error(
+                            error,
+                            &source,
+                            &path.to_string_lossy(),
+                        );
+                    }
+                    Err(format!("Parse failed with {} error(s)", errors.len()))
+                }
+            }
         } else {
             // TODO: Load from same package - need package root path
             Err(format!(
