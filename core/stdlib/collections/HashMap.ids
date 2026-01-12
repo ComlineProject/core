@@ -1,0 +1,17 @@
+// Standard library - collections::HashMap
+// Key-value map for efficient lookups
+
+struct HashMap {
+    _capacity: u64;
+    _size: u64;
+}
+
+protocol HashMapOps {
+    function new() -> HashMap;
+    function insert(key: string, value: string);
+    function get(key: string) -> string;
+    function remove(key: string) -> string;
+    function contains_key(key: string) -> bool;
+    function size() -> u64;
+    function clear();
+}

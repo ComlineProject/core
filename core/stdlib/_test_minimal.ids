@@ -1,0 +1,8 @@
+// Minimal test schema
+struct Test {
+    value: u64;
+}
+
+protocol TestOps {
+    function new() -> Test;
+}

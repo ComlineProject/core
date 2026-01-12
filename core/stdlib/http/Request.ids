@@ -1,0 +1,17 @@
+// Standard library - http::Request
+
+enum HttpMethod {
+    GET
+    POST
+    PUT
+    DELETE
+}
+
+struct Request {
+    method: HttpMethod;
+    uri: string;
+}
+
+protocol RequestOps {
+    function new(method: HttpMethod, uri: string) -> Request;
+}
