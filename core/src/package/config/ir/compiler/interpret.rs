@@ -50,7 +50,7 @@ fn detect_import_cycle(project_context: &ProjectContext) -> Option<Vec<String>> 
         let mut depends_on = HashSet::new();
 
         for decl in &schema_context.declarations {
-            if let Declaration::Use(use_stmt) = decl {
+            if let Declaration::Use(use_stmt) = &decl.value {
                 let Ok(target) = resolve_use_to_schema(
                     project_context,
                     &resolver,

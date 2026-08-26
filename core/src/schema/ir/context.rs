@@ -48,7 +48,7 @@ pub struct SchemaContext {
     //pub name: String,
     pub namespace: Vec<String>,
     // stored raw declarations from rust-sitter
-    pub declarations: Vec<Declaration>,
+    pub declarations: Vec<rust_sitter::Spanned<Declaration>>,
     // mutable frozen schema storage
     pub frozen_schema: RefCell<Option<Vec<FrozenUnit>>>,
     // source map for reporting
@@ -58,7 +58,7 @@ pub struct SchemaContext {
 }
 
 impl SchemaContext {
-    pub fn with_declarations(declarations: Vec<Declaration>, namespace: Vec<String>, codemap: CodeMap) -> Self {
+    pub fn with_declarations(declarations: Vec<rust_sitter::Spanned<Declaration>>, namespace: Vec<String>, codemap: CodeMap) -> Self {
         Self { namespace, declarations, frozen_schema: RefCell::new(None), codemap, compile_state: Default::default() }
     }
 

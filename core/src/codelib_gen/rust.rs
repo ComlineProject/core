@@ -67,7 +67,7 @@ fn generate_enum(name: &str, variants: &Vec<FrozenUnit>) -> String {
     let mut s = format!("#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]\npub enum {} {{\n", name);
     
     for variant in variants {
-        if let FrozenUnit::EnumVariant(kv) = variant {
+        if let FrozenUnit::EnumVariant(kv, _) = variant {
             // Extract name from KindValue. 
             // Usually EnumVariant(String, Option<Box>) or Primitive?
             // incremental.rs maps it to EnumVariant(name, None).

@@ -126,8 +126,13 @@ impl KindValue {
 
                 (format!("Enum variant {} ({})'", name, variant_name), value)
             }
-            KindValue::Union(_) => {
-                todo!()
+            KindValue::Union(members) => {
+                let parts: Vec<String> = members
+                    .iter()
+                    .map(|member| member.name_and_value().0)
+                    .collect();
+
+                (format!("union({})", parts.join(" ")), None)
             }
             #[allow(unused)]
             KindValue::Namespaced(namespace, ..) => {
@@ -198,8 +203,8 @@ fn to_namespaced_kind_only(
 ) -> Option<KindValue> {
     use crate::schema::idl::grammar::Declaration;
 
-    for decl in &schema_context.declarations {
-        match decl {
+    for spanned_decl in &schema_context.declarations {
+        match &spanned_decl.value {
             Declaration::Struct(s) => {
                 if s.name.text == kind.1 {
                     return Some(KindValue::Namespaced(s.name.text.clone(), None));
@@ -223,11 +228,15 @@ fn to_namespaced_kind_only(
 }
 
 
+/// Unions aren't a nameable/aliasable type in this language (there's no
+/// `type Foo = union(...)` declaration), so a union can never be found by a
+/// bare name lookup - it only ever appears as a literal `union(...)` type
+/// expression, resolved directly from the AST by `type_to_kind_value`.
 #[allow(unused)]
 fn to_union_kind_only(
-    schema_context: &Ref<'_, SchemaContext>, kind: &(Span, String)
+    _schema_context: &Ref<'_, SchemaContext>, _kind: &(Span, String)
 ) -> Option<KindValue> {
-    todo!()
+    None
 }
 
 fn to_primitive_kind_only(kind: &(Span, String)) -> Option<Primitive> {

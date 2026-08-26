@@ -16,6 +16,7 @@ fn test_generate_simple_struct() {
                     optional: false,
                     name: "id".to_string(),
                     kind_value: KindValue::Namespaced("i32".to_string(), None),
+                    span: (0, 0),
                 },
                 FrozenUnit::Field {
                     docstring: None,
@@ -23,6 +24,7 @@ fn test_generate_simple_struct() {
                     optional: false,
                     name: "username".to_string(),
                     kind_value: KindValue::Namespaced("string".to_string(), None),
+                    span: (0, 0),
                 },
                 FrozenUnit::Field {
                     docstring: None,
@@ -30,13 +32,15 @@ fn test_generate_simple_struct() {
                     optional: false,
                     name: "tags".to_string(),
                     kind_value: KindValue::Namespaced("string[]".to_string(), None),
+                    span: (0, 0),
                 }
             ],
+            span: (0, 0),
         }
     ];
 
     let output = generate_rust(&units);
-    
+
     assert!(output.contains("pub struct User"));
     assert!(output.contains("pub id: i32"));
     assert!(output.contains("pub username: String"));
@@ -50,14 +54,15 @@ fn test_generate_enum() {
             docstring: None,
             name: "Status".to_string(),
             variants: vec![
-                FrozenUnit::EnumVariant(KindValue::EnumVariant("Active".to_string(), None)),
-                FrozenUnit::EnumVariant(KindValue::EnumVariant("Inactive".to_string(), None)),
+                FrozenUnit::EnumVariant(KindValue::EnumVariant("Active".to_string(), None), (0, 0)),
+                FrozenUnit::EnumVariant(KindValue::EnumVariant("Inactive".to_string(), None), (0, 0)),
             ],
+            span: (0, 0),
         }
     ];
 
     let output = generate_rust(&units);
-    
+
     assert!(output.contains("pub enum Status"));
     assert!(output.contains("Active,"));
     assert!(output.contains("Inactive,"));
@@ -79,17 +84,20 @@ fn test_generate_protocol() {
                         FrozenArgument {
                             name: "id".to_string(),
                             kind: KindValue::Primitive(Primitive::S32(None)),
+                            span: (0, 0),
                         }
                     ],
                     _return: Some(KindValue::Namespaced("User".to_string(), None)),
                     throws: vec![],
+                    span: (0, 0),
                 }
             ],
+            span: (0, 0),
         }
     ];
 
     let output = generate_rust(&units);
-    
+
     assert!(output.contains("pub trait UserService"));
     assert!(output.contains("fn get_user(id: i32) -> User;"));
 }

@@ -60,7 +60,7 @@ fn test_whole_schema_use_resolves_across_files() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types")),
         "Expected a resolved import of 'types', got {:?}",
         frozen
     );
@@ -82,7 +82,7 @@ fn test_symbol_use_resolves_to_declaring_schema() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::User")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::User")),
         "Expected a resolved import of 'types::User', got {:?}",
         frozen
     );
@@ -109,7 +109,7 @@ fn test_multi_item_use_resolves_each_symbol() {
         assert!(
             frozen
                 .iter()
-                .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == expected)),
+                .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == expected)),
             "Expected a resolved import of '{}', got {:?}",
             expected,
             frozen
@@ -133,7 +133,7 @@ fn test_glob_use_resolves_namespace() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::*")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::*")),
         "Expected a resolved glob import of 'types::*', got {:?}",
         frozen
     );
@@ -166,7 +166,7 @@ fn test_unresolved_use_does_not_panic() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path.starts_with("<unresolved:"))),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path.starts_with("<unresolved:"))),
         "Expected an unresolved-import marker, got {:?}",
         frozen
     );
@@ -190,7 +190,7 @@ fn test_same_package_symbol_not_found_still_compiles() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::Missing")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::Missing")),
         "Expected a best-effort import of 'types::Missing', got {:?}",
         frozen
     );

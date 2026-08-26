@@ -122,7 +122,7 @@ const MIN_VALUE: i8 = -128
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Import(path) => {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Import(path, _) => {
                 assert_eq!(path, "std");
             }
             _ => panic!("Expected Import unit"),
@@ -230,6 +230,68 @@ protocol EventService {
                 assert_eq!(functions.len(), 2);
             }
             _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
+    fn test_struct_and_field_spans_are_populated() {
+        let code = "struct User {\n    id: u64\n    name: str\n}\n";
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { span, fields, .. } => {
+                // The struct's span should cover the whole declaration.
+                assert_eq!(&code[span.0..span.1], "struct User {\n    id: u64\n    name: str\n}");
+
+                assert_eq!(fields.len(), 2);
+                let field_spans: Vec<(usize, usize)> = fields
+                    .iter()
+                    .map(|f| match f {
+                        comline_core::schema::ir::frozen::unit::FrozenUnit::Field { span, .. } => *span,
+                        _ => panic!("Expected Field"),
+                    })
+                    .collect();
+
+                assert_eq!(&code[field_spans[0].0..field_spans[0].1], "id: u64");
+                assert_eq!(&code[field_spans[1].0..field_spans[1].1], "name: str");
+                // Fields should appear in source order.
+                assert!(field_spans[0].0 < field_spans[1].0);
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_union_field_ir() {
+        let code = r#"
+struct Response {
+    status: union(str u32)
+}
+"#;
+        let result = grammar::parse(code);
+        assert!(result.is_ok(), "Failed to parse union field");
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { fields, .. } => {
+                assert_eq!(fields.len(), 1);
+                match &fields[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field { kind_value, .. } => {
+                        match kind_value {
+                            comline_core::schema::ir::compiler::interpreted::kind_search::KindValue::Union(members) => {
+                                assert_eq!(members.len(), 2);
+                            }
+                            other => panic!("Expected KindValue::Union, got {:?}", other),
+                        }
+                    }
+                    _ => panic!("Expected Field"),
+                }
+            }
+            _ => panic!("Expected Struct"),
         }
     }
 

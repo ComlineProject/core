@@ -9,12 +9,12 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
 
     // Pass 1: Collect Symbols & Check Duplicates
     for unit in units {
-        let (name, kind) = match unit {
-            FrozenUnit::Struct { name, .. } => (name.as_str(), SymbolType::Struct),
-            FrozenUnit::Enum { name, .. } => (name.as_str(), SymbolType::Enum),
-            FrozenUnit::Protocol { name, .. } => (name.as_str(), SymbolType::Protocol),
-            FrozenUnit::Constant { name, .. } => (name.as_str(), SymbolType::Constant),
-            FrozenUnit::Import(path) => (path.as_str(), SymbolType::Import),
+        let (name, kind, span) = match unit {
+            FrozenUnit::Struct { name, span, .. } => (name.as_str(), SymbolType::Struct, Some(*span)),
+            FrozenUnit::Enum { name, span, .. } => (name.as_str(), SymbolType::Enum, Some(*span)),
+            FrozenUnit::Protocol { name, span, .. } => (name.as_str(), SymbolType::Protocol, Some(*span)),
+            FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
+            FrozenUnit::Import(path, span) => (path.as_str(), SymbolType::Import, Some(*span)),
             // TODO: Function handling if they become top-level
             _ => continue,
         };
@@ -23,6 +23,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             errors.push(ValidationError {
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),
+                span,
             });
         }
     }
@@ -38,8 +39,8 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             FrozenUnit::Struct { name, fields, .. } => {
                 for field in fields {
                     match field {
-                        FrozenUnit::Field { name: field_name, kind_value, .. } => {
-                            validate_type(kind_value, &symbols, &mut errors, &format!("Struct '{}', field '{}'", name, field_name));
+                        FrozenUnit::Field { name: field_name, kind_value, span, .. } => {
+                            validate_type(kind_value, &symbols, &mut errors, &format!("Struct '{}', field '{}'", name, field_name), *span);
                         }
                         _ => {}
                     }
@@ -48,24 +49,25 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             FrozenUnit::Protocol { name, functions, .. } => {
                 for func in functions {
                     match func {
-                        FrozenUnit::Function { name: func_name, arguments, _return, .. } => {
+                        FrozenUnit::Function { name: func_name, arguments, _return, span, .. } => {
                             for arg in arguments {
-                                validate_type(&arg.kind, &symbols, &mut errors, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name));
+                                validate_type(&arg.kind, &symbols, &mut errors, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name), arg.span);
                             }
                             if let Some(ret_type) = _return {
-                                validate_type(ret_type, &symbols, &mut errors, &format!("Protocol '{}', function '{}' return", name, func_name));
+                                validate_type(ret_type, &symbols, &mut errors, &format!("Protocol '{}', function '{}' return", name, func_name), *span);
                             }
                         }
                         _ => {}
                     }
                 }
             }
-            FrozenUnit::Constant { name, kind_value, .. } => {
+            FrozenUnit::Constant { name, kind_value, span, .. } => {
                 // Constants usually primitive, but check if namespaced
                 if let KindValue::Namespaced(type_name, _) = kind_value {
                      errors.push(ValidationError {
                         message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
                         context: format!("Constant '{}'", name),
+                        span: Some(*span),
                     });
                 }
             }
@@ -104,7 +106,7 @@ fn detect_cycle<'a>(
 ) {
     visiting.insert(current);
     
-    if let Some(FrozenUnit::Struct { fields, .. }) = unit_map.get(current) {
+    if let Some(FrozenUnit::Struct { fields, span, .. }) = unit_map.get(current) {
         for field in fields {
             if let FrozenUnit::Field { kind_value, .. } = field {
                 if let KindValue::Namespaced(type_name, _) = kind_value {
@@ -121,6 +123,7 @@ fn detect_cycle<'a>(
                             errors.push(ValidationError {
                                 message: format!("Cycle detected involving struct '{}'", base_type),
                                 context: format!("Struct '{}' depends on '{}'", current, base_type),
+                                span: Some(*span),
                             });
                         } else if !visited.contains(base_type) {
                             detect_cycle(base_type, unit_map, visited, visiting, errors);
@@ -135,7 +138,10 @@ fn detect_cycle<'a>(
     visited.insert(current);
 }
 
-fn validate_type(kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<ValidationError>, context: &str) {
+fn validate_type(
+    kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<ValidationError>,
+    context: &str, span: (usize, usize),
+) {
     match kind {
         KindValue::Namespaced(type_name, _) => {
             // Handle array syntax e.g. "User[]", "User[][]"
@@ -151,14 +157,24 @@ fn validate_type(kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<Valid
                 errors.push(ValidationError {
                     message: format!("Unknown type '{}'", base_type),
                     context: context.to_string(),
+                    span: Some(span),
                 });
             }
         }
         KindValue::Primitive(_) => {
             // Primitives are always valid
         }
-        KindValue::EnumVariant(_, _) | KindValue::Union(_) => {
-            // TODO: Implement validation for these types if they are used
+        KindValue::Union(members) => {
+            for member in members {
+                validate_type(member, symbols, errors, context, span);
+            }
+        }
+        KindValue::EnumVariant(_, _) => {
+            // KindValue::EnumVariant only carries the variant's own name, not
+            // the enclosing enum's - there's no way to check it exists without
+            // that context, and no grammar syntax produces this as a field's
+            // type today (it's only ever used to represent one variant inside
+            // an Enum's own `variants` list, not as a referenceable type).
         }
     }
 }

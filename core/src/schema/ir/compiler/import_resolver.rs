@@ -282,7 +282,7 @@ pub fn resolve_use_to_schema(
 pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> bool {
     use crate::schema::idl::grammar::Declaration;
 
-    schema_context.declarations.iter().any(|decl| match decl {
+    schema_context.declarations.iter().any(|decl| match &decl.value {
         Declaration::Struct(s) => s.name.text == symbol,
         Declaration::Enum(e) => e.name.text == symbol,
         Declaration::Protocol(p) => p.name.text == symbol,
