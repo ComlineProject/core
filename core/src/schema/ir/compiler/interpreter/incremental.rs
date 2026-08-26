@@ -3,7 +3,11 @@
 // Local Uses
 // use crate::schema::idl::ast::unit;
 // use crate::schema::idl::ast::unit::ASTUnit;
-use crate::schema::idl::grammar::Declaration;
+use crate::package::config::ir::context::ProjectContext;
+use crate::schema::idl::grammar::{Declaration, UsePath};
+use crate::schema::ir::compiler::import_resolver::{
+    resolve_use_to_schema, schema_declares_symbol, ImportResolver,
+};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
 use crate::schema::ir::frozen::unit::FrozenUnit;
@@ -13,11 +17,35 @@ use crate::schema::ir::frozen::unit::FrozenUnit;
 #[allow(unused)]
 pub struct IncrementalInterpreter {}
 
+impl IncrementalInterpreter {
+    /// Compile declarations with awareness of the rest of the project, so that
+    /// `use`/`import` declarations pointing at other schemas in the same
+    /// package resolve to real, verified references instead of raw path
+    /// strings.
+    pub fn from_declarations_with_context(
+        declarations: Vec<Declaration>,
+        current_namespace: &[String],
+        project_context: &ProjectContext,
+    ) -> Vec<FrozenUnit> {
+        Self::compile_declarations(declarations, Some((current_namespace, project_context)))
+    }
+}
+
 #[allow(unused)]
 impl Compile for IncrementalInterpreter {
     type Output = Vec<FrozenUnit>;
 
     fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
+        Self::compile_declarations(declarations, None)
+    }
+}
+
+#[allow(unused)]
+impl IncrementalInterpreter {
+    fn compile_declarations(
+        declarations: Vec<Declaration>,
+        use_context: Option<(&[String], &ProjectContext)>,
+    ) -> Vec<FrozenUnit> {
         tracing::debug!("Processing {} declarations...", declarations.len());
 
         let mut frozen_units: Vec<FrozenUnit> = vec![];
@@ -29,10 +57,15 @@ impl Compile for IncrementalInterpreter {
                     frozen_units.push(FrozenUnit::Import(import.path()));
                 }
                 Declaration::Use(use_stmt) => {
-                    // New use statement - for now, just extract path
-                    // TODO: Implement full use resolution with parent::, glob, multi, alias
-                    let path_str = extract_use_path(&use_stmt.path);
-                    frozen_units.push(FrozenUnit::Import(path_str));
+                    let units = match use_context {
+                        Some((current_namespace, project_context)) => resolve_use_declaration(
+                            project_context,
+                            current_namespace,
+                            &use_stmt.path,
+                        ),
+                        None => vec![FrozenUnit::Import(extract_use_path(&use_stmt.path))],
+                    };
+                    frozen_units.extend(units);
                 }
                 Declaration::Const(const_decl) => {
                     let name = const_decl.name();
@@ -257,5 +290,70 @@ fn extract_use_path(use_path: &crate::schema::idl::grammar::UsePath) -> String {
             // TODO: Handle multi-imports properly
             multi.path.to_string()
         }
+    }
+}
+
+/// Resolve a `use` declaration against the rest of the project, emitting one
+/// `FrozenUnit::Import` per resolved target (multiple for a multi-import).
+///
+/// Only same-package targets are actually located and symbol-checked today;
+/// external dependency/stdlib paths still resolve to a namespace string (via
+/// `ImportResolver`) but aren't loaded/merged into this schema's context yet.
+fn resolve_use_declaration(
+    project_context: &ProjectContext,
+    current_namespace: &[String],
+    use_path: &UsePath,
+) -> Vec<FrozenUnit> {
+    let resolver = ImportResolver::new(vec![], Default::default(), None);
+
+    let target = match resolve_use_to_schema(project_context, &resolver, current_namespace, use_path) {
+        Ok(target) => target,
+        Err(message) => {
+            tracing::warn!("Failed to resolve use path: {}", message);
+            return vec![FrozenUnit::Import(format!("<unresolved: {}>", message))];
+        }
+    };
+
+    let joined_namespace = target.resolved.absolute_namespace.join("::");
+
+    // Glob import: `use ns::*;`
+    if target.resolved.symbols == ["*".to_string()] {
+        return vec![FrozenUnit::Import(format!("{}::*", joined_namespace))];
+    }
+
+    // Item imports: `use ns::{A, B};`
+    if !target.resolved.symbols.is_empty() {
+        return target
+            .resolved
+            .symbols
+            .iter()
+            .map(|item| {
+                if !matches!(&target.schema, Some(schema) if schema_declares_symbol(&schema.borrow(), item))
+                {
+                    tracing::warn!("Symbol '{}' not found in schema '{}'", item, joined_namespace);
+                }
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, item))
+            })
+            .collect();
+    }
+
+    // Whole-namespace or single-symbol import (`use ns;` / `use ns::Symbol;`)
+    match &target.schema {
+        Some(schema) if target.remaining.is_empty() => {
+            vec![FrozenUnit::Import(schema.borrow().namespace_joined())]
+        }
+        Some(schema) => {
+            let symbol = target.remaining.join("::");
+            let schema_namespace = schema.borrow().namespace_joined();
+
+            if !schema_declares_symbol(&schema.borrow(), &symbol) {
+                tracing::warn!("Symbol '{}' not found in schema '{}'", symbol, schema_namespace);
+            }
+
+            vec![FrozenUnit::Import(format!("{}::{}", schema_namespace, symbol))]
+        }
+        // Not part of this project (external dependency, stdlib, or genuinely
+        // unresolved) - fall back to the raw resolved namespace.
+        None => vec![FrozenUnit::Import(joined_namespace)],
     }
 }

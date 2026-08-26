@@ -1,0 +1,13 @@
+enum Mood {
+    Happy
+    Hungry
+}
+
+struct CantCarryError {
+    message: str
+}
+
+struct Ant {
+    mood: Mood
+    name: str
+}
