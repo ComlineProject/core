@@ -68,6 +68,9 @@ pub enum BreakingChange {
     RemovedProtocol {
         name: String,
     },
+    RemovedError {
+        name: String,
+    },
 }
 
 /// New features that require a minor version bump
@@ -100,6 +103,10 @@ pub enum NewFeature {
         name: String,
         function_count: usize,
     },
+    AddedError {
+        name: String,
+        field_count: usize,
+    },
 }
 
 /// Non-breaking modifications that may warrant a patch bump
@@ -109,7 +116,16 @@ pub enum Modification {
         type_name: String,
         field_name: String,
     },
-    // Future: documentation changes, metadata updates, etc.
+    /// A declaration's own docstring text changed with nothing else about
+    /// it - doc/comment-only changes warrant a patch bump, not a
+    /// major/minor one. Only tracked at the declaration level (struct,
+    /// enum, protocol, const, error) for now, not per-field/per-function -
+    /// a closely related, smaller follow-up if that granularity ever
+    /// matters.
+    DocstringChanged {
+        name: String,
+    },
+    // Future: metadata updates, etc.
 }
 
 /// Analyze changes between two schema versions
@@ -142,6 +158,11 @@ pub fn analyze_schema_changes(
                         .breaking_changes
                         .push(BreakingChange::RemovedProtocol { name: name.clone() });
                 }
+                FrozenUnit::Error { name, .. } => {
+                    changes
+                        .breaking_changes
+                        .push(BreakingChange::RemovedError { name: name.clone() });
+                }
                 _ => {}
             }
         }
@@ -171,6 +192,12 @@ pub fn analyze_schema_changes(
                         function_count: functions.len(),
                     });
                 }
+                FrozenUnit::Error { name, fields, .. } => {
+                    changes.new_features.push(NewFeature::AddedError {
+                        name: name.clone(),
+                        field_count: fields.len(),
+                    });
+                }
                 _ => {}
             }
         }
@@ -183,40 +210,88 @@ pub fn analyze_schema_changes(
                 (
                     FrozenUnit::Struct {
                         name,
+                        docstring: old_docstring,
                         fields: old_fields,
                         ..
                     },
                     FrozenUnit::Struct {
-                        fields: new_fields, ..
+                        docstring: new_docstring,
+                        fields: new_fields,
+                        ..
                     },
                 ) => {
                     compare_struct_fields(name, old_fields, new_fields, &mut changes);
+                    push_docstring_change(name, old_docstring, new_docstring, &mut changes);
                 }
                 (
                     FrozenUnit::Enum {
                         name,
+                        docstring: old_docstring,
                         variants: old_variants,
                         ..
                     },
                     FrozenUnit::Enum {
+                        docstring: new_docstring,
                         variants: new_variants,
                         ..
                     },
                 ) => {
                     compare_enum_variants(name, old_variants, new_variants, &mut changes);
+                    push_docstring_change(name, old_docstring, new_docstring, &mut changes);
                 }
                 (
                     FrozenUnit::Protocol {
                         name,
+                        docstring: old_docstring,
                         functions: old_funcs,
                         ..
                     },
                     FrozenUnit::Protocol {
+                        docstring: new_docstring,
                         functions: new_funcs,
                         ..
                     },
                 ) => {
                     compare_protocol_functions(name, old_funcs, new_funcs, &mut changes);
+                    // Protocol.docstring is a plain String (not Option<String>
+                    // like the others) - wrap for a uniform comparison helper.
+                    push_docstring_change(
+                        name,
+                        &Some(old_docstring.clone()),
+                        &Some(new_docstring.clone()),
+                        &mut changes,
+                    );
+                }
+                (
+                    FrozenUnit::Constant {
+                        name,
+                        docstring: old_docstring,
+                        ..
+                    },
+                    FrozenUnit::Constant {
+                        docstring: new_docstring,
+                        ..
+                    },
+                ) => {
+                    push_docstring_change(name, old_docstring, new_docstring, &mut changes);
+                }
+                (
+                    FrozenUnit::Error {
+                        name,
+                        docstring: old_docstring,
+                        ..
+                    },
+                    FrozenUnit::Error {
+                        docstring: new_docstring,
+                        ..
+                    },
+                ) => {
+                    // Error's own fields/message aren't diffed yet (added,
+                    // removed, or changed message text all currently go
+                    // undetected) - a closely related, separate follow-up,
+                    // same as Error not being diffed at all before this
+                    // change. Docstring-only is what's in scope here.
+                    push_docstring_change(name, old_docstring, new_docstring, &mut changes);
                 }
                 _ => {}
             }
@@ -224,6 +299,24 @@ pub fn analyze_schema_changes(
     }
 
     changes
+}
+
+/// Record a `Modification::DocstringChanged` when a declaration's own
+/// docstring differs between versions and nothing else about it is being
+/// compared here (that's handled separately, e.g. `compare_struct_fields`
+/// for a struct's fields) - a documentation-only change warrants a patch
+/// bump, not silence.
+fn push_docstring_change(
+    name: &str,
+    old_docstring: &Option<String>,
+    new_docstring: &Option<String>,
+    changes: &mut SchemaChanges,
+) {
+    if old_docstring != new_docstring {
+        changes.modifications.push(Modification::DocstringChanged {
+            name: name.to_string(),
+        });
+    }
 }
 
 fn build_index(schema: &[FrozenUnit]) -> HashMap<String, &FrozenUnit> {
@@ -234,6 +327,7 @@ fn build_index(schema: &[FrozenUnit]) -> HashMap<String, &FrozenUnit> {
             FrozenUnit::Enum { name, .. } => Some(name.clone()),
             FrozenUnit::Protocol { name, .. } => Some(name.clone()),
             FrozenUnit::Constant { name, .. } => Some(name.clone()),
+            FrozenUnit::Error { name, .. } => Some(name.clone()),
             _ => None,
         };
         if let Some(n) = name {

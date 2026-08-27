@@ -102,6 +102,58 @@ fn test_struct_field_default_value_change_is_not_breaking() {
 }
 
 #[test]
+fn test_struct_docstring_only_change_is_patch_bump() {
+    let (_temp, package_path) = setup_test_package();
+
+    // Initial schema
+    write_schema(&package_path, "ping", "struct Foo { a: s32 }");
+    build(&package_path).unwrap();
+
+    // Add a docstring - nothing else about the struct changes.
+    write_schema(&package_path, "ping", "/// Now documented.\nstruct Foo { a: s32 }");
+
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::Patch);
+    assert_eq!(result.current_version, "0.0.2");
+}
+
+#[test]
+fn test_added_error_is_minor_bump() {
+    let (_temp, package_path) = setup_test_package();
+
+    write_schema(&package_path, "ping", "struct Foo { a: s32 }");
+    build(&package_path).unwrap();
+
+    write_schema(
+        &package_path,
+        "ping",
+        "struct Foo { a: s32 }\n\nerror NotFoundError {\n    message = \"not found\"\n}",
+    );
+
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::Minor);
+    assert_eq!(result.current_version, "0.1.0");
+}
+
+#[test]
+fn test_removed_error_is_major_bump() {
+    let (_temp, package_path) = setup_test_package();
+
+    write_schema(
+        &package_path,
+        "ping",
+        "struct Foo { a: s32 }\n\nerror NotFoundError {\n    message = \"not found\"\n}",
+    );
+    build(&package_path).unwrap();
+
+    write_schema(&package_path, "ping", "struct Foo { a: s32 }");
+
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::Major);
+    assert_eq!(result.current_version, "1.0.0");
+}
+
+#[test]
 fn test_struct_remove_field() {
     let (_temp, package_path) = setup_test_package();
     

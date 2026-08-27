@@ -77,6 +77,9 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 BreakingChange::RemovedProtocol { name } => {
                     println!("  - Removed protocol `{}`", name);
                 }
+                BreakingChange::RemovedError { name } => {
+                    println!("  - Removed error `{}`", name);
+                }
             }
         }
     }
@@ -105,6 +108,9 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 NewFeature::AddedProtocol { name, function_count } => {
                     println!("  + Added protocol `{}` ({} functions)", name, function_count);
                 }
+                NewFeature::AddedError { name, field_count } => {
+                    println!("  + Added error `{}` ({} fields)", name, field_count);
+                }
             }
         }
     }
@@ -116,6 +122,9 @@ fn display_schema_changes(changes: &SchemaChanges) {
             match modification {
                 comline_core::schema::ir::diff::Modification::FieldMadeOptional { type_name, field_name } => {
                     println!("  ~ Field `{}.{}` marked as optional", type_name, field_name);
+                }
+                comline_core::schema::ir::diff::Modification::DocstringChanged { name } => {
+                    println!("  ~ Docstring changed for `{}`", name);
                 }
             }
         }
