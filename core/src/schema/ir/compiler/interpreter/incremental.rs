@@ -187,7 +187,7 @@ impl IncrementalInterpreter {
                                 _return: return_type,
                                 synchronous: true,
                                 docstring: func.docstring().unwrap_or_default(),
-                                throws: vec![],
+                                throws: func.throws().into_iter().collect(),
                                 span: func.span,
                             }
                         })
@@ -199,6 +199,38 @@ impl IncrementalInterpreter {
                         functions: function_units,
                         parameters: vec![],
                         span,
+                    });
+                }
+                Declaration::Error(error_decl) => {
+                    let error_name = error_decl.name();
+                    let message = error_decl.message();
+                    let fields = error_decl.fields();
+
+                    let field_units: Vec<FrozenUnit> = fields
+                        .iter()
+                        .map(|field| {
+                            let fname = field.name();
+                            let field_type = field.field_type();
+
+                            let kind_value = build_kind_value(field_type, field.default_value());
+
+                            FrozenUnit::Field {
+                                docstring: field.docstring(),
+                                parameters: vec![],
+                                optional: field.optional(),
+                                name: fname,
+                                kind_value,
+                                span: field.span,
+                            }
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Error {
+                        docstring: error_decl.docstring(),
+                        parameters: vec![],
+                        name: error_name,
+                        message,
+                        fields: field_units,
                     });
                 }
             }

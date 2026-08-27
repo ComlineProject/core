@@ -75,7 +75,10 @@ pub enum FrozenUnit {
         // direction: Box<FrozenUnit>,
         arguments: Vec<FrozenArgument>,
         _return: Option<KindValue>,
-        throws: Vec<FrozenUnit>,
+        // Names of the error(s) this function can throw - a reference by
+        // name only, not resolved/validated against a declared `error`
+        // (that's validator.rs-style work, out of scope here).
+        throws: Vec<String>,
         span: (usize, usize),
     },
     Error {

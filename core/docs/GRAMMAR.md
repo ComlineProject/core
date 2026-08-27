@@ -167,6 +167,44 @@ like `use`/`import`) is a parse error. As with annotations, nothing in the
 compiler reads a populated docstring yet - it's captured in the compiled
 schema, but doesn't currently affect generated code.
 
+### 8. Error Types
+
+Declare a named error with `error NAME { message = "..." <fields> }`.
+`message` is required - every error has one - and can be followed by zero
+or more ordinary fields (annotations/`optional`/defaults all work on them,
+same as struct fields):
+
+```idl
+error NotFoundError {
+    message = "{self.id} was not found"
+    id: u64
+}
+```
+
+**Message interpolation:** a single brace substitutes a dotted-path value
+- `{self.id}` above becomes whatever `id` is at the point the error is
+raised. A **doubled** brace (`{{` / `}}`) is an escaped literal `{`/`}`
+character instead - since a single brace always attempts interpolation,
+write `{{404}}` for the literal text `{404}`, not `{404}` (which is a
+parse error, since `404` isn't a valid path). Interpolation is only
+recognized inside `message = ...` - `const`, annotation, and field-default
+string values stay plain, non-interpolating strings.
+
+**Declaring that a function can throw one:** append `! ErrorName` after
+the return type:
+
+```idl
+protocol UserService {
+    function get(u64) -> User ! NotFoundError;
+}
+```
+
+`! ErrorName` is a bare reference - the thrown error's fields aren't bound
+to any of the function's arguments (no `! NotFoundError(some.expr)` form
+yet), and the referenced name isn't checked against an actual declared
+`error` - a typo there compiles without complaint today. A function can
+declare at most one thrown error currently.
+
 ## Type System
 
 ### Primitive Types
@@ -326,7 +364,11 @@ protocol AuthService {
 **Not Yet Supported:**
 - Postfix optional type syntax (`Type?`) - the `optional` prefix keyword
   (`optional name: Type`) is supported (see Structs above)
-- Error/exception types
+- Argument-binding on a `throws` clause (`! ErrorName(some.expr)`) - a
+  bare `! ErrorName` reference is supported (see Error Types above), and
+  a function can only declare one thrown error
+- Validating that a `! ErrorName` reference actually names a declared
+  `error` - it's captured as plain text today, not resolved
 
 **Coming Soon:**
 These features are planned for future releases.

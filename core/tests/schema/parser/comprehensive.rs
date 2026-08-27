@@ -214,6 +214,105 @@ struct AllTypes {
         assert!(grammar::parse("struct Foo { id: u64 // trailing\n}").is_ok());
     }
 
+    // ===== ERROR TESTS =====
+
+    #[test]
+    fn test_minimal_error() {
+        let code = "error NotFoundError {\n    message = \"not found\"\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_error_with_fields() {
+        let code = r#"error NotFoundError {
+    message = "{self.id} was not found"
+    id: u64
+}"#;
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_error_field_composes_with_annotation_optional_and_default() {
+        // Error fields reuse Field as-is - everything that already works
+        // on struct fields (annotations, optional, defaults) should just
+        // work here too.
+        let code = r#"error NotFoundError {
+    message = "nope"
+    @deprecated=true
+    optional id: u64 = 0
+}"#;
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_error() {
+        let code = "/// Thrown when not found.\nerror NotFoundError {\n    message = \"nope\"\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_error_missing_message_is_a_parse_error() {
+        // message = ... is mandatory - every real example has one.
+        let code = "error Bad {\n    id: u64\n}";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn test_function_with_throws() {
+        let code = "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_function_without_throws_still_parses() {
+        // Regression: throws is optional, a plain function is unaffected.
+        let code = "protocol P {\n    function get(u64) -> str;\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_interpolated_message_single_segment_path() {
+        let code = "error E {\n    message = \"{self} bad\"\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_interpolated_message_multi_segment_path() {
+        let code = "error E {\n    message = \"{self.field.nested} bad\"\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_interpolated_message_escaped_braces() {
+        let code = "error E {\n    message = \"code: {{404}}\"\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_interpolated_message_unescaped_non_path_brace_is_a_parse_error() {
+        // Confirms escaping is actually required, not accidentally
+        // optional - "404" isn't a valid placeholder path (identifiers
+        // can't start with a digit), and a single (non-doubled) brace is
+        // always a placeholder attempt, never silently literal.
+        let code = "error E {\n    message = \"code: {404}\"\n}";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn test_message_field_name_regression() {
+        // `message` becomes a keyword only inside `error { }` blocks - a
+        // struct field literally named `message` (the exact shape used by
+        // the live examples/imports package) must keep parsing fine.
+        assert!(grammar::parse("struct Foo { message: str }").is_ok());
+        assert!(grammar::parse("struct NotEdibleError {\n    message: str\n}").is_ok());
+    }
+
+    #[test]
+    fn test_message_as_function_argument_name_regression() {
+        let code = "protocol P {\n    function f(message: str) -> bool;\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
     // ===== ENUM TESTS =====
 
     #[test]
