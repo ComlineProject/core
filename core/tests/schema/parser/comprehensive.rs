@@ -117,6 +117,27 @@ enum DayOfWeek {
     }
 
     #[test]
+    fn test_protocol_named_args() {
+        let code = "protocol API { function process(name: str, age: u32) -> bool; }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_protocol_mixed_named_and_bare_args() {
+        let code = "protocol API { function process(str, count: u32, bool) -> i64; }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_protocol_named_arg_with_custom_type() {
+        // A named argument's type can itself be a custom (non-primitive)
+        // type, which shares its lexical shape with a bare-type argument -
+        // this specifically exercises that the two don't get confused.
+        let code = "protocol API { function process(user: User) -> bool; }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
     fn test_protocol_multiple_functions() {
         let code = r#"
 protocol UserService {

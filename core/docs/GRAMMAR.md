@@ -90,6 +90,10 @@ protocol UserService {
 - No arguments: `function reset() returns bool`
 - No return: `function notify(str)`  
 - Multiple args: `function process(str, u32, bool) returns i64`
+- Named args (optional): `function process(name: str, age: u32) returns bool`
+  - a bare type and a `name: Type` pair can be mixed freely in the same
+    argument list; the name (when given) is carried through to generated
+    code instead of a synthesized `arg0`/`arg1`
 
 ## Type System
 
@@ -238,7 +242,6 @@ protocol AuthService {
 **Not Yet Supported:**
 - Optional types (`optional Type` or `Type?`)
 - Annotations (`@required`, `@max=100`)
-- Named function arguments
 - Docstrings (parsed but not used)
 - Error/exception types
 - Default values for struct fields

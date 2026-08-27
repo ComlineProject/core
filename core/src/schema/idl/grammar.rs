@@ -246,9 +246,20 @@ pub mod grammar {
         pub arg: Argument,
     }
 
-    /// Function argument (simplified) - just a type for now
+    /// Optional `name:` prefix on a function argument.
+    #[derive(Debug, Clone)]
+    pub struct ArgumentName {
+        pub name: ScopedIdentifier,
+        #[rust_sitter::leaf(text = ":")]
+        _colon: (),
+    }
+
+    /// Function argument: an optional `name:` prefix, then the type -
+    /// e.g. `string` (bare) or `value: string` (named).
     #[derive(Debug, Clone)]
     pub struct Argument {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub name: Option<ArgumentName>,
         pub arg_type: Type,
     }
 
@@ -509,6 +520,9 @@ pub mod grammar {
     impl Argument {
         pub fn arg_type(&self) -> &Type {
             &self.arg_type
+        }
+        pub fn name(&self) -> Option<&ScopedIdentifier> {
+            self.name.as_ref().map(|n| &n.name)
         }
     }
 

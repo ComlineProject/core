@@ -183,14 +183,20 @@ impl IncrementalInterpreter {
 
                                 let mut args =
                                     vec![crate::schema::ir::frozen::unit::FrozenArgument {
-                                        name: "arg0".to_string(),
+                                        name: first_arg
+                                            .name()
+                                            .map(|n| n.as_str().to_string())
+                                            .unwrap_or_else(|| "arg0".to_string()),
                                         kind: type_to_kind_value(first_arg.arg_type()),
                                     }];
 
                                 for (i, comma_arg) in rest_args.iter().enumerate() {
                                     let arg = comma_arg.arg_type();
                                     args.push(crate::schema::ir::frozen::unit::FrozenArgument {
-                                        name: format!("arg{}", i + 1),
+                                        name: arg
+                                            .name()
+                                            .map(|n| n.as_str().to_string())
+                                            .unwrap_or_else(|| format!("arg{}", i + 1)),
                                         kind: type_to_kind_value(arg.arg_type()),
                                     });
                                 }

@@ -94,6 +94,45 @@ protocol TestService {
     }
 
     #[test]
+    fn test_function_argument_names() {
+        let code = r#"
+protocol TestService {
+    function bareArgs(u64, str) -> bool;
+    function namedArgs(id: u64, name: str) -> bool;
+}
+"#;
+        let parsed = grammar::parse(code);
+        assert!(parsed.is_ok());
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        arguments, ..
+                    } => {
+                        // No names given - falls back to synthesized arg0/arg1.
+                        assert_eq!(arguments[0].name, "arg0");
+                        assert_eq!(arguments[1].name, "arg1");
+                    }
+                    _ => panic!("Expected Function"),
+                }
+                match &functions[1] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        arguments, ..
+                    } => {
+                        // Real names given - used as-is.
+                        assert_eq!(arguments[0].name, "id");
+                        assert_eq!(arguments[1].name, "name");
+                    }
+                    _ => panic!("Expected Function"),
+                }
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
     fn test_function_return_types() {
         let code = r#"
 protocol ReturnTypes {
