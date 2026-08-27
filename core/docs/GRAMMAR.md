@@ -54,6 +54,20 @@ struct Container {
 }
 ```
 
+**With Default Values:**
+```idl
+struct Config {
+    retries: u32 = 3
+    label: str = "default"
+    optional timeout: s64 = -1
+}
+```
+A default composes with `optional` and uses the same value grammar as
+`const` (number, string, boolean, or an identifier/`::`-scoped reference -
+though only a literal matching the field's own primitive type is actually
+captured into the compiled schema today; anything else, like a reference
+to another constant, parses but its value isn't resolved).
+
 ### 4. Enums
 
 Define enumeration types with named variants:
@@ -252,12 +266,13 @@ protocol AuthService {
 ## Grammar Limitations
 
 **Not Yet Supported:**
-- Optional types (`optional Type` or `Type?`)
-- Annotations (`@required`, `@max=100`)
-- Docstrings (parsed but not used)
+- Postfix optional type syntax (`Type?`) - the `optional` prefix keyword
+  (`optional name: Type`) is supported (see Structs above)
+- Annotations on structs/fields (`@required`, `@max=100`) - `@key=value`
+  annotations are supported today, but only on protocols and functions
+- Docstrings (no `///` syntax exists yet - regular `//` comments are
+  discarded, not attached to declarations)
 - Error/exception types
-- Default values for struct fields
-- Union types
 
 **Coming Soon:**
 These features are planned for future releases.

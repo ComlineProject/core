@@ -148,7 +148,7 @@ pub mod grammar {
         _close: (),
     }
 
-    /// Field: name: Type
+    /// Field: name: Type [= default]
     #[derive(Debug, Clone)]
     pub struct Field {
         #[rust_sitter::leaf(text = "optional")]
@@ -157,6 +157,16 @@ pub mod grammar {
         #[rust_sitter::leaf(text = ":")]
         _colon: (),
         pub field_type: rust_sitter::Spanned<Type>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub default: Option<FieldDefault>,
+    }
+
+    /// Default value for a struct field: = VALUE
+    #[derive(Debug, Clone)]
+    pub struct FieldDefault {
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub value: Expression,
     }
 
     // ===== Enum Definition =====
@@ -450,6 +460,9 @@ pub mod grammar {
         }
         pub fn field_type_span(&self) -> (usize, usize) {
             self.field_type.span
+        }
+        pub fn default_value(&self) -> Option<&Expression> {
+            self.default.as_ref().map(|d| &d.value)
         }
     }
 
