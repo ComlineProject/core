@@ -20,7 +20,7 @@ pub mod grammar {
     /// Document root - supports multiple declarations
     #[derive(Debug)]
     #[rust_sitter::language]
-    pub struct Document(#[rust_sitter::repeat(non_empty = false)] pub Vec<Declaration>);
+    pub struct Document(#[rust_sitter::repeat(non_empty = false)] pub Vec<rust_sitter::Spanned<Declaration>>);
 
     /// Language declarations - different statement types  
     #[derive(Debug, Clone)]
@@ -126,7 +126,7 @@ pub mod grammar {
         pub name: Identifier,
         #[rust_sitter::leaf(text = ":")]
         _colon: (),
-        pub type_def: Type,
+        pub type_def: rust_sitter::Spanned<Type>,
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: Expression,
@@ -143,7 +143,7 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "{")]
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
-        pub fields: Vec<Field>,
+        pub fields: Vec<rust_sitter::Spanned<Field>>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
     }
@@ -156,7 +156,7 @@ pub mod grammar {
         pub name: Identifier,
         #[rust_sitter::leaf(text = ":")]
         _colon: (),
-        pub field_type: Type,
+        pub field_type: rust_sitter::Spanned<Type>,
     }
 
     // ===== Enum Definition =====
@@ -170,7 +170,7 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "{")]
         _open: (),
         #[rust_sitter::repeat(non_empty = true)]
-        pub variants: Vec<EnumVariant>,
+        pub variants: Vec<rust_sitter::Spanned<EnumVariant>>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
     }
@@ -205,7 +205,7 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "{")]
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
-        pub functions: Vec<Function>,
+        pub functions: Vec<rust_sitter::Spanned<Function>>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
     }
@@ -249,7 +249,7 @@ pub mod grammar {
     /// Function argument (simplified) - just a type for now
     #[derive(Debug, Clone)]
     pub struct Argument {
-        pub arg_type: Type,
+        pub arg_type: rust_sitter::Spanned<Type>,
     }
 
     /// Return type: returns Type
@@ -257,7 +257,7 @@ pub mod grammar {
     pub struct ReturnType {
         #[rust_sitter::leaf(text = "->")]
         _arrow: (),
-        pub return_type: Type,
+        pub return_type: rust_sitter::Spanned<Type>,
     }
 
     // ===== Types =====
@@ -265,10 +265,10 @@ pub mod grammar {
     /// Type
     #[derive(Debug, Clone)]
     pub enum Type {
-        I8(I8Type),
-        I16(I16Type),
-        I32(I32Type),
-        I64(I64Type),
+        S8(S8Type),
+        S16(S16Type),
+        S32(S32Type),
+        S64(S64Type),
         U8(U8Type),
         U16(U16Type),
         U32(U32Type),
@@ -280,6 +280,7 @@ pub mod grammar {
         String(StringType),
         Named(ScopedIdentifier),
         Array(Box<ArrayType>),
+        Union(UnionType),
     }
 
     /// Array type: Type[] or Type[SIZE]
@@ -294,21 +295,34 @@ pub mod grammar {
         _close: (),
     }
 
+    /// Union type: union(Type Type ...)
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i8")]
-    pub struct I8Type;
+    pub struct UnionType {
+        #[rust_sitter::leaf(text = "union")]
+        _union: (),
+        #[rust_sitter::leaf(text = "(")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = true)]
+        pub members: Vec<Type>,
+        #[rust_sitter::leaf(text = ")")]
+        _close: (),
+    }
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i16")]
-    pub struct I16Type;
+    #[rust_sitter::leaf(text = "s8")]
+    pub struct S8Type;
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i32")]
-    pub struct I32Type;
+    #[rust_sitter::leaf(text = "s16")]
+    pub struct S16Type;
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i64")]
-    pub struct I64Type;
+    #[rust_sitter::leaf(text = "s32")]
+    pub struct S32Type;
+
+    #[derive(Debug, Clone)]
+    #[rust_sitter::leaf(text = "s64")]
+    pub struct S64Type;
 
     #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u8")]
@@ -394,7 +408,10 @@ pub mod grammar {
             self.name.text.clone()
         }
         pub fn type_def(&self) -> &Type {
-            &self.type_def
+            &self.type_def.value
+        }
+        pub fn type_def_span(&self) -> (usize, usize) {
+            self.type_def.span
         }
         pub fn value(&self) -> &Expression {
             &self.value
@@ -405,7 +422,7 @@ pub mod grammar {
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
-        pub fn fields(&self) -> &Vec<Field> {
+        pub fn fields(&self) -> &Vec<rust_sitter::Spanned<Field>> {
             &self.fields
         }
     }
@@ -418,7 +435,10 @@ pub mod grammar {
             self.name.text.clone()
         }
         pub fn field_type(&self) -> &Type {
-            &self.field_type
+            &self.field_type.value
+        }
+        pub fn field_type_span(&self) -> (usize, usize) {
+            self.field_type.span
         }
     }
 
@@ -426,7 +446,7 @@ pub mod grammar {
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
-        pub fn variants(&self) -> &Vec<EnumVariant> {
+        pub fn variants(&self) -> &Vec<rust_sitter::Spanned<EnumVariant>> {
             &self.variants
         }
     }
@@ -438,7 +458,7 @@ pub mod grammar {
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
-        pub fn functions(&self) -> &Vec<Function> {
+        pub fn functions(&self) -> &Vec<rust_sitter::Spanned<Function>> {
             &self.functions
         }
     }
@@ -500,6 +520,12 @@ pub mod grammar {
         }
     }
 
+    impl UnionType {
+        pub fn members(&self) -> &Vec<Type> {
+            &self.members
+        }
+    }
+
     impl EnumVariant {
         pub fn identifier(&self) -> &Identifier {
             &self.name
@@ -508,13 +534,19 @@ pub mod grammar {
 
     impl Argument {
         pub fn arg_type(&self) -> &Type {
-            &self.arg_type
+            &self.arg_type.value
+        }
+        pub fn arg_type_span(&self) -> (usize, usize) {
+            self.arg_type.span
         }
     }
 
     impl ReturnType {
         pub fn return_type(&self) -> &Type {
-            &self.return_type
+            &self.return_type.value
+        }
+        pub fn return_type_span(&self) -> (usize, usize) {
+            self.return_type.span
         }
     }
 

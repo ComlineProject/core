@@ -1,17 +1,5 @@
-// Standard Uses
-use std::cell::Ref;
-
-// Local Uses
-use crate::schema::ir::context::SchemaContext;
-use crate::schema::ir::compiler::report::CompileError;
-use crate::schema::ir::compiler::report;
-use crate::package::config::ir::context::ProjectContext;
-use crate::report::ReportDetails;
-use crate::utils::codemap::Span;
-
 // External Uses
 use strum_macros::EnumProperty;
-use snafu::ResultExt;
 use serde_derive::{Serialize, Deserialize};
 
 
@@ -37,19 +25,19 @@ pub enum Primitive {
     #[strum(props(Name="u128", Description="unsigned 16 bytes, 128 bits"))]
     U128(Option<u128>),
 
-    #[strum(props(Name="i8", Description=""))]
+    #[strum(props(Name="s8", Description="signed 1 byte, 8 bits"))]
     S8(Option<i8>),
 
-    #[strum(props(Name="i16", Description=""))]
+    #[strum(props(Name="s16", Description="signed 2 bytes, 16 bits"))]
     S16(Option<i16>),
 
-    #[strum(props(Name="i32", Description=""))]
+    #[strum(props(Name="s32", Description="signed 4 bytes, 32 bits"))]
     S32(Option<i32>),
 
-    #[strum(props(Name="i64", Description=""))]
+    #[strum(props(Name="s64", Description="signed 8 bytes, 64 bits"))]
     S64(Option<i64>),
 
-    #[strum(props(Name="i128", Description=""))]
+    #[strum(props(Name="s128", Description="signed 16 bytes, 128 bits"))]
     S128(Option<i128>),
 
     // Float(f32), Double(f64),
@@ -126,8 +114,13 @@ impl KindValue {
 
                 (format!("Enum variant {} ({})'", name, variant_name), value)
             }
-            KindValue::Union(_) => {
-                todo!()
+            KindValue::Union(members) => {
+                let parts: Vec<String> = members
+                    .iter()
+                    .map(|member| member.name_and_value().0)
+                    .collect();
+
+                (format!("union({})", parts.join(" ")), None)
             }
             #[allow(unused)]
             KindValue::Namespaced(namespace, ..) => {
@@ -138,142 +131,5 @@ impl KindValue {
     }
 }
 
-pub fn resolve_kind_value(
-    schema_context: &Ref<'_, SchemaContext>, project_context: &'_ ProjectContext,
-    kind: &(Span, String), value: &Option<(Span, String)>
-) -> Result<KindValue, Box<dyn snafu::Error>> {
-    if value.is_none() {
-        if let Some(kind) = to_kind_only(schema_context, project_context, kind) {
-            return Ok(kind)
-        }
-    }
-
-    if let Some(kind_value) = to_kind_value(
-        schema_context, kind, value.as_ref().unwrap()
-    ) {
-        return Ok(kind_value)
-    };
-
-    Err(CompileError::TypeNotFound { name: kind.1.clone() })
-        .context(report::CompileSnafu {
-            details: ReportDetails::fetch(schema_context, &kind.0).unwrap()
-        })?
-}
-
-#[allow(unused)]
-pub(crate) fn to_kind_value(
-    schema_context: &Ref<'_, SchemaContext>,
-    kind: &(Span, String), value: &(Span, String)
-) -> Option<KindValue> {
-    if let Some(primitive) = to_primitive_kind_value(kind, &value.1) {
-        return Some(KindValue::Primitive(primitive))
-    }
-
-    None
-}
-
-#[allow(unused)]
-pub(crate) fn to_kind_only(
-    schema_context: &Ref<'_, SchemaContext>, project_context: &'_ ProjectContext,
-    kind: &(Span, String)
-) -> Option<KindValue> {
-    if let Some(primitive) = to_primitive_kind_only(kind) {
-        return Some(KindValue::Primitive(primitive))
-    }
-
-    if let Some(namespaced) = to_namespaced_kind_only(schema_context, kind) {
-        return Some(namespaced)
-    }
-
-    if let Some(union) = to_union_kind_only(schema_context, kind) {
-        return Some(union)
-    }
-
-    None
-}
-
-
-fn to_namespaced_kind_only(
-    schema_context: &Ref<'_, SchemaContext>, kind: &(Span, String)
-) -> Option<KindValue> {
-    use crate::schema::idl::grammar::Declaration;
-
-    for decl in &schema_context.declarations {
-        match decl {
-            Declaration::Struct(s) => {
-                if s.name.text == kind.1 {
-                    return Some(KindValue::Namespaced(s.name.text.clone(), None));
-                }
-            }
-            Declaration::Const(c) => {
-                if c.name.text == kind.1 {
-                    return Some(KindValue::Namespaced(c.name.text.clone(), None));
-                }
-            }
-             Declaration::Enum(e) => {
-                if e.name.text == kind.1 {
-                    return Some(KindValue::Namespaced(e.name.text.clone(), None));
-                }
-            }
-            _ => {}
-        }
-    }
-
-    None
-}
-
-
-#[allow(unused)]
-fn to_union_kind_only(
-    schema_context: &Ref<'_, SchemaContext>, kind: &(Span, String)
-) -> Option<KindValue> {
-    todo!()
-}
-
-fn to_primitive_kind_only(kind: &(Span, String)) -> Option<Primitive> {
-    use self::Primitive::*;
-    match &*kind.1 {
-        "u8" => Some(U8(None)),
-        "u16" => Some(U16(None)),
-        "u32" => Some(U32(None)),
-        "u64" => Some(U64(None)),
-        "u128" => Some(U128(None)),
-
-        "s8" => Some(S8(None)),
-        "s16" => Some(S16(None)),
-        "s32" => Some(S32(None)),
-        "s64" => Some(S64(None)),
-        "s128" => Some(S128(None)),
-
-        "str" => Some(String(None)),
-        "bool" => Some(Boolean(None)),
-        _ => { None }
-    }
-}
-
-fn to_primitive_kind_value(
-    kind: &(Span, String), value: &str
-) -> Option<Primitive> {
-    use self::Primitive::*;
-    let kv = match &*kind.1 {
-        "u8" => U8(Some(value.parse().unwrap())),
-        "u16" => U16(Some(value.parse().unwrap())),
-        "u32" => U32(Some(value.parse().unwrap())),
-        "u64" => U64(Some(value.parse().unwrap())),
-        "u128" => U128(Some(value.parse().unwrap())),
-
-        "s8" => S8(Some(value.parse().unwrap())),
-        "s16" => S16(Some(value.parse().unwrap())),
-        "s32" => S32(Some(value.parse().unwrap())),
-        "s64" => S64(Some(value.parse().unwrap())),
-        "s128" => S128(Some(value.parse().unwrap())),
-
-        "str" => String(Some(value.to_owned())),
-        "bool" => Boolean(Some(value.parse().unwrap())),
-        _ => { panic!("Got unknown type '{:#}'", kind.1) }
-    };
-
-    Some(kv)
-}
 
 

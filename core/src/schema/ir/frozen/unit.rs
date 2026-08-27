@@ -20,11 +20,15 @@ pub enum FrozenUnit {
     // Tag(String),
     Namespace(String),
     Name(String),
-    Import(String),
+    // Span is included in the hash/CAS identity deliberately: two schemas
+    // that only differ in formatting/position should not be considered
+    // content-identical.
+    Import(String, (usize, usize)),
     Constant {
         docstring: Option<String>,
         name: String,
-        kind_value: KindValue
+        kind_value: KindValue,
+        span: (usize, usize),
     },
     Property {
         name: String,
@@ -41,9 +45,10 @@ pub enum FrozenUnit {
     Enum {
         docstring: Option<String>,
         name: String,
-        variants: Vec<FrozenUnit>
+        variants: Vec<FrozenUnit>,
+        span: (usize, usize),
     },
-    EnumVariant(KindValue),
+    EnumVariant(KindValue, (usize, usize)),
     Settings {
         docstring: Option<String>,
         name: String,
@@ -54,12 +59,14 @@ pub enum FrozenUnit {
         parameters: Vec<FrozenUnit>,
         name: String,
         fields: Vec<FrozenUnit>,
+        span: (usize, usize),
     },
     Protocol {
         docstring: String,
         parameters: Vec<FrozenUnit>,
         name: String,
-        functions: Vec<FrozenUnit>
+        functions: Vec<FrozenUnit>,
+        span: (usize, usize),
     },
     Function {
         docstring: String,
@@ -68,7 +75,8 @@ pub enum FrozenUnit {
         // direction: Box<FrozenUnit>,
         arguments: Vec<FrozenArgument>,
         _return: Option<KindValue>,
-        throws: Vec<FrozenUnit>
+        throws: Vec<FrozenUnit>,
+        span: (usize, usize),
     },
     Error {
         docstring: Option<String>,
@@ -89,6 +97,7 @@ pub enum FrozenUnit {
         optional: bool,
         name: String,
         kind_value: KindValue,
+        span: (usize, usize),
     }
 }
 
@@ -96,7 +105,8 @@ pub enum FrozenUnit {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct  FrozenArgument {
     pub name: String,
-    pub kind: KindValue
+    pub kind: KindValue,
+    pub span: (usize, usize),
 }
 
 

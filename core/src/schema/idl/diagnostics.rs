@@ -125,7 +125,7 @@ pub fn print_parse_error(
     // Add context-specific notes
     if message.contains("string") || message.contains("int") || message.contains("float") {
         diagnostic = diagnostic.with_notes(vec![
-            "note: valid primitive types: u8, u16, u32, u64, i8, i16, i32, i64, f32, f64, bool, str".to_string()
+            "note: valid primitive types: u8, u16, u32, u64, s8, s16, s32, s64, f32, f64, bool, str".to_string()
         ]);
     }
     
@@ -140,7 +140,7 @@ pub fn print_parse_error(
 fn get_suggestion(token: &str) -> Option<String> {
     match token {
         "string" => Some("help: did you mean `str`?".to_string()),
-        "int" => Some("help: use sized integer types like `u32`, `i32`, `u64`, etc.".to_string()),
+        "int" => Some("help: use sized integer types like `u32`, `s32`, `u64`, etc.".to_string()),
         "float" => Some("help: use `f32` or `f64`".to_string()),
         "array" => Some("help: use array syntax like `Type[]` or `Type[N]`".to_string()),
         _ => None,

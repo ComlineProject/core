@@ -51,7 +51,7 @@ fn test_resolve_and_load_stdlib() {
     let use_stmt_source = "use std::collections::HashMap";
     let document = grammar::parse(use_stmt_source).expect("use statement should parse");
 
-    let comline_core::schema::idl::grammar::Declaration::Use(use_stmt) = &document.0[0] else {
+    let comline_core::schema::idl::grammar::Declaration::Use(use_stmt) = &document.0[0].value else {
         panic!("Expected a Use declaration, got {:?}", document.0[0]);
     };
 

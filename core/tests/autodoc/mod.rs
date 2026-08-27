@@ -16,6 +16,7 @@ static PREVIOUS_FROZEN_UNITS: Lazy<Vec<FrozenUnit>> = Lazy::new(||
         FrozenUnit::Constant {
             docstring: None,
             name: "DUCKS".to_string(), kind_value: KindValue::Primitive(Primitive::U8(Some(10))),
+            span: (0, 0),
         }
     ]
 );
@@ -26,6 +27,7 @@ static CURRENT_FROZEN_UNITS: Lazy<Vec<FrozenUnit>> = Lazy::new(||
         FrozenUnit::Constant {
             docstring: None,
             name: "DUCKS".to_string(), kind_value: KindValue::Primitive(Primitive::U8(Some(15))),
+            span: (0, 0),
         }
     ]
 );

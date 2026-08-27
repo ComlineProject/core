@@ -63,3 +63,25 @@ pub enum Report {
         details: ReportDetails,
     },
 }
+
+impl Report {
+    /// Render this report as a rich, source-span-aware ariadne diagnostic,
+    /// pointing at the exact byte range recorded in its `ReportDetails`.
+    /// Falls back to the plain `snafu`-formatted message (via `Display`) if
+    /// the schema's source text isn't available for some reason.
+    pub fn print_rich(&self, schema_context: &crate::schema::ir::context::SchemaContext) -> String {
+        use crate::schema::ir::diagnostics::render_compile_message;
+
+        let (source, details) = match self {
+            Report::CompileErrorError { source, details } => (source.to_string(), details),
+            Report::CompileWarningError { source, details } => (source.to_string(), details),
+        };
+
+        render_compile_message(
+            &source,
+            "here",
+            (details.pos.start, details.pos.end),
+            schema_context,
+        )
+    }
+}
