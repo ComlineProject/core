@@ -111,10 +111,13 @@ fn map_str_type(s: &str) -> String {
         "u16" => "u16".to_string(),
         "u32" => "u32".to_string(),
         "u64" => "u64".to_string(),
-        "i8" => "i8".to_string(),
-        "i16" => "i16".to_string(),
-        "i32" => "i32".to_string(),
-        "i64" => "i64".to_string(),
+        // IDL spells signed integers with an `s` prefix (s8/s16/s32/s64);
+        // Rust's own primitives are always `i`-prefixed, so this is a real
+        // translation, not a passthrough.
+        "s8" => "i8".to_string(),
+        "s16" => "i16".to_string(),
+        "s32" => "i32".to_string(),
+        "s64" => "i64".to_string(),
         other => other.to_string(),
     }
 }

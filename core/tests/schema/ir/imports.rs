@@ -195,3 +195,70 @@ fn test_same_package_symbol_not_found_still_compiles() {
         frozen
     );
 }
+
+#[test]
+fn test_whole_namespace_import_allows_qualified_field_reference() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types\n\nstruct Response {\n    user: types::User\n}\n",
+    );
+
+    interpret_context(&project).expect(
+        "a field qualified with an imported namespace should resolve, now that whole-namespace \
+         imports expand into per-symbol Import units",
+    );
+}
+
+#[test]
+fn test_glob_import_allows_qualified_field_reference() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types::*\n\nstruct Response {\n    user: types::User\n}\n",
+    );
+
+    interpret_context(&project).expect(
+        "a field qualified with a glob-imported namespace should resolve, now that glob \
+         imports expand into per-symbol Import units",
+    );
+}
+
+#[test]
+fn test_unknown_field_type_fails_compilation() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["api"],
+        "struct Response {\n    id: Bogus\n}\n",
+    );
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "A field referencing a type that's never declared or imported should now fail \
+         compilation instead of silently compiling, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_duplicate_struct_name_fails_compilation() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["api"],
+        "struct User {\n    id: u64\n}\n\nstruct User {\n    id: u64\n}\n",
+    );
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "Two structs with the same name in one schema should fail compilation, got {:?}",
+        result
+    );
+}

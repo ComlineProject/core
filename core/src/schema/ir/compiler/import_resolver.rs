@@ -291,6 +291,26 @@ pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> b
     })
 }
 
+/// All top-level symbol (struct/enum/protocol/const) names a schema declares.
+/// Used to expand whole-namespace/glob `use` imports into per-symbol
+/// `FrozenUnit::Import`s, so field types written as `ns::Symbol` after such
+/// an import can actually be found by validation.
+pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
+    use crate::schema::idl::grammar::Declaration;
+
+    schema_context
+        .declarations
+        .iter()
+        .filter_map(|decl| match &decl.value {
+            Declaration::Struct(s) => Some(s.name.text.clone()),
+            Declaration::Enum(e) => Some(e.name.text.clone()),
+            Declaration::Protocol(p) => Some(p.name.text.clone()),
+            Declaration::Const(c) => Some(c.name.text.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

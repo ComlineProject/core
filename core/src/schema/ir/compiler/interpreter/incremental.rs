@@ -6,7 +6,7 @@
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, UsePath};
 use crate::schema::ir::compiler::import_resolver::{
-    resolve_use_to_schema, schema_declares_symbol, ImportResolver,
+    declared_symbol_names, resolve_use_to_schema, schema_declares_symbol, ImportResolver,
 };
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
@@ -81,10 +81,10 @@ impl IncrementalInterpreter {
                         crate::schema::idl::grammar::Type::U16(_) => "u16",
                         crate::schema::idl::grammar::Type::U32(_) => "u32",
                         crate::schema::idl::grammar::Type::U64(_) => "u64",
-                        crate::schema::idl::grammar::Type::I8(_) => "i8",
-                        crate::schema::idl::grammar::Type::I16(_) => "i16",
-                        crate::schema::idl::grammar::Type::I32(_) => "i32",
-                        crate::schema::idl::grammar::Type::I64(_) => "i64",
+                        crate::schema::idl::grammar::Type::S8(_) => "s8",
+                        crate::schema::idl::grammar::Type::S16(_) => "s16",
+                        crate::schema::idl::grammar::Type::S32(_) => "s32",
+                        crate::schema::idl::grammar::Type::S64(_) => "s64",
                         crate::schema::idl::grammar::Type::F32(_)
                         | crate::schema::idl::grammar::Type::F64(_) => "float",
                         crate::schema::idl::grammar::Type::Bool(_) => "bool",
@@ -102,7 +102,7 @@ impl IncrementalInterpreter {
                             crate::schema::idl::grammar::Expression::Integer(int_lit),
                         ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
                         (
-                            "i8" | "i16" | "i32" | "i64",
+                            "s8" | "s16" | "s32" | "s64",
                             crate::schema::idl::grammar::Expression::Integer(int_lit),
                         ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
                         ("bool", _) => KindValue::Primitive(Primitive::Boolean(Some(false))),
@@ -270,10 +270,10 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
         crate::schema::idl::grammar::Type::U16(_) => "u16".to_string(),
         crate::schema::idl::grammar::Type::U32(_) => "u32".to_string(),
         crate::schema::idl::grammar::Type::U64(_) => "u64".to_string(),
-        crate::schema::idl::grammar::Type::I8(_) => "i8".to_string(),
-        crate::schema::idl::grammar::Type::I16(_) => "i16".to_string(),
-        crate::schema::idl::grammar::Type::I32(_) => "i32".to_string(),
-        crate::schema::idl::grammar::Type::I64(_) => "i64".to_string(),
+        crate::schema::idl::grammar::Type::S8(_) => "s8".to_string(),
+        crate::schema::idl::grammar::Type::S16(_) => "s16".to_string(),
+        crate::schema::idl::grammar::Type::S32(_) => "s32".to_string(),
+        crate::schema::idl::grammar::Type::S64(_) => "s64".to_string(),
         crate::schema::idl::grammar::Type::F32(_) | crate::schema::idl::grammar::Type::F64(_) => {
             "float".to_string()
         }
@@ -339,7 +339,13 @@ fn resolve_use_declaration(
 
     // Glob import: `use ns::*;`
     if target.resolved.symbols == ["*".to_string()] {
-        return vec![FrozenUnit::Import(format!("{}::*", joined_namespace), span)];
+        let mut units = vec![FrozenUnit::Import(format!("{}::*", joined_namespace), span)];
+        if let Some(schema) = &target.schema {
+            units.extend(declared_symbol_names(&schema.borrow()).into_iter().map(|name| {
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, name), span)
+            }));
+        }
+        return units;
     }
 
     // Item imports: `use ns::{A, B};`
@@ -361,7 +367,14 @@ fn resolve_use_declaration(
     // Whole-namespace or single-symbol import (`use ns;` / `use ns::Symbol;`)
     match &target.schema {
         Some(schema) if target.remaining.is_empty() => {
-            vec![FrozenUnit::Import(schema.borrow().namespace_joined(), span)]
+            let ns = schema.borrow().namespace_joined();
+            let mut units = vec![FrozenUnit::Import(ns.clone(), span)];
+            units.extend(
+                declared_symbol_names(&schema.borrow())
+                    .into_iter()
+                    .map(|name| FrozenUnit::Import(format!("{}::{}", ns, name), span)),
+            );
+            units
         }
         Some(schema) => {
             let symbol = target.remaining.join("::");

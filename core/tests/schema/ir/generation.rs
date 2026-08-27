@@ -95,7 +95,7 @@ protocol UserService {
 const MAX_USERS: u32 = 1000
 const API_VERSION: str = "v1.0"
 const ENABLED: bool = true
-const MIN_VALUE: i8 = -128
+const MIN_VALUE: s8 = -128
 "#;
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse constants");

@@ -1,7 +1,12 @@
+// Standard Uses
+use std::collections::{HashMap, HashSet};
+
+// Local Uses
 use super::{ValidationError, symbols::{SymbolTable, SymbolType}};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
-use std::collections::{HashMap, HashSet};
+
+
 
 pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
     let mut errors = vec![];
@@ -19,7 +24,16 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             _ => continue,
         };
 
-        if let Err(_existing_kind) = symbols.insert(name, kind) {
+        if let Err(existing_kind) = symbols.insert(name, kind) {
+            // Two `use` paths naming the same symbol (e.g. a whole-namespace
+            // import expanded alongside an explicit named import of one of
+            // its symbols) is redundant, not a conflict - only a real
+            // duplicate declaration, or an import colliding with one, is an
+            // error.
+            if kind == SymbolType::Import && existing_kind == SymbolType::Import {
+                continue;
+            }
+
             errors.push(ValidationError {
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),
@@ -180,9 +194,9 @@ fn validate_type(
 }
 
 fn is_primitive(name: &str) -> bool {
-    matches!(name, 
-        "bool" | "u8" | "u16" | "u32" | "u64" | "u128" | 
-        "i8" | "i16" | "i32" | "i64" | "i128" | 
+    matches!(name,
+        "bool" | "u8" | "u16" | "u32" | "u64" | "u128" |
+        "s8" | "s16" | "s32" | "s64" | "s128" |
         "f32" | "f64" | "str" | "string"
     )
 }

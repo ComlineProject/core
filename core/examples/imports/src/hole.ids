@@ -7,4 +7,5 @@ use ant::{Ant, Mood, CantCarryError}
 use food::{Food, State, NotEdibleError}
 
 protocol Gathering {
+    function gather(ant::Ant) -> food::Food;
 }

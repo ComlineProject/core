@@ -15,7 +15,7 @@ fn test_generate_simple_struct() {
                     parameters: vec![],
                     optional: false,
                     name: "id".to_string(),
-                    kind_value: KindValue::Namespaced("i32".to_string(), None),
+                    kind_value: KindValue::Namespaced("s32".to_string(), None),
                     span: (0, 0),
                 },
                 FrozenUnit::Field {

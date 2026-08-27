@@ -265,10 +265,10 @@ pub mod grammar {
     /// Type
     #[derive(Debug, Clone)]
     pub enum Type {
-        I8(I8Type),
-        I16(I16Type),
-        I32(I32Type),
-        I64(I64Type),
+        S8(S8Type),
+        S16(S16Type),
+        S32(S32Type),
+        S64(S64Type),
         U8(U8Type),
         U16(U16Type),
         U32(U32Type),
@@ -309,20 +309,20 @@ pub mod grammar {
     }
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i8")]
-    pub struct I8Type;
+    #[rust_sitter::leaf(text = "s8")]
+    pub struct S8Type;
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i16")]
-    pub struct I16Type;
+    #[rust_sitter::leaf(text = "s16")]
+    pub struct S16Type;
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i32")]
-    pub struct I32Type;
+    #[rust_sitter::leaf(text = "s32")]
+    pub struct S32Type;
 
     #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "i64")]
-    pub struct I64Type;
+    #[rust_sitter::leaf(text = "s64")]
+    pub struct S64Type;
 
     #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "u8")]

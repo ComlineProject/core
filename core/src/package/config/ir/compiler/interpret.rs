@@ -6,7 +6,9 @@ use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::import_resolver::{resolve_use_to_schema, ImportResolver};
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
+use crate::schema::ir::diagnostics::render_validation_error;
 use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::validation;
 
 // External Uses
 use eyre::{bail, Result};
@@ -15,6 +17,8 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     if let Some(cycle) = detect_import_cycle(project_context) {
         bail!("Import cycle detected between schemas: {}", cycle.join(" -> "));
     }
+
+    let mut schema_errors: Vec<String> = vec![];
 
     for schema_context in project_context.schema_contexts.iter() {
         let declarations = { schema_context.borrow().declarations.clone() };
@@ -28,10 +32,26 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
-        frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined));
+        frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
+
+        if let Err(errors) = validation::validate(&frozen_units) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| render_validation_error(error, &schema_context.borrow()))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' failed validation:\n{}",
+                namespace_joined,
+                rendered.join("\n\n")
+            ));
+        }
 
         *schema_context.borrow().frozen_schema.borrow_mut() = Some(frozen_units);
         schema_context.borrow().compile_state.borrow_mut().complete = true;
+    }
+
+    if !schema_errors.is_empty() {
+        bail!("{}", schema_errors.join("\n\n"));
     }
 
     Ok(())
