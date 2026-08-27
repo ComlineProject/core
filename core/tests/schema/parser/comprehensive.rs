@@ -126,6 +126,94 @@ struct AllTypes {
         assert!(grammar::parse(code).is_ok());
     }
 
+    // ===== DOCSTRING TESTS =====
+
+    #[test]
+    fn test_docstring_on_struct() {
+        let code = "/// A user.\nstruct User { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_field() {
+        let code = "struct Foo {\n    /// The id.\n    id: u64\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_enum() {
+        let code = "/// Status values.\nenum Status { Active }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_protocol() {
+        let code = "/// A service.\nprotocol P { function f() -> u64; }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_function() {
+        let code = "protocol P {\n    /// Get something.\n    function f() -> u64;\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_on_const() {
+        let code = "/// The max.\nconst MAX: u32 = 10";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_multi_line_docstring() {
+        let code = "/// Line one.\n/// @foo: line two.\nstruct Foo { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_composes_with_annotation() {
+        let code = "/// Docs.\n@indexed=true\nstruct Foo { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_docstring_composes_with_annotation_on_field() {
+        let code = "struct Foo {\n    /// Docs.\n    @deprecated=true\n    id: u64\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_misplaced_docstring_is_a_parse_error() {
+        // Deliberate: unlike a plain `//` comment, a `///` docstring is a
+        // real grammar rule, not a discarded `extra` - it only parses
+        // immediately before something that can carry one. A `///` line
+        // with nothing valid following it (here: end of input) is a parse
+        // error, not a silently-dropped comment.
+        let code = "struct Foo { id: u64 }\n/// orphaned";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn test_misplaced_docstring_before_use_is_a_parse_error() {
+        // `use` doesn't have a docstring slot (out of scope - it's not one
+        // of the six declaration kinds FrozenUnit has a docstring field
+        // for), so a `///` line before it is also a parse error.
+        let code = "/// orphaned\nuse types";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn test_plain_comments_still_work_after_docstring_support() {
+        // Regression guard for the Comment pattern restriction: every
+        // pre-existing `//` comment shape must still parse exactly as
+        // before - a comment with a space after `//`, no space, a bare
+        // `//` alone, and one trailing after code on the same line.
+        assert!(grammar::parse("// just a comment\nstruct Foo { id: u64 }").is_ok());
+        assert!(grammar::parse("//nospace\nstruct Foo { id: u64 }").is_ok());
+        assert!(grammar::parse("//\nstruct Foo { id: u64 }").is_ok());
+        assert!(grammar::parse("struct Foo { id: u64 // trailing\n}").is_ok());
+    }
+
     // ===== ENUM TESTS =====
 
     #[test]

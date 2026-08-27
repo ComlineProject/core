@@ -40,6 +40,128 @@ struct TestStruct {
     }
 
     #[test]
+    fn test_struct_and_field_docstrings_populate_ir() {
+        let code = r#"
+/// A user account.
+struct User {
+    /// The user's unique id.
+    id: u64
+    name: str
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct {
+                docstring,
+                fields,
+                ..
+            } => {
+                assert_eq!(docstring.as_deref(), Some("A user account."));
+
+                match &fields[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        docstring, ..
+                    } => {
+                        assert_eq!(docstring.as_deref(), Some("The user's unique id."));
+                    }
+                    _ => panic!("Expected Field"),
+                }
+                // A field with no docstring keeps behaving exactly as
+                // before the shared build_kind_value/docstring wiring.
+                match &fields[1] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        docstring, ..
+                    } => {
+                        assert_eq!(*docstring, None);
+                    }
+                    _ => panic!("Expected Field"),
+                }
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_multi_line_docstring_is_newline_joined() {
+        let code = r#"
+/// Checks if a string length is within bounds.
+/// @min_chars: Minimum length of the string.
+struct StringBounds {
+    min_chars: u32
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { docstring, .. } => {
+                assert_eq!(
+                    docstring.as_deref(),
+                    Some(
+                        "Checks if a string length is within bounds.\n@min_chars: Minimum length of the string."
+                    )
+                );
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
+    fn test_protocol_and_function_docstrings_populate_ir() {
+        let code = r#"
+/// A user service.
+protocol UserService {
+    /// Get a user by id.
+    function get(u64) -> str;
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol {
+                docstring,
+                functions,
+                ..
+            } => {
+                assert_eq!(docstring, "A user service.");
+
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        docstring, ..
+                    } => {
+                        assert_eq!(docstring, "Get a user by id.");
+                    }
+                    _ => panic!("Expected Function"),
+                }
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
+    fn test_enum_and_const_docstrings_populate_ir() {
+        let code = r#"
+/// Status values.
+enum Status {
+    Active
+}
+
+/// The max allowed.
+const MAX: u32 = 10
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Enum { docstring, .. } => {
+                assert_eq!(docstring.as_deref(), Some("Status values."));
+            }
+            _ => panic!("Expected Enum"),
+        }
+        match &ir_units[1] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Constant { docstring, .. } => {
+                assert_eq!(docstring.as_deref(), Some("The max allowed."));
+            }
+            _ => panic!("Expected Constant"),
+        }
+    }
+
+    #[test]
     fn test_struct_field_default_values() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 

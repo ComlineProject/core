@@ -78,7 +78,7 @@ impl IncrementalInterpreter {
                     let kind_value = build_kind_value(type_def, Some(value));
 
                     frozen_units.push(FrozenUnit::Constant {
-                        docstring: None,
+                        docstring: const_decl.docstring(),
                         name,
                         kind_value,
                         span,
@@ -97,7 +97,7 @@ impl IncrementalInterpreter {
                             let kind_value = build_kind_value(field_type, field.default_value());
 
                             FrozenUnit::Field {
-                                docstring: None,
+                                docstring: field.docstring(),
                                 parameters: vec![],
                                 optional: field.optional(),
                                 name: fname,
@@ -108,7 +108,7 @@ impl IncrementalInterpreter {
                         .collect();
 
                     frozen_units.push(FrozenUnit::Struct {
-                        docstring: None,
+                        docstring: struct_def.docstring(),
                         parameters: vec![],
                         name: struct_name,
                         fields: field_units,
@@ -130,7 +130,7 @@ impl IncrementalInterpreter {
                         .collect();
 
                     frozen_units.push(FrozenUnit::Enum {
-                        docstring: None,
+                        docstring: enum_def.docstring(),
                         name: enum_name,
                         variants: variant_units,
                         span,
@@ -186,7 +186,7 @@ impl IncrementalInterpreter {
                                 arguments,
                                 _return: return_type,
                                 synchronous: true,
-                                docstring: String::new(),
+                                docstring: func.docstring().unwrap_or_default(),
                                 throws: vec![],
                                 span: func.span,
                             }
@@ -194,7 +194,7 @@ impl IncrementalInterpreter {
                         .collect();
 
                     frozen_units.push(FrozenUnit::Protocol {
-                        docstring: String::new(),
+                        docstring: protocol.docstring().unwrap_or_default(),
                         name: protocol_name,
                         functions: function_units,
                         parameters: vec![],
