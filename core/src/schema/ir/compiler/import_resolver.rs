@@ -282,13 +282,33 @@ pub fn resolve_use_to_schema(
 pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> bool {
     use crate::schema::idl::grammar::Declaration;
 
-    schema_context.declarations.iter().any(|decl| match decl {
+    schema_context.declarations.iter().any(|decl| match &decl.value {
         Declaration::Struct(s) => s.name.text == symbol,
         Declaration::Enum(e) => e.name.text == symbol,
         Declaration::Protocol(p) => p.name.text == symbol,
         Declaration::Const(c) => c.name.text == symbol,
         _ => false,
     })
+}
+
+/// All top-level symbol (struct/enum/protocol/const) names a schema declares.
+/// Used to expand whole-namespace/glob `use` imports into per-symbol
+/// `FrozenUnit::Import`s, so field types written as `ns::Symbol` after such
+/// an import can actually be found by validation.
+pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
+    use crate::schema::idl::grammar::Declaration;
+
+    schema_context
+        .declarations
+        .iter()
+        .filter_map(|decl| match &decl.value {
+            Declaration::Struct(s) => Some(s.name.text.clone()),
+            Declaration::Enum(e) => Some(e.name.text.clone()),
+            Declaration::Protocol(p) => Some(p.name.text.clone()),
+            Declaration::Const(c) => Some(c.name.text.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

@@ -30,10 +30,10 @@ struct Person {
     fn test_struct_all_primitive_types() {
         let code = r#"
 struct AllTypes {
-    i8_field: i8
-    i16_field: i16
-    i32_field: i32
-    i64_field: i64
+    s8_field: s8
+    s16_field: s16
+    s32_field: s32
+    s64_field: s64
     u8_field: u8
     u16_field: u16
     u32_field: u32
@@ -112,7 +112,7 @@ enum DayOfWeek {
 
     #[test]
     fn test_protocol_multiple_args() {
-        let code = "protocol API { function process(str, u32, bool) -> i64; }";
+        let code = "protocol API { function process(str, u32, bool) -> s64; }";
         assert!(grammar::parse(code).is_ok());
     }
 

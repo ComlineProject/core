@@ -60,7 +60,7 @@ fn test_whole_schema_use_resolves_across_files() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types")),
         "Expected a resolved import of 'types', got {:?}",
         frozen
     );
@@ -82,7 +82,7 @@ fn test_symbol_use_resolves_to_declaring_schema() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::User")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::User")),
         "Expected a resolved import of 'types::User', got {:?}",
         frozen
     );
@@ -109,7 +109,7 @@ fn test_multi_item_use_resolves_each_symbol() {
         assert!(
             frozen
                 .iter()
-                .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == expected)),
+                .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == expected)),
             "Expected a resolved import of '{}', got {:?}",
             expected,
             frozen
@@ -133,7 +133,7 @@ fn test_glob_use_resolves_namespace() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::*")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::*")),
         "Expected a resolved glob import of 'types::*', got {:?}",
         frozen
     );
@@ -166,7 +166,7 @@ fn test_unresolved_use_does_not_panic() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path.starts_with("<unresolved:"))),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path.starts_with("<unresolved:"))),
         "Expected an unresolved-import marker, got {:?}",
         frozen
     );
@@ -190,8 +190,75 @@ fn test_same_package_symbol_not_found_still_compiles() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path) if path == "types::Missing")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::Missing")),
         "Expected a best-effort import of 'types::Missing', got {:?}",
         frozen
+    );
+}
+
+#[test]
+fn test_whole_namespace_import_allows_qualified_field_reference() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types\n\nstruct Response {\n    user: types::User\n}\n",
+    );
+
+    interpret_context(&project).expect(
+        "a field qualified with an imported namespace should resolve, now that whole-namespace \
+         imports expand into per-symbol Import units",
+    );
+}
+
+#[test]
+fn test_glob_import_allows_qualified_field_reference() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types::*\n\nstruct Response {\n    user: types::User\n}\n",
+    );
+
+    interpret_context(&project).expect(
+        "a field qualified with a glob-imported namespace should resolve, now that glob \
+         imports expand into per-symbol Import units",
+    );
+}
+
+#[test]
+fn test_unknown_field_type_fails_compilation() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["api"],
+        "struct Response {\n    id: Bogus\n}\n",
+    );
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "A field referencing a type that's never declared or imported should now fail \
+         compilation instead of silently compiling, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_duplicate_struct_name_fails_compilation() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["api"],
+        "struct User {\n    id: u64\n}\n\nstruct User {\n    id: u64\n}\n",
+    );
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "Two structs with the same name in one schema should fail compilation, got {:?}",
+        result
     );
 }

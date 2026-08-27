@@ -71,7 +71,7 @@ enum Color {
 protocol TestService {
     function noArgs() -> str;
     function oneArg(u64) -> bool;
-    function twoArgs(str, u32) -> i64;
+    function twoArgs(str, u32) -> s64;
     function manyArgs(u8, u16, u32, u64, str, bool) -> str;
 }
 "#;
@@ -162,8 +162,8 @@ protocol ReturnTypes {
 const U8_VAL: u8 = 255
 const U16_VAL: u16 = 65535
 const U32_VAL: u32 = 4294967295
-const I8_MIN: i8 = -128
-const I8_MAX: i8 = 127
+const I8_MIN: s8 = -128
+const I8_MAX: s8 = 127
 const BOOL_TRUE: bool = true
 const BOOL_FALSE: bool = false
 const STR_VAL: str = "hello"
@@ -278,7 +278,7 @@ import std
 
 const API_VERSION: str = "2.0"
 const MAX_USERS: u32 = 10000
-const TIMEOUT_MS: i32 = 5000
+const TIMEOUT_MS: s32 = 5000
 
 enum UserRole {
     Admin

@@ -136,8 +136,8 @@ protocol MessagingService {
 const MAX_U8: u8 = 255
 const MAX_U16: u16 = 65535
 const MAX_U32: u32 = 4294967295
-const MAX_I8: i8 = 127
-const MIN_I8: i8 = -128
+const MAX_S8: s8 = 127
+const MIN_S8: s8 = -128
 const ENABLED: bool = true
 const NAME: str = "test"
 "#;
@@ -151,7 +151,7 @@ protocol TestService {
     function noArgs() -> str;
     function oneArg(u64) -> bool;
     function twoArgs(str, u32) -> str;
-    function manyArgs(u8, u16, u32, u64, str, bool) -> i64;
+    function manyArgs(u8, u16, u32, u64, str, bool) -> s64;
     function noReturn(str);
     function arrayArg(str[]) -> u32;
 }

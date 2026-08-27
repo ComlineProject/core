@@ -143,3 +143,63 @@ struct NodeB {
     let errors = result.unwrap_err();
     assert!(errors[0].message.contains("Cycle detected"));
 }
+
+#[test]
+fn test_duplicate_definition_error_has_span() {
+    let code = "struct User {
+    id: u64
+}
+
+struct User {
+    name: str
+}
+";
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+
+    let span = errors[0].span.expect("duplicate-definition error should carry a span");
+    // The span should point at the second (duplicate) `struct User` declaration.
+    assert_eq!(&code[span.0..span.1], "struct User {
+    name: str
+}");
+}
+
+#[test]
+fn test_unknown_type_error_has_span() {
+    let code = "struct Post {
+    author: Author
+}
+";
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+
+    let span = errors[0].span.expect("unknown-type error should carry a span");
+    // Field-level granularity: the span covers the whole `author: Author` field.
+    assert_eq!(&code[span.0..span.1], "author: Author");
+}
+
+#[test]
+fn test_union_field_with_valid_members_passes() {
+    let code = "struct Response {
+    status: union(str u32)
+}
+";
+    let ir = IncrementalInterpreter::from_source(code);
+    let result = validate(&ir);
+
+    assert!(result.is_ok(), "Expected valid union to pass validation, got {:?}", result.err());
+}
+
+#[test]
+fn test_union_field_with_unknown_member_fails() {
+    let code = "struct Response {
+    status: union(str MissingType)
+}
+";
+    let ir = IncrementalInterpreter::from_source(code);
+    let result = validate(&ir);
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("Unknown type 'MissingType'")));
+}

@@ -6,7 +6,7 @@
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, UsePath};
 use crate::schema::ir::compiler::import_resolver::{
-    resolve_use_to_schema, schema_declares_symbol, ImportResolver,
+    declared_symbol_names, resolve_use_to_schema, schema_declares_symbol, ImportResolver,
 };
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
@@ -23,7 +23,7 @@ impl IncrementalInterpreter {
     /// package resolve to real, verified references instead of raw path
     /// strings.
     pub fn from_declarations_with_context(
-        declarations: Vec<Declaration>,
+        declarations: Vec<rust_sitter::Spanned<Declaration>>,
         current_namespace: &[String],
         project_context: &ProjectContext,
     ) -> Vec<FrozenUnit> {
@@ -35,7 +35,7 @@ impl IncrementalInterpreter {
 impl Compile for IncrementalInterpreter {
     type Output = Vec<FrozenUnit>;
 
-    fn from_declarations(declarations: Vec<Declaration>) -> Self::Output {
+    fn from_declarations(declarations: Vec<rust_sitter::Spanned<Declaration>>) -> Self::Output {
         Self::compile_declarations(declarations, None)
     }
 }
@@ -43,18 +43,20 @@ impl Compile for IncrementalInterpreter {
 #[allow(unused)]
 impl IncrementalInterpreter {
     fn compile_declarations(
-        declarations: Vec<Declaration>,
+        declarations: Vec<rust_sitter::Spanned<Declaration>>,
         use_context: Option<(&[String], &ProjectContext)>,
     ) -> Vec<FrozenUnit> {
         tracing::debug!("Processing {} declarations...", declarations.len());
 
         let mut frozen_units: Vec<FrozenUnit> = vec![];
 
-        for decl in declarations {
-            match decl {
+        for spanned_decl in declarations {
+            let span = spanned_decl.span;
+
+            match spanned_decl.value {
                 Declaration::Import(import) => {
                     // Legacy import support
-                    frozen_units.push(FrozenUnit::Import(import.path()));
+                    frozen_units.push(FrozenUnit::Import(import.path(), span));
                 }
                 Declaration::Use(use_stmt) => {
                     let units = match use_context {
@@ -62,8 +64,9 @@ impl IncrementalInterpreter {
                             project_context,
                             current_namespace,
                             &use_stmt.path,
+                            span,
                         ),
-                        None => vec![FrozenUnit::Import(extract_use_path(&use_stmt.path))],
+                        None => vec![FrozenUnit::Import(extract_use_path(&use_stmt.path), span)],
                     };
                     frozen_units.extend(units);
                 }
@@ -78,10 +81,10 @@ impl IncrementalInterpreter {
                         crate::schema::idl::grammar::Type::U16(_) => "u16",
                         crate::schema::idl::grammar::Type::U32(_) => "u32",
                         crate::schema::idl::grammar::Type::U64(_) => "u64",
-                        crate::schema::idl::grammar::Type::I8(_) => "i8",
-                        crate::schema::idl::grammar::Type::I16(_) => "i16",
-                        crate::schema::idl::grammar::Type::I32(_) => "i32",
-                        crate::schema::idl::grammar::Type::I64(_) => "i64",
+                        crate::schema::idl::grammar::Type::S8(_) => "s8",
+                        crate::schema::idl::grammar::Type::S16(_) => "s16",
+                        crate::schema::idl::grammar::Type::S32(_) => "s32",
+                        crate::schema::idl::grammar::Type::S64(_) => "s64",
                         crate::schema::idl::grammar::Type::F32(_)
                         | crate::schema::idl::grammar::Type::F64(_) => "float",
                         crate::schema::idl::grammar::Type::Bool(_) => "bool",
@@ -89,6 +92,7 @@ impl IncrementalInterpreter {
                         crate::schema::idl::grammar::Type::String(_) => "string",
                         crate::schema::idl::grammar::Type::Named(id) => id.as_str(),
                         crate::schema::idl::grammar::Type::Array(_) => "array",
+                        crate::schema::idl::grammar::Type::Union(_) => "union",
                     };
 
                     // Parse value
@@ -98,7 +102,7 @@ impl IncrementalInterpreter {
                             crate::schema::idl::grammar::Expression::Integer(int_lit),
                         ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
                         (
-                            "i8" | "i16" | "i32" | "i64",
+                            "s8" | "s16" | "s32" | "s64",
                             crate::schema::idl::grammar::Expression::Integer(int_lit),
                         ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
                         ("bool", _) => KindValue::Primitive(Primitive::Boolean(Some(false))),
@@ -115,6 +119,7 @@ impl IncrementalInterpreter {
                         docstring: None,
                         name,
                         kind_value,
+                        span,
                     });
                 }
                 Declaration::Struct(struct_def) => {
@@ -127,14 +132,15 @@ impl IncrementalInterpreter {
                             let fname = field.name();
                             let field_type = field.field_type();
 
-                            let type_str = type_to_string(field_type);
+                            let kind_value = type_to_kind_value(field_type);
 
                             FrozenUnit::Field {
                                 docstring: None,
                                 parameters: vec![],
                                 optional: field.optional(),
                                 name: fname,
-                                kind_value: KindValue::Namespaced(type_str, None),
+                                kind_value,
+                                span: field.span,
                             }
                         })
                         .collect();
@@ -144,6 +150,7 @@ impl IncrementalInterpreter {
                         parameters: vec![],
                         name: struct_name,
                         fields: field_units,
+                        span,
                     });
                 }
                 Declaration::Enum(enum_def) => {
@@ -153,10 +160,10 @@ impl IncrementalInterpreter {
                     let variant_units: Vec<FrozenUnit> = variants
                         .iter()
                         .map(|variant| {
-                            FrozenUnit::EnumVariant(KindValue::EnumVariant(
-                                variant.identifier().to_string(),
-                                None,
-                            ))
+                            FrozenUnit::EnumVariant(
+                                KindValue::EnumVariant(variant.identifier().to_string(), None),
+                                variant.span,
+                            )
                         })
                         .collect();
 
@@ -164,6 +171,7 @@ impl IncrementalInterpreter {
                         docstring: None,
                         name: enum_name,
                         variants: variant_units,
+                        span,
                     });
                 }
                 Declaration::Protocol(protocol) => {
@@ -188,6 +196,7 @@ impl IncrementalInterpreter {
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| "arg0".to_string()),
                                         kind: type_to_kind_value(first_arg.arg_type()),
+                                        span: first_arg.arg_type_span(),
                                     }];
 
                                 for (i, comma_arg) in rest_args.iter().enumerate() {
@@ -198,6 +207,7 @@ impl IncrementalInterpreter {
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| format!("arg{}", i + 1)),
                                         kind: type_to_kind_value(arg.arg_type()),
+                                        span: arg.arg_type_span(),
                                     });
                                 }
                                 args
@@ -216,6 +226,7 @@ impl IncrementalInterpreter {
                                 synchronous: true,
                                 docstring: String::new(),
                                 throws: vec![],
+                                span: func.span,
                             }
                         })
                         .collect();
@@ -225,6 +236,7 @@ impl IncrementalInterpreter {
                         name: protocol_name,
                         functions: function_units,
                         parameters: vec![],
+                        span,
                     });
                 }
             }
@@ -251,6 +263,10 @@ impl IncrementalInterpreter {
     */
 }
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
+    if let crate::schema::idl::grammar::Type::Union(union_type) = type_def {
+        return KindValue::Union(union_type.members().iter().map(type_to_kind_value).collect());
+    }
+
     KindValue::Namespaced(type_to_string(type_def), None)
 }
 
@@ -260,10 +276,10 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
         crate::schema::idl::grammar::Type::U16(_) => "u16".to_string(),
         crate::schema::idl::grammar::Type::U32(_) => "u32".to_string(),
         crate::schema::idl::grammar::Type::U64(_) => "u64".to_string(),
-        crate::schema::idl::grammar::Type::I8(_) => "i8".to_string(),
-        crate::schema::idl::grammar::Type::I16(_) => "i16".to_string(),
-        crate::schema::idl::grammar::Type::I32(_) => "i32".to_string(),
-        crate::schema::idl::grammar::Type::I64(_) => "i64".to_string(),
+        crate::schema::idl::grammar::Type::S8(_) => "s8".to_string(),
+        crate::schema::idl::grammar::Type::S16(_) => "s16".to_string(),
+        crate::schema::idl::grammar::Type::S32(_) => "s32".to_string(),
+        crate::schema::idl::grammar::Type::S64(_) => "s64".to_string(),
         crate::schema::idl::grammar::Type::F32(_) | crate::schema::idl::grammar::Type::F64(_) => {
             "float".to_string()
         }
@@ -274,6 +290,10 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
         crate::schema::idl::grammar::Type::Array(arr) => {
             format!("{}[]", type_to_string(arr.elem_type()))
         }
+        crate::schema::idl::grammar::Type::Union(union_type) => {
+            let members: Vec<String> = union_type.members().iter().map(type_to_string).collect();
+            format!("union({})", members.join(" "))
+        }
     }
 }
 
@@ -281,7 +301,7 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
 /// TODO: This is a placeholder - should integrate with full resolver
 fn extract_use_path(use_path: &crate::schema::idl::grammar::UsePath) -> String {
     use crate::schema::idl::grammar::UsePath;
-    
+
     match use_path {
         UsePath::Absolute(scoped) => scoped.to_string(),
         UsePath::Relative(rel) => {
@@ -309,6 +329,7 @@ fn resolve_use_declaration(
     project_context: &ProjectContext,
     current_namespace: &[String],
     use_path: &UsePath,
+    span: (usize, usize),
 ) -> Vec<FrozenUnit> {
     let resolver = ImportResolver::new(vec![], Default::default(), None);
 
@@ -316,7 +337,7 @@ fn resolve_use_declaration(
         Ok(target) => target,
         Err(message) => {
             tracing::warn!("Failed to resolve use path: {}", message);
-            return vec![FrozenUnit::Import(format!("<unresolved: {}>", message))];
+            return vec![FrozenUnit::Import(format!("<unresolved: {}>", message), span)];
         }
     };
 
@@ -324,7 +345,13 @@ fn resolve_use_declaration(
 
     // Glob import: `use ns::*;`
     if target.resolved.symbols == ["*".to_string()] {
-        return vec![FrozenUnit::Import(format!("{}::*", joined_namespace))];
+        let mut units = vec![FrozenUnit::Import(format!("{}::*", joined_namespace), span)];
+        if let Some(schema) = &target.schema {
+            units.extend(declared_symbol_names(&schema.borrow()).into_iter().map(|name| {
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, name), span)
+            }));
+        }
+        return units;
     }
 
     // Item imports: `use ns::{A, B};`
@@ -338,7 +365,7 @@ fn resolve_use_declaration(
                 {
                     tracing::warn!("Symbol '{}' not found in schema '{}'", item, joined_namespace);
                 }
-                FrozenUnit::Import(format!("{}::{}", joined_namespace, item))
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, item), span)
             })
             .collect();
     }
@@ -346,7 +373,14 @@ fn resolve_use_declaration(
     // Whole-namespace or single-symbol import (`use ns;` / `use ns::Symbol;`)
     match &target.schema {
         Some(schema) if target.remaining.is_empty() => {
-            vec![FrozenUnit::Import(schema.borrow().namespace_joined())]
+            let ns = schema.borrow().namespace_joined();
+            let mut units = vec![FrozenUnit::Import(ns.clone(), span)];
+            units.extend(
+                declared_symbol_names(&schema.borrow())
+                    .into_iter()
+                    .map(|name| FrozenUnit::Import(format!("{}::{}", ns, name), span)),
+            );
+            units
         }
         Some(schema) => {
             let symbol = target.remaining.join("::");
@@ -356,10 +390,10 @@ fn resolve_use_declaration(
                 tracing::warn!("Symbol '{}' not found in schema '{}'", symbol, schema_namespace);
             }
 
-            vec![FrozenUnit::Import(format!("{}::{}", schema_namespace, symbol))]
+            vec![FrozenUnit::Import(format!("{}::{}", schema_namespace, symbol), span)]
         }
         // Not part of this project (external dependency, stdlib, or genuinely
         // unresolved) - fall back to the raw resolved namespace.
-        None => vec![FrozenUnit::Import(joined_namespace)],
+        None => vec![FrozenUnit::Import(joined_namespace, span)],
     }
 }

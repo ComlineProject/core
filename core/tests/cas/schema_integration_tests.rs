@@ -15,6 +15,7 @@ fn test_frozen_unit_blob_roundtrip() {
         docstring: None,
         name: "TEST_CONST".to_string(),
         kind_value: KindValue::Primitive(Primitive::U32(Some(42))),
+        span: (0, 0),
     };
 
     let blob = frozen_unit_to_blob(&unit).unwrap();
@@ -41,11 +42,13 @@ fn test_build_tree_from_schema() {
             name: "User".to_string(),
             fields: vec![],
             parameters: vec![],
+            span: (0, 0),
         },
         FrozenUnit::Enum {
             docstring: None,
             name: "Status".to_string(),
             variants: vec![],
+            span: (0, 0),
         },
     ];
 
@@ -66,6 +69,7 @@ fn test_load_schema_from_tree() {
         docstring: None,
         name: "VERSION".to_string(),
         kind_value: KindValue::Primitive(Primitive::String(Some("1.0.0".to_string()))),
+        span: (0, 0),
     }];
 
     // Build tree and write to store
