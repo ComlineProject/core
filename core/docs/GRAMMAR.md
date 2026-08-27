@@ -130,6 +130,43 @@ them yet - they don't currently affect compilation, validation, or
 generated code (this is also true of the pre-existing `@provider=...`/
 `@timeout_ms=...` style annotations on protocols/functions).
 
+### 7. Docstrings
+
+Attach documentation with `///` line comments (note: three slashes, not
+two) directly above a `const`, `struct`, a field, `enum`, `protocol`, or
+`function`. A docstring can be one line or several consecutive `///`
+lines; each line is either a plain description or an `@name: description`
+line documenting one field/argument:
+
+```idl
+/// Checks if a string length is within bounds.
+/// @min_chars: Minimum length of the string.
+struct StringBounds {
+    min_chars: u32
+}
+```
+
+A docstring composes with `optional`/a default value/annotations on a
+field - when combined, it goes first:
+
+```idl
+struct Product {
+    /// The item's stock keeping unit, retired in v2.
+    @deprecated=true
+    optional legacy_sku: str
+}
+```
+
+Consecutive `///` lines are joined with newlines into one string and
+stored as-is (the `@name:` form isn't parsed into separate per-parameter
+data - it's just text). **A `///` line only parses immediately before
+something that can carry a docstring** - unlike a plain `//` comment,
+which can go anywhere and is silently discarded, a misplaced `///` (at
+the end of a file, or before a declaration kind with no docstring slot,
+like `use`/`import`) is a parse error. As with annotations, nothing in the
+compiler reads a populated docstring yet - it's captured in the compiled
+schema, but doesn't currently affect generated code.
+
 ## Type System
 
 ### Primitive Types
@@ -289,8 +326,6 @@ protocol AuthService {
 **Not Yet Supported:**
 - Postfix optional type syntax (`Type?`) - the `optional` prefix keyword
   (`optional name: Type`) is supported (see Structs above)
-- Docstrings (no `///` syntax exists yet - regular `//` comments are
-  discarded, not attached to declarations)
 - Error/exception types
 
 **Coming Soon:**

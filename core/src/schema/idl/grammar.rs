@@ -10,10 +10,17 @@ pub mod grammar {
     #[derive(Debug)]
     pub struct Whitespace(#[rust_sitter::leaf(pattern = r"\s+")] ());
 
+    // A `//` comment, but never one starting with a third `/` - `///`
+    // lines are docstrings (see `Docstring` below), a real grammar rule
+    // rather than a discarded `extra`, and need to win the lexer's
+    // longest-match comparison against this rule wherever both could
+    // apply. Restricting this pattern to at most 2 characters on `///`
+    // input (instead of tying with Docstring's full-line match) resolves
+    // that unambiguously, rather than relying on an unspecified tie-break.
     #[rust_sitter::extra]
     #[derive(Debug)]
     pub struct Comment(
-        #[rust_sitter::leaf(pattern = r"//[^\n]*")]
+        #[rust_sitter::leaf(pattern = r"//[^/\n][^\n]*|//")]
         (),
     );
 
@@ -121,6 +128,8 @@ pub mod grammar {
     /// Constant: const NAME: TYPE = VALUE
     #[derive(Debug, Clone)]
     pub struct Const {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
         #[rust_sitter::leaf(text = "const")]
         _const: (),
         pub name: Identifier,
@@ -138,6 +147,8 @@ pub mod grammar {
     #[derive(Debug, Clone)]
     pub struct Struct {
         #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        #[rust_sitter::repeat(non_empty = false)]
         pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "struct")]
         _struct: (),
@@ -153,6 +164,8 @@ pub mod grammar {
     /// Field: name: Type [= default]
     #[derive(Debug, Clone)]
     pub struct Field {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
         #[rust_sitter::repeat(non_empty = false)]
         pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "optional")]
@@ -178,6 +191,8 @@ pub mod grammar {
     /// Enum: enum NAME { variants }
     #[derive(Debug, Clone)]
     pub struct Enum {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
         #[rust_sitter::leaf(text = "enum")]
         _enum: (),
         pub name: Identifier,
@@ -226,9 +241,42 @@ pub mod grammar {
         pub rest: Vec<Annotation>,
     }
 
+    // ===== Docstring Definition =====
+
+    /// One `///` line of documentation - either a plain description line
+    /// or an `/// @name: description` line documenting one field/argument.
+    /// Both forms are captured as raw text (the `///` marker and one
+    /// following space stripped); the `@name:` form isn't parsed out into
+    /// structured data - see `Docstring` below for why.
+    #[derive(Debug, Clone)]
+    pub struct DocLine {
+        #[rust_sitter::leaf(
+            pattern = r"///[^\n]*",
+            transform = |s| s.trim_start_matches('/').trim_start().to_string()
+        )]
+        pub text: String,
+    }
+
+    /// A non-empty block of consecutive `///` lines, as a single named
+    /// grammar rule shared by every declaration kind that can carry one
+    /// (`Const`, `Struct`, `Field`, `Enum`, `Protocol`, `Function`), always
+    /// used behind `Option<Docstring>` (`None` = no docstring) - same
+    /// reasoning as `Annotations` above: one shared rule referenced by six
+    /// parents avoids a tree-sitter parse-table conflict that six
+    /// independently-declared identical-shaped repeats would very likely
+    /// hit.
+    #[derive(Debug, Clone)]
+    pub struct Docstring {
+        pub first: DocLine,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<DocLine>,
+    }
+
     /// Protocol: protocol NAME { functions }
     #[derive(Debug, Clone)]
     pub struct Protocol {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
         #[rust_sitter::repeat(non_empty = false)]
         pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "protocol")]
@@ -245,6 +293,8 @@ pub mod grammar {
     /// Function: function NAME(args) returns Type
     #[derive(Debug, Clone)]
     pub struct Function {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
         #[rust_sitter::repeat(non_empty = false)]
         pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "function")]
@@ -447,6 +497,9 @@ pub mod grammar {
     }
 
     impl Const {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -462,6 +515,9 @@ pub mod grammar {
     }
 
     impl Struct {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn annotations(&self) -> Vec<&Annotation> {
             self.annotations
                 .as_ref()
@@ -477,6 +533,9 @@ pub mod grammar {
     }
 
     impl Field {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn annotations(&self) -> Vec<&Annotation> {
             self.annotations
                 .as_ref()
@@ -501,6 +560,9 @@ pub mod grammar {
     }
 
     impl Enum {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -510,6 +572,9 @@ pub mod grammar {
     }
 
     impl Protocol {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn annotations(&self) -> Vec<&Annotation> {
             self.annotations
                 .as_ref()
@@ -525,6 +590,9 @@ pub mod grammar {
     }
 
     impl Function {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
         pub fn annotations(&self) -> Vec<&Annotation> {
             self.annotations
                 .as_ref()
@@ -629,6 +697,16 @@ pub mod grammar {
     impl Annotations {
         pub fn iter(&self) -> impl Iterator<Item = &Annotation> {
             std::iter::once(&self.first).chain(self.rest.iter())
+        }
+    }
+
+    impl Docstring {
+        pub fn lines(&self) -> impl Iterator<Item = &str> {
+            std::iter::once(self.first.text.as_str())
+                .chain(self.rest.iter().map(|line| line.text.as_str()))
+        }
+        pub fn joined(&self) -> String {
+            self.lines().collect::<Vec<_>>().join("\n")
         }
     }
 
