@@ -162,6 +162,93 @@ const MAX: u32 = 10
     }
 
     #[test]
+    fn test_error_declaration_populates_ir() {
+        let code = r#"
+/// Thrown when a user can't be found.
+error NotFoundError {
+    message = "{self.id} was not found"
+    id: u64
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Error {
+                docstring,
+                name,
+                message,
+                fields,
+                ..
+            } => {
+                assert_eq!(
+                    docstring.as_deref(),
+                    Some("Thrown when a user can't be found.")
+                );
+                assert_eq!(name, "NotFoundError");
+                // The placeholder round-trips back to its original,
+                // un-escaped single-brace form.
+                assert_eq!(message, "{self.id} was not found");
+                assert_eq!(fields.len(), 1);
+            }
+            _ => panic!("Expected Error"),
+        }
+    }
+
+    #[test]
+    fn test_error_message_escaped_braces_round_trip() {
+        let code = "error E {\n    message = \"code: {{404}}\"\n}";
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Error { message, .. } => {
+                assert_eq!(message, "code: {404}");
+            }
+            _ => panic!("Expected Error"),
+        }
+    }
+
+    #[test]
+    fn test_function_throws_populates_ir() {
+        let code = "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}";
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        throws,
+                        ..
+                    } => {
+                        assert_eq!(throws, &vec!["NotFoundError".to_string()]);
+                    }
+                    _ => panic!("Expected Function"),
+                }
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
+    fn test_function_without_throws_still_empty_vec() {
+        // Regression guard for the Vec<FrozenUnit> -> Vec<String> type
+        // change: a function with no throws clause still gets an empty
+        // Vec, same as before.
+        let code = "protocol P {\n    function get(u64) -> str;\n}";
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        throws,
+                        ..
+                    } => {
+                        assert!(throws.is_empty());
+                    }
+                    _ => panic!("Expected Function"),
+                }
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
     fn test_struct_field_default_values() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 

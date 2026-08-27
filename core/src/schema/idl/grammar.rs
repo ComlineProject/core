@@ -38,6 +38,7 @@ pub mod grammar {
         Struct(Struct),
         Enum(Enum),
         Protocol(Protocol),
+        Error(Error),
     }
 
     // ===== Imports & Constants =====
@@ -186,6 +187,120 @@ pub mod grammar {
         pub value: Expression,
     }
 
+    // ===== Error Definition =====
+
+    /// Error: error NAME { message = "..." <fields> }
+    #[derive(Debug, Clone)]
+    pub struct Error {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        #[rust_sitter::leaf(text = "error")]
+        _error: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        pub message: ErrorMessage,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub fields: Vec<rust_sitter::Spanned<Field>>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// message = "...{placeholder}..." - always required, every real
+    /// example has one.
+    #[derive(Debug, Clone)]
+    pub struct ErrorMessage {
+        #[rust_sitter::leaf(text = "message")]
+        _message: (),
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub value: InterpolatedString,
+    }
+
+    /// An interpolated string: `{path}` substitutes a dotted-path value;
+    /// a doubled brace (`{{` / `}}`) is an escaped literal `{`/`}`; any
+    /// other character is ordinary literal text. Scoped narrowly to
+    /// `message = ...` - not the general `StringLiteral` used by
+    /// `const`/annotation/field-default values, which stay plain and
+    /// non-interpolating.
+    #[derive(Debug, Clone)]
+    pub struct InterpolatedString {
+        #[rust_sitter::leaf(text = "\"")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub parts: Vec<InterpolatedPart>,
+        #[rust_sitter::leaf(text = "\"")]
+        _close: (),
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum InterpolatedPart {
+        Text(InterpolatedText),
+        Placeholder(InterpolatedPlaceholder),
+        EscapedOpenBrace(EscapedOpenBrace),
+        EscapedCloseBrace(EscapedCloseBrace),
+    }
+
+    /// A run of plain characters between braces/quotes - braces are
+    /// excluded here so `{`/`}`/`{{`/`}}` are always handled by the other
+    /// `InterpolatedPart` alternatives instead of being silently absorbed
+    /// as ordinary text.
+    #[derive(Debug, Clone)]
+    pub struct InterpolatedText {
+        #[rust_sitter::leaf(pattern = r#"[^"{}]+"#, transform = |s| s.to_string())]
+        pub text: String,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct InterpolatedPlaceholder {
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        pub path: DottedPath,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// `{{` -> a single literal `{`. A 2-character leaf always wins
+    /// tree-sitter's longest-match comparison against `InterpolatedPlaceholder`'s
+    /// 1-character opening `{` at the same position, so there's no
+    /// ambiguity between "start of an escape" and "start of a
+    /// placeholder" - and even without that preference, treating the
+    /// second `{` as the start of a `DottedPath` would fail immediately
+    /// (`{` isn't a valid identifier start), so GLR would prune that
+    /// reading anyway.
+    #[derive(Debug, Clone)]
+    pub struct EscapedOpenBrace(#[rust_sitter::leaf(text = "{{")] ());
+
+    /// `}}` -> a single literal `}` - same reasoning as `EscapedOpenBrace`.
+    #[derive(Debug, Clone)]
+    pub struct EscapedCloseBrace(#[rust_sitter::leaf(text = "}}")] ());
+
+    /// A dotted path like `self.recipient`, used only inside interpolated
+    /// -string placeholders - not a general-purpose expression, and not
+    /// reused for throws-argument-binding (out of scope for now).
+    #[derive(Debug, Clone)]
+    pub struct DottedPath {
+        pub first: Identifier,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<DottedPathSegment>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct DottedPathSegment {
+        #[rust_sitter::leaf(text = ".")]
+        _dot: (),
+        pub segment: Identifier,
+    }
+
+    /// `! ErrorName` on a function - bare reference only, no
+    /// argument-binding into the error's fields (out of scope for now).
+    #[derive(Debug, Clone)]
+    pub struct Throws {
+        #[rust_sitter::leaf(text = "!")]
+        _bang: (),
+        pub error_name: Identifier,
+    }
+
     // ===== Enum Definition =====
 
     /// Enum: enum NAME { variants }
@@ -308,6 +423,8 @@ pub mod grammar {
         _close: (),
         #[rust_sitter::repeat(non_empty = false)]
         pub return_type: Option<ReturnType>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub throws: Option<Throws>,
         #[rust_sitter::leaf(text = ";")]
         _semi: (),
     }
@@ -559,6 +676,51 @@ pub mod grammar {
         }
     }
 
+    impl Error {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn name(&self) -> String {
+            self.name.text.clone()
+        }
+        pub fn message(&self) -> String {
+            self.message.value.reconstruct()
+        }
+        pub fn fields(&self) -> &Vec<rust_sitter::Spanned<Field>> {
+            &self.fields
+        }
+    }
+
+    impl InterpolatedString {
+        /// Rebuild the original template text: literal parts as-is,
+        /// placeholders re-inserted as `{a.b.c}`, escaped braces
+        /// re-inserted as the single literal character they represent.
+        pub fn reconstruct(&self) -> String {
+            let mut out = String::new();
+            for part in &self.parts {
+                match part {
+                    InterpolatedPart::Text(t) => out.push_str(&t.text),
+                    InterpolatedPart::Placeholder(p) => {
+                        out.push('{');
+                        out.push_str(&p.path.joined());
+                        out.push('}');
+                    }
+                    InterpolatedPart::EscapedOpenBrace(_) => out.push('{'),
+                    InterpolatedPart::EscapedCloseBrace(_) => out.push('}'),
+                }
+            }
+            out
+        }
+    }
+
+    impl DottedPath {
+        pub fn joined(&self) -> String {
+            let mut segments = vec![self.first.text.clone()];
+            segments.extend(self.rest.iter().map(|s| s.segment.text.clone()));
+            segments.join(".")
+        }
+    }
+
     impl Enum {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
@@ -607,6 +769,9 @@ pub mod grammar {
         }
         pub fn return_type(&self) -> &Option<ReturnType> {
             &self.return_type
+        }
+        pub fn throws(&self) -> Option<String> {
+            self.throws.as_ref().map(|t| t.error_name.text.clone())
         }
     }
 
