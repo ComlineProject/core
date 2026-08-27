@@ -56,6 +56,9 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 BreakingChange::RemovedField { type_name, field_name } => {
                     println!("  - Removed field `{}` from `{}`", field_name, type_name);
                 }
+                BreakingChange::AddedRequiredField { type_name, field_name, field_type } => {
+                    println!("  - Added required field `{}: {}` to `{}`", field_name, field_type, type_name);
+                }
                 BreakingChange::ChangedFieldType { type_name, field_name, old_type, new_type } => {
                     println!("  - Changed `{}.{}`: {} → {}", type_name, field_name, old_type, new_type);
                 }

@@ -40,6 +40,77 @@ struct TestStruct {
     }
 
     #[test]
+    fn test_struct_field_default_values() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+
+        let code = r#"
+struct Config {
+    retries: u32 = 3
+    label: str = "default"
+    timeout: s64 = -1
+    name: str
+}
+"#;
+        let parsed = grammar::parse(code);
+        assert!(parsed.is_ok());
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { fields, .. } => {
+                assert_eq!(fields.len(), 4);
+
+                match &fields[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        kind_value, ..
+                    } => {
+                        assert_eq!(
+                            *kind_value,
+                            KindValue::Primitive(Primitive::U64(Some(3)))
+                        );
+                    }
+                    _ => panic!("Expected Field"),
+                }
+                match &fields[1] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        kind_value, ..
+                    } => {
+                        assert_eq!(
+                            *kind_value,
+                            KindValue::Primitive(Primitive::String(Some("default".to_string())))
+                        );
+                    }
+                    _ => panic!("Expected Field"),
+                }
+                match &fields[2] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        kind_value, ..
+                    } => {
+                        assert_eq!(
+                            *kind_value,
+                            KindValue::Primitive(Primitive::S64(Some(-1)))
+                        );
+                    }
+                    _ => panic!("Expected Field"),
+                }
+                // A field with no default keeps behaving exactly as before
+                // the shared build_kind_value refactor.
+                match &fields[3] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
+                        kind_value, ..
+                    } => {
+                        assert_eq!(
+                            *kind_value,
+                            KindValue::Namespaced("str".to_string(), None)
+                        );
+                    }
+                    _ => panic!("Expected Field"),
+                }
+            }
+            _ => panic!("Expected Struct"),
+        }
+    }
+
+    #[test]
     fn test_enum_variants() {
         let code = r#"
 enum Color {

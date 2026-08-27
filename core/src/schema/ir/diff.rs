@@ -41,6 +41,11 @@ pub enum BreakingChange {
         type_name: String,
         field_name: String,
     },
+    AddedRequiredField {
+        type_name: String,
+        field_name: String,
+        field_type: String,
+    },
     ChangedFieldType {
         type_name: String,
         field_name: String,
@@ -260,12 +265,22 @@ fn compare_struct_fields(
     // Added fields (feature if optional, breaking if required)
     for (field_name, (field_type, new_optional)) in &new_field_map {
         if !old_field_map.contains_key(field_name) {
-            changes.new_features.push(NewFeature::AddedField {
-                type_name: struct_name.to_string(),
-                field_name: field_name.clone(),
-                field_type: kind_to_string(field_type),
-                optional: *new_optional,
-            });
+            if *new_optional {
+                changes.new_features.push(NewFeature::AddedField {
+                    type_name: struct_name.to_string(),
+                    field_name: field_name.clone(),
+                    field_type: kind_to_string(field_type),
+                    optional: *new_optional,
+                });
+            } else {
+                changes
+                    .breaking_changes
+                    .push(BreakingChange::AddedRequiredField {
+                        type_name: struct_name.to_string(),
+                        field_name: field_name.clone(),
+                        field_type: kind_to_string(field_type),
+                    });
+            }
         }
     }
 

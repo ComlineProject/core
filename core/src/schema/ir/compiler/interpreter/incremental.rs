@@ -75,45 +75,7 @@ impl IncrementalInterpreter {
                     let type_def = const_decl.type_def();
                     let value = const_decl.value();
 
-                    // Determine type name
-                    let type_name = match type_def {
-                        crate::schema::idl::grammar::Type::U8(_) => "u8",
-                        crate::schema::idl::grammar::Type::U16(_) => "u16",
-                        crate::schema::idl::grammar::Type::U32(_) => "u32",
-                        crate::schema::idl::grammar::Type::U64(_) => "u64",
-                        crate::schema::idl::grammar::Type::S8(_) => "s8",
-                        crate::schema::idl::grammar::Type::S16(_) => "s16",
-                        crate::schema::idl::grammar::Type::S32(_) => "s32",
-                        crate::schema::idl::grammar::Type::S64(_) => "s64",
-                        crate::schema::idl::grammar::Type::F32(_)
-                        | crate::schema::idl::grammar::Type::F64(_) => "float",
-                        crate::schema::idl::grammar::Type::Bool(_) => "bool",
-                        crate::schema::idl::grammar::Type::Str(_) => "str",
-                        crate::schema::idl::grammar::Type::String(_) => "string",
-                        crate::schema::idl::grammar::Type::Named(id) => id.as_str(),
-                        crate::schema::idl::grammar::Type::Array(_) => "array",
-                        crate::schema::idl::grammar::Type::Union(_) => "union",
-                    };
-
-                    // Parse value
-                    let kind_value = match (type_name, value) {
-                        (
-                            "u8" | "u16" | "u32" | "u64",
-                            crate::schema::idl::grammar::Expression::Integer(int_lit),
-                        ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
-                        (
-                            "s8" | "s16" | "s32" | "s64",
-                            crate::schema::idl::grammar::Expression::Integer(int_lit),
-                        ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
-                        ("bool", _) => KindValue::Primitive(Primitive::Boolean(Some(false))),
-                        (
-                            "str" | "string",
-                            crate::schema::idl::grammar::Expression::String(str_lit),
-                        ) => KindValue::Primitive(Primitive::String(Some(
-                            str_lit.value().to_string(),
-                        ))),
-                        _ => KindValue::Namespaced(type_name.to_string(), None),
-                    };
+                    let kind_value = build_kind_value(type_def, Some(value));
 
                     frozen_units.push(FrozenUnit::Constant {
                         docstring: None,
@@ -132,7 +94,7 @@ impl IncrementalInterpreter {
                             let fname = field.name();
                             let field_type = field.field_type();
 
-                            let kind_value = type_to_kind_value(field_type);
+                            let kind_value = build_kind_value(field_type, field.default_value());
 
                             FrozenUnit::Field {
                                 docstring: None,
@@ -263,11 +225,53 @@ impl IncrementalInterpreter {
     */
 }
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
+    build_kind_value(type_def, None)
+}
+
+/// Build a `KindValue` for a type, optionally carrying a literal default
+/// value (used by both `const NAME: TYPE = VALUE` and a struct field's
+/// own optional `= VALUE` default - `None` for anything with no default,
+/// e.g. function arguments/return types).
+///
+/// A default is only captured when it's a simple literal matching the
+/// type's own primitive kind (an integer for a sized int, a string for
+/// `str`/`string`, etc.) - anything else (an identifier/const reference,
+/// a non-primitive type) falls back to the same unvalued `Namespaced`
+/// representation as if no default had been given at all. This mirrors
+/// `const`'s pre-existing behavior exactly; it isn't a new limitation
+/// introduced for fields.
+fn build_kind_value(
+    type_def: &crate::schema::idl::grammar::Type,
+    value: Option<&crate::schema::idl::grammar::Expression>,
+) -> KindValue {
     if let crate::schema::idl::grammar::Type::Union(union_type) = type_def {
-        return KindValue::Union(union_type.members().iter().map(type_to_kind_value).collect());
+        return KindValue::Union(
+            union_type
+                .members()
+                .iter()
+                .map(|member| build_kind_value(member, None))
+                .collect(),
+        );
     }
 
-    KindValue::Namespaced(type_to_string(type_def), None)
+    let type_name = type_to_string(type_def);
+
+    match (type_name.as_str(), value) {
+        (
+            "u8" | "u16" | "u32" | "u64",
+            Some(crate::schema::idl::grammar::Expression::Integer(int_lit)),
+        ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
+        (
+            "s8" | "s16" | "s32" | "s64",
+            Some(crate::schema::idl::grammar::Expression::Integer(int_lit)),
+        ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
+        ("bool", Some(_)) => KindValue::Primitive(Primitive::Boolean(Some(false))),
+        (
+            "str" | "string",
+            Some(crate::schema::idl::grammar::Expression::String(str_lit)),
+        ) => KindValue::Primitive(Primitive::String(Some(str_lit.value().to_string()))),
+        _ => KindValue::Namespaced(type_name, None),
+    }
 }
 
 fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {

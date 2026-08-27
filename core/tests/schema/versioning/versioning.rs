@@ -72,11 +72,33 @@ fn test_struct_add_required_field() {
     write_schema(&package_path, "ping", "struct Foo { a: s32\n  b: string }");
     
     let result = build(&package_path).unwrap();
-    // Adding required field is a new feature (Minor)
-    // Note: Current diffing treats all added fields as Minor
-    // TODO: Distinguish required vs optional in version bump logic
-    assert_eq!(result.version_bump, VersionBump::Minor);
-    assert_eq!(result.current_version, "0.1.0");
+    // Adding a required field is breaking: existing consumers that don't
+    // supply it are no longer compatible.
+    assert_eq!(result.version_bump, VersionBump::Major);
+    assert_eq!(result.current_version, "1.0.0");
+}
+
+#[test]
+fn test_struct_field_default_value_change_is_not_breaking() {
+    let (_temp, package_path) = setup_test_package();
+
+    // Initial schema
+    write_schema(&package_path, "ping", "struct Foo { a: u32 = 1 }");
+    build(&package_path).unwrap();
+
+    // Change only the default value - same field, same type, same
+    // optionality. The diff system compares fields by type name only
+    // (`types_compatible`/`kind_to_string` never look at the embedded
+    // default), so this isn't detected as a change of any kind today -
+    // this test locks in that it's at least not misdetected as a
+    // *breaking* one. Finer-grained default-value diffing (a real Patch
+    // bump for exactly this case) is a reasonable future enhancement,
+    // not something this change attempts.
+    write_schema(&package_path, "ping", "struct Foo { a: u32 = 2 }");
+
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::None);
+    assert_eq!(result.current_version, "0.0.1");
 }
 
 #[test]

@@ -60,6 +60,34 @@ struct AllTypes {
         assert!(grammar::parse(code).is_ok());
     }
 
+    #[test]
+    fn test_field_with_default_value() {
+        let code = "struct Foo { count: u32 = 0 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_optional_field_with_default_value() {
+        let code = r#"struct Foo { optional name: str = "bee" }"#;
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_field_default_with_custom_type() {
+        // A default value referencing an identifier (e.g. an enum
+        // variant or another constant) should still parse even though
+        // its value gets dropped downstream, same as `const` already
+        // does for non-literal values.
+        let code = "struct Foo { status: Status = Active }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_struct_mixed_default_and_plain_fields() {
+        let code = "struct Foo {\n    a: u32 = 1\n    b: str\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
     // ===== ENUM TESTS =====
 
     #[test]
