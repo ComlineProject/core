@@ -40,6 +40,62 @@ struct Post {
 }
 
 #[test]
+fn test_unknown_type_error_suggests_close_match() {
+    let code = r#"
+struct User {
+    id: u64
+}
+
+struct Post {
+    author: Uesr
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let result = validate(&ir);
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors[0].message.contains("Unknown type 'Uesr'"));
+    assert!(errors[0].message.contains("did you mean 'User'?"));
+}
+
+#[test]
+fn test_unknown_type_error_suggests_close_primitive() {
+    let code = r#"
+struct Foo {
+    flag: boool
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let result = validate(&ir);
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors[0].message.contains("Unknown type 'boool'"));
+    assert!(errors[0].message.contains("did you mean 'bool'?"));
+}
+
+#[test]
+fn test_unknown_type_error_no_suggestion_when_nothing_close() {
+    let code = r#"
+struct User {
+    id: u64
+}
+
+struct Foo {
+    x: Zzzzzzzzzz
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let result = validate(&ir);
+
+    assert!(result.is_err());
+    let errors = result.unwrap_err();
+    assert!(errors[0].message.contains("Unknown type 'Zzzzzzzzzz'"));
+    assert!(!errors[0].message.contains("did you mean"));
+}
+
+#[test]
 fn test_valid_schema_passes() {
     let code = r#"
 struct Author {

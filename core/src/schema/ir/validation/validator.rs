@@ -168,8 +168,12 @@ fn validate_type(
 
             // Check if type exists
             if !symbols.contains(base_type) {
+                let mut message = format!("Unknown type '{}'", base_type);
+                if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
+                    message.push_str(&format!(" - did you mean '{}'?", suggestion));
+                }
                 errors.push(ValidationError {
-                    message: format!("Unknown type '{}'", base_type),
+                    message,
                     context: context.to_string(),
                     span: Some(span),
                 });
@@ -193,10 +197,63 @@ fn validate_type(
     }
 }
 
+const PRIMITIVE_NAMES: &[&str] = &[
+    "bool",
+    "u8", "u16", "u32", "u64", "u128",
+    "s8", "s16", "s32", "s64", "s128",
+    "f32", "f64",
+    "str", "string",
+];
+
 fn is_primitive(name: &str) -> bool {
-    matches!(name,
-        "bool" | "u8" | "u16" | "u32" | "u64" | "u128" |
-        "s8" | "s16" | "s32" | "s64" | "s128" |
-        "f32" | "f64" | "str" | "string"
-    )
+    PRIMITIVE_NAMES.contains(&name)
+}
+
+/// Standard Levenshtein edit distance (single-character insert/delete/
+/// substitute) between two strings, used to power "did you mean?"
+/// suggestions below.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+    let b_len = b.len();
+
+    let mut prev: Vec<usize> = (0..=b_len).collect();
+    let mut curr = vec![0usize; b_len + 1];
+
+    for (i, &a_ch) in a.iter().enumerate() {
+        curr[0] = i + 1;
+        for (j, &b_ch) in b.iter().enumerate() {
+            let cost = if a_ch == b_ch { 0 } else { 1 };
+            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[b_len]
+}
+
+/// Find the closest known symbol or primitive name to an unrecognized
+/// type reference, for a "did you mean 'X'?" suggestion - `None` if
+/// nothing is close enough to plausibly be a typo rather than just an
+/// unrelated, genuinely nonexistent name.
+fn suggest_similar_name(target: &str, symbols: &SymbolTable) -> Option<String> {
+    // Allow up to half the target's length to differ (rounded up, at
+    // least 1). A single transposition - swapping two adjacent letters,
+    // e.g. "Uesr" -> "User" - already costs 2 under plain Levenshtein
+    // (no dedicated swap operation), so a stricter ratio like 1/3 would
+    // reject that exact typo; half the length comfortably covers it
+    // while still excluding wildly different names.
+    let len = target.chars().count();
+    let max_distance = ((len + 1) / 2).max(1);
+
+    symbols
+        .symbols
+        .keys()
+        .copied()
+        .chain(PRIMITIVE_NAMES.iter().copied())
+        .filter(|&name| name != target)
+        .map(|name| (name, levenshtein_distance(target, name)))
+        .filter(|&(_, distance)| distance <= max_distance)
+        .min_by_key(|&(_, distance)| distance)
+        .map(|(name, _)| name.to_string())
 }
