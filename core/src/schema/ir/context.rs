@@ -7,9 +7,8 @@ use std::path::PathBuf;
 // use crate::package::config::ir::frozen::FrozenUnit;
 // use crate::schema::idl::ast::unit::{ASTUnit as SchemaASTUnit, Details};
 use crate::schema::idl::grammar::Declaration;
-use crate::schema::ir::compiler::interpreter::semi_frozen;
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::utils::codemap::{Span, CodeMap};
+use crate::utils::codemap::CodeMap;
 
 // External Uses
 
@@ -18,10 +17,6 @@ use crate::utils::codemap::{Span, CodeMap};
 pub struct CompileState {
     pub complete: bool,
     pub namespace: Option<String>,
-    // pub imports: HashMap<Rc<SpannedUnit>, semi_frozen::Import>,
-    // pub consts: HashMap<Rc<SpannedUnit>, semi_frozen::Constant>,
-    // pub structures: HashMap<Rc<SpannedUnit>, semi_frozen::Structure>,
-    // pub protocols: HashMap<Rc<SpannedUnit>, semi_frozen::Protocol>,
 }
 
 #[allow(unused)]
@@ -33,14 +28,6 @@ impl CompileState {
 
         interpreted
     }
-
-    pub(crate) fn get_any_object(&self, _name: &str) -> Option<&(Span, String)> {
-        todo!()
-    }
-
-    pub(crate) fn get_const(&self, _name: &str) -> Option<semi_frozen::Constant> {
-        todo!()
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -48,7 +35,7 @@ pub struct SchemaContext {
     //pub name: String,
     pub namespace: Vec<String>,
     // stored raw declarations from rust-sitter
-    pub declarations: Vec<Declaration>,
+    pub declarations: Vec<rust_sitter::Spanned<Declaration>>,
     // mutable frozen schema storage
     pub frozen_schema: RefCell<Option<Vec<FrozenUnit>>>,
     // source map for reporting
@@ -58,18 +45,12 @@ pub struct SchemaContext {
 }
 
 impl SchemaContext {
-    pub fn with_declarations(declarations: Vec<Declaration>, namespace: Vec<String>, codemap: CodeMap) -> Self {
+    pub fn with_declarations(declarations: Vec<rust_sitter::Spanned<Declaration>>, namespace: Vec<String>, codemap: CodeMap) -> Self {
         Self { namespace, declarations, frozen_schema: RefCell::new(None), codemap, compile_state: Default::default() }
     }
 
     pub fn namespace_snake(&self) -> String { self.namespace.join("_") }
     pub fn namespace_joined(&self) -> String { self.namespace.join("::") }
     pub fn namespace_as_path(&self) -> PathBuf { PathBuf::from(&self.namespace.join("/")) }
-
-
-    #[allow(unused)]
-    pub(crate) fn sanitize_units(self) {
-        todo!()
-    }
 }
 

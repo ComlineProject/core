@@ -1,10 +1,15 @@
 // Import resolution for use statements
 // Handles resolving imports from same package, stdlib, and external dependencies
 
+use std::cell::RefCell;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::rc::Rc;
 
+use crate::package::config::ir::context::ProjectContext;
+use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{UsePath, RelativePrefix};
+use crate::schema::ir::context::SchemaContext;
 
 /// Resolved import information
 #[derive(Debug, Clone)]
@@ -86,16 +91,24 @@ impl ImportResolver {
         }
         
         // Check if it's an external dependency
-        if let Some(_dep_path) = self.dependencies.get(&parts[0]) {
+        if let Some(dep_path) = self.dependencies.get(&parts[0]) {
+            let mut schema_path = dep_path.clone();
+            for part in &parts[1..] {
+                schema_path.push(part);
+            }
+            schema_path.set_extension(SCHEMA_EXTENSION);
+
             return Ok(ResolvedImport {
                 absolute_namespace: parts,
-                schema_path: None, // TODO: Load from dependency
+                schema_path: Some(schema_path),
                 symbols: vec![],
                 alias: None,
             });
         }
         
-        // It's from the same package
+        // It's from the same package - already loaded as a SchemaContext in the
+        // ProjectContext being compiled, so no schema_path is needed to load it
+        // from disk; see `resolve_use_to_schema` below for how it's located.
         Ok(ResolvedImport {
             absolute_namespace: parts,
             schema_path: None,
@@ -150,7 +163,7 @@ impl ImportResolver {
             for part in &parts[1..] {  // Skip "std"
                 schema_path.push(part);
             }
-            schema_path.set_extension("ids");
+            schema_path.set_extension(SCHEMA_EXTENSION);
             
             Ok(ResolvedImport {
                 absolute_namespace: parts.to_vec(),
@@ -214,13 +227,88 @@ impl ImportResolver {
                 }
             }
         } else {
-            // TODO: Load from same package - need package root path
+            // Same-package imports have no schema_path because the schema is
+            // already loaded into the compiling ProjectContext's schema_contexts
+            // (see `resolve_use_to_schema`) - there's nothing to load from disk.
             Err(format!(
-                "Cannot load schema for {:?} - no schema path",
+                "Cannot load schema for {:?} - it should already be part of the \
+                 current package's ProjectContext",
                 resolved.absolute_namespace
             ))
         }
     }
+}
+
+/// Result of resolving a `use`/`import` declaration against a [`ProjectContext`].
+pub struct ResolvedUseTarget {
+    /// The schema that declares the imported namespace/symbol, if it's part of
+    /// the same project (as opposed to an external dependency or stdlib).
+    pub schema: Option<Rc<RefCell<SchemaContext>>>,
+    /// Remaining path segments after the matched schema's namespace - empty for
+    /// a whole-schema import, or the imported symbol's name/path otherwise.
+    pub remaining: Vec<String>,
+    /// The raw resolution result (absolute namespace, schema_path, symbols, alias).
+    pub resolved: ResolvedImport,
+}
+
+/// Resolve a single `use` path against a project: locate the schema it points to
+/// (if it's part of the same project) and figure out what's left over (a symbol
+/// name, for item imports).
+///
+/// Shared by cross-file import-cycle detection and by the IR compiler so both
+/// use the exact same resolution logic.
+pub fn resolve_use_to_schema(
+    project_context: &ProjectContext,
+    resolver: &ImportResolver,
+    current_namespace: &[String],
+    use_path: &UsePath,
+) -> Result<ResolvedUseTarget, String> {
+    let resolved = resolver.resolve(use_path, current_namespace)?;
+
+    // Longest-prefix match against known schema namespaces: this naturally
+    // handles both whole-schema imports (`use pkg::types;`) and single-symbol
+    // imports (`use pkg::types::User;`), leaving `User` as the remainder.
+    let (schema, remaining) = match project_context
+        .find_schema_by_import_namespace_parts(&resolved.absolute_namespace)
+    {
+        Some((schema, remaining)) => (Some(schema), remaining),
+        None => (None, vec![]),
+    };
+
+    Ok(ResolvedUseTarget { schema, remaining, resolved })
+}
+
+/// Whether a schema declares a top-level symbol (struct/enum/protocol/const) by name.
+pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> bool {
+    use crate::schema::idl::grammar::Declaration;
+
+    schema_context.declarations.iter().any(|decl| match &decl.value {
+        Declaration::Struct(s) => s.name.text == symbol,
+        Declaration::Enum(e) => e.name.text == symbol,
+        Declaration::Protocol(p) => p.name.text == symbol,
+        Declaration::Const(c) => c.name.text == symbol,
+        _ => false,
+    })
+}
+
+/// All top-level symbol (struct/enum/protocol/const) names a schema declares.
+/// Used to expand whole-namespace/glob `use` imports into per-symbol
+/// `FrozenUnit::Import`s, so field types written as `ns::Symbol` after such
+/// an import can actually be found by validation.
+pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
+    use crate::schema::idl::grammar::Declaration;
+
+    schema_context
+        .declarations
+        .iter()
+        .filter_map(|decl| match &decl.value {
+            Declaration::Struct(s) => Some(s.name.text.clone()),
+            Declaration::Enum(e) => Some(e.name.text.clone()),
+            Declaration::Protocol(p) => Some(p.name.text.clone()),
+            Declaration::Const(c) => Some(c.name.text.clone()),
+            _ => None,
+        })
+        .collect()
 }
 
 #[cfg(test)]

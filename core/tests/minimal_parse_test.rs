@@ -23,7 +23,7 @@ protocol TestOps {
 fn test_struct_and_protocol() {
     let code = r#"
 struct HashMap {
-    capacity: u64;
+    capacity: u64
 }
 
 protocol HashMapOps {

@@ -18,7 +18,7 @@ pub trait Compile {
     type Output;
 
     /// Compile from rust-sitter AST (new approach)
-    fn from_declarations(declarations: Vec<Declaration>) -> Self::Output;
+    fn from_declarations(declarations: Vec<rust_sitter::Spanned<Declaration>>) -> Self::Output;
     
     fn from_source(source: &str) -> Self::Output {
         tracing::debug!("Compiling source with rust-sitter...");

@@ -11,5 +11,5 @@ enum Status {
 }
 
 protocol Chat {
-    function send(Message) returns Status
+    function send(Message) -> Status;
 }

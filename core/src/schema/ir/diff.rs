@@ -334,7 +334,7 @@ fn extract_variant_names(variants: &[FrozenUnit]) -> HashSet<String> {
     variants
         .iter()
         .filter_map(|v| {
-            if let FrozenUnit::EnumVariant(kv) = v {
+            if let FrozenUnit::EnumVariant(kv, _) = v {
                 match kv {
                     KindValue::EnumVariant(name, _) => Some(name.clone()),
                     KindValue::Namespaced(name, _) => Some(name.clone()),
@@ -431,7 +431,10 @@ fn kind_to_string(kind: &KindValue) -> String {
         KindValue::Primitive(p) => p.name().to_string(),
         KindValue::Namespaced(name, _) => name.clone(),
         KindValue::EnumVariant(name, _) => name.clone(),
-        KindValue::Union(_) => "union".to_string(),
+        KindValue::Union(members) => {
+            let parts: Vec<String> = members.iter().map(kind_to_string).collect();
+            format!("union({})", parts.join(" | "))
+        }
     }
 }
 

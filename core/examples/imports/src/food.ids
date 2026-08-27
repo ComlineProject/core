@@ -1,0 +1,13 @@
+enum State {
+    Fresh
+    Rotten
+}
+
+struct NotEdibleError {
+    message: str
+}
+
+struct Food {
+    state: State
+    name: str
+}

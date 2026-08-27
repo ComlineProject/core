@@ -71,7 +71,7 @@ enum Color {
 protocol TestService {
     function noArgs() -> str;
     function oneArg(u64) -> bool;
-    function twoArgs(str, u32) -> i64;
+    function twoArgs(str, u32) -> s64;
     function manyArgs(u8, u16, u32, u64, str, bool) -> str;
 }
 "#;
@@ -88,6 +88,45 @@ protocol TestService {
             } => {
                 assert_eq!(name, "TestService");
                 assert_eq!(functions.len(), 4);
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
+    fn test_function_argument_names() {
+        let code = r#"
+protocol TestService {
+    function bareArgs(u64, str) -> bool;
+    function namedArgs(id: u64, name: str) -> bool;
+}
+"#;
+        let parsed = grammar::parse(code);
+        assert!(parsed.is_ok());
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        arguments, ..
+                    } => {
+                        // No names given - falls back to synthesized arg0/arg1.
+                        assert_eq!(arguments[0].name, "arg0");
+                        assert_eq!(arguments[1].name, "arg1");
+                    }
+                    _ => panic!("Expected Function"),
+                }
+                match &functions[1] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        arguments, ..
+                    } => {
+                        // Real names given - used as-is.
+                        assert_eq!(arguments[0].name, "id");
+                        assert_eq!(arguments[1].name, "name");
+                    }
+                    _ => panic!("Expected Function"),
+                }
             }
             _ => panic!("Expected Protocol"),
         }
@@ -123,8 +162,8 @@ protocol ReturnTypes {
 const U8_VAL: u8 = 255
 const U16_VAL: u16 = 65535
 const U32_VAL: u32 = 4294967295
-const I8_MIN: i8 = -128
-const I8_MAX: i8 = 127
+const I8_MIN: s8 = -128
+const I8_MAX: s8 = 127
 const BOOL_TRUE: bool = true
 const BOOL_FALSE: bool = false
 const STR_VAL: str = "hello"
@@ -239,7 +278,7 @@ import std
 
 const API_VERSION: str = "2.0"
 const MAX_USERS: u32 = 10000
-const TIMEOUT_MS: i32 = 5000
+const TIMEOUT_MS: s32 = 5000
 
 enum UserRole {
     Admin

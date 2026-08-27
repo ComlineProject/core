@@ -6,7 +6,7 @@ fn test_compare_schemas() {
     // Test working schema
     let working = r#"
 struct Test {
-    value: u64;
+    value: u64
 }
 
 protocol TestOps {
@@ -20,8 +20,8 @@ protocol TestOps {
     // Test HashMap-like schema
     let hashmap = r#"
 struct HashMap {
-    capacity: u64;
-    size: u64;
+    capacity: u64
+    size: u64
 }
 
 protocol HashMapOps {
