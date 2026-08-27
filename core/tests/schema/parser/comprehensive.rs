@@ -88,6 +88,44 @@ struct AllTypes {
         assert!(grammar::parse(code).is_ok());
     }
 
+    #[test]
+    fn test_struct_with_annotation() {
+        let code = "@indexed=true\nstruct Foo { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_struct_with_multiple_annotations() {
+        let code = "@indexed=true\n@versioned=1\nstruct Foo { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_field_with_annotation() {
+        let code = "struct Foo {\n    @deprecated=true\n    old: str\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_field_annotation_composes_with_optional_and_default() {
+        let code = r#"struct Foo {
+    @deprecated=true
+    optional old: str = "x"
+}"#;
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_annotated_struct_and_annotated_protocol_together() {
+        // Regression check: Struct/Field annotations share a grammar rule
+        // with Protocol/Function's pre-existing ones (to avoid a
+        // tree-sitter parse-table conflict between structurally identical
+        // repeats) - confirm adjacent declarations of different kinds,
+        // each with their own annotations, still resolve independently.
+        let code = "@provider=Any\nprotocol P { function f() -> u64; }\n@indexed=true\nstruct Foo { id: u64 }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
     // ===== ENUM TESTS =====
 
     #[test]
