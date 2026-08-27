@@ -109,6 +109,27 @@ protocol UserService {
     argument list; the name (when given) is carried through to generated
     code instead of a synthesized `arg0`/`arg1`
 
+### 6. Annotations
+
+Attach `@key=value` metadata above a struct, a field, a protocol, or a
+function - one annotation per line, stacked if there's more than one:
+
+```idl
+@indexed=true
+struct Product {
+    @deprecated=true
+    legacy_sku: str
+
+    id: u64
+}
+```
+
+The value can be a number, a string, or a bare identifier. Annotations are
+parsed and available on the AST today, but nothing in the compiler reads
+them yet - they don't currently affect compilation, validation, or
+generated code (this is also true of the pre-existing `@provider=...`/
+`@timeout_ms=...` style annotations on protocols/functions).
+
 ## Type System
 
 ### Primitive Types
@@ -268,8 +289,6 @@ protocol AuthService {
 **Not Yet Supported:**
 - Postfix optional type syntax (`Type?`) - the `optional` prefix keyword
   (`optional name: Type`) is supported (see Structs above)
-- Annotations on structs/fields (`@required`, `@max=100`) - `@key=value`
-  annotations are supported today, but only on protocols and functions
 - Docstrings (no `///` syntax exists yet - regular `//` comments are
   discarded, not attached to declarations)
 - Error/exception types

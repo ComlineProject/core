@@ -137,6 +137,8 @@ pub mod grammar {
     /// Struct: struct NAME { fields }
     #[derive(Debug, Clone)]
     pub struct Struct {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "struct")]
         _struct: (),
         pub name: Identifier,
@@ -151,6 +153,8 @@ pub mod grammar {
     /// Field: name: Type [= default]
     #[derive(Debug, Clone)]
     pub struct Field {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "optional")]
         pub optional: Option<()>,
         pub name: Identifier,
@@ -204,11 +208,29 @@ pub mod grammar {
         pub value: Expression,
     }
 
+    /// A non-empty list of `@key=value` annotations, as a single named
+    /// grammar rule shared by every declaration kind that can carry them
+    /// (`Struct`, `Field`, `Protocol`, `Function`), always used behind
+    /// `Option<Annotations>` (`None` = zero annotations) rather than
+    /// letting this rule itself expand to nothing. Each of those used to
+    /// declare its own independent, inline `Vec<Annotation>` repeat, which
+    /// tree-sitter's grammar generator couldn't disambiguate between at
+    /// parse time (it can't tell, from an `Annotation` alone, which
+    /// parent's list it belongs to when several appear back to back before
+    /// the next declaration) - one shared rule referenced by all four
+    /// avoids the ambiguity entirely instead of resolving it.
+    #[derive(Debug, Clone)]
+    pub struct Annotations {
+        pub first: Annotation,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<Annotation>,
+    }
+
     /// Protocol: protocol NAME { functions }
     #[derive(Debug, Clone)]
     pub struct Protocol {
         #[rust_sitter::repeat(non_empty = false)]
-        pub annotations: Vec<Annotation>,
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "protocol")]
         _protocol: (),
         pub name: Identifier,
@@ -224,7 +246,7 @@ pub mod grammar {
     #[derive(Debug, Clone)]
     pub struct Function {
         #[rust_sitter::repeat(non_empty = false)]
-        pub annotations: Vec<Annotation>,
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "function")]
         _fn: (),
         pub name: Identifier,
@@ -440,6 +462,12 @@ pub mod grammar {
     }
 
     impl Struct {
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -449,6 +477,12 @@ pub mod grammar {
     }
 
     impl Field {
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
+        }
         pub fn optional(&self) -> bool {
             self.optional.is_some()
         }
@@ -476,8 +510,11 @@ pub mod grammar {
     }
 
     impl Protocol {
-        pub fn annotations(&self) -> &Vec<Annotation> {
-            &self.annotations
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
         }
         pub fn name(&self) -> String {
             self.name.text.clone()
@@ -488,8 +525,11 @@ pub mod grammar {
     }
 
     impl Function {
-        pub fn annotations(&self) -> &Vec<Annotation> {
-            &self.annotations
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
         }
         pub fn name(&self) -> String {
             self.name.text.clone()
@@ -583,6 +623,12 @@ pub mod grammar {
         }
         pub fn to_string(&self) -> String {
             self.text.clone()
+        }
+    }
+
+    impl Annotations {
+        pub fn iter(&self) -> impl Iterator<Item = &Annotation> {
+            std::iter::once(&self.first).chain(self.rest.iter())
         }
     }
 
