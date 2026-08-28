@@ -24,12 +24,17 @@ use eyre::{bail, Result};
 use handlebars::{Handlebars, RenderError};
 use serde_derive::{Deserialize, Serialize};
 
-/// Builds the package, which step-by-step means:
-/// - Compile configuration and schemas
-/// - Freeze the results into CAS (immutable storage)
-/// - Generate code for targets (optional)
-/// - Document changes (optional)
-pub fn build(package_path: &Path) -> Result<BuildResult> {
+/// Compile and validate a package without touching CAS.
+///
+/// This is the front half of [`build`]: it reads `config.<ext>`, interprets the
+/// project configuration, then parses, resolves and validates every schema under
+/// `src/`. It performs **no** content-addressable-storage writes and does **not**
+/// bump the package version, so it is the right entry point for a fast
+/// validation-only "check" (editors, pre-commit hooks, CI lint steps).
+///
+/// On success the returned [`ProjectContext`] carries the frozen schema units for
+/// every schema (see `SchemaContext::frozen_schema`), ready for code generation.
+pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
     let config_path = package_path.join(format!("config.{}", CONGREGATION_EXTENSION));
     let config_name = config_path.file_name().unwrap().to_str().unwrap();
 
@@ -46,6 +51,17 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
     unsafe {
         interpret_schemas(&latest_project, package_path)?;
     }
+
+    Ok(latest_project)
+}
+
+/// Builds the package, which step-by-step means:
+/// - Compile configuration and schemas
+/// - Freeze the results into CAS (immutable storage)
+/// - Generate code for targets (optional)
+/// - Document changes (optional)
+pub fn build(package_path: &Path) -> Result<BuildResult> {
+    let latest_project = compile_package(package_path)?;
 
     // Use CAS for immutable version storage
     let build_info = if cas::refs::ref_exists(package_path, cas::refs::main_ref()) {
