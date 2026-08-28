@@ -12,7 +12,9 @@ categories = ["compilers", "development-tools", "parser-implementations"]
 # Dependency-driven (indexmap, tree-sitter-generate via rust-sitter-tool);
 # comline-core's own code builds on older. Verified with `cargo +1.82.0 check`.
 rust-version = "1.82"
-exclude = ["benches/", "tests/", "examples/", "docs/", ".idea/", "*.html"]
+# Keep test/example/bench sources in the package (they resolve target
+# auto-discovery cleanly); only drop the generated Criterion report + helper.
+exclude = ["benches/benchmark_results.html", "benches/run_bench.sh"]
 
 
 [dependencies]
