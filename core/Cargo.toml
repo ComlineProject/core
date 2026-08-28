@@ -2,6 +2,17 @@
 name = "comline-core"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+description = "Core library and compiler for Comline, an IDL for versioned communication schemas"
+repository = "https://github.com/ComlineProject/core"
+homepage = "https://github.com/ComlineProject"
+readme = "README.md"
+keywords = ["idl", "schema", "codegen", "compiler", "versioning"]
+categories = ["compilers", "development-tools", "parser-implementations"]
+# Dependency-driven (indexmap, tree-sitter-generate via rust-sitter-tool);
+# comline-core's own code builds on older. Verified with `cargo +1.82.0 check`.
+rust-version = "1.82"
+exclude = ["benches/", "tests/", "examples/", "docs/", ".idea/", "*.html"]
 
 
 [dependencies]
