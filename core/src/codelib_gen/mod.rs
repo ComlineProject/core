@@ -21,7 +21,7 @@ pub fn find_generator(name: &str, _version: &str)
     -> Option<(&'static GeneratorFn, &'static str)>
 {
     match name {
-        "rust" => Some((&(rust::generate_rust as GeneratorFn), "rust")),
+        "rust" => Some((&(rust::generate_rust as GeneratorFn), "rs")),
         _ => None,
     }
 }
