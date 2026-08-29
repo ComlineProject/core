@@ -126,38 +126,25 @@ fn interpret_assignment_code_generation(
                         panic!("Language details must be a dictionary")
                     };
 
-                    let mut versions = vec![];
-
-                    for detail in &details.assignments {
+                    // A declared language takes no options, it is just a
+                    // capability declaration. Output location and which package
+                    // versions to generate are consumer-side config, not the
+                    // congregation. Write `{} = {{}}`.
+                    if let Some(detail) = details.assignments.first() {
                         let detail_key = match &detail.key {
-                            Key::Identifier(id) => id.value.clone(),
-                            Key::Namespaced(ns) => ns.value.clone(),
-                            Key::VersionMeta(vm) => vm.value.clone(),
-                            Key::DependencyAddress(da) => da.value.clone(),
+                            Key::Identifier(id) => id.value.as_str(),
+                            Key::Namespaced(ns) => ns.value.as_str(),
+                            Key::VersionMeta(vm) => vm.value.as_str(),
+                            Key::DependencyAddress(da) => da.value.as_str(),
                         };
-
-                        match detail_key.as_str() {
-                            "package_versions" => {
-                                let Value::List(v_list) = &detail.value else {
-                                    panic!("package_versions must be a list")
-                                };
-
-                                for item in &v_list.items {
-                                    let val_str = match item {
-                                        Value::String(s) => s.value.clone(),
-                                        Value::Identifier(id) => id.value.clone(),
-                                        _ => panic!("Version must be a string or identifier"),
-                                    };
-                                    versions.push(val_str);
-                                }
-                            }
-                            other => panic!("Not expected: {}", other),
-                        }
+                        panic!(
+                            "`code_generation.languages.{lang_name}` takes no options \
+                             (got `{detail_key}`); write `{lang_name} = {{}}`"
+                        );
                     }
 
                     languages.push(FrozenUnit::CodeGeneration(LanguageDetails {
                         name: lang_name,
-                        versions,
                     }));
                 }
             }
