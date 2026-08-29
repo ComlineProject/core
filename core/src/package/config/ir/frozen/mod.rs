@@ -42,11 +42,9 @@ pub struct Dependency {
 pub struct LanguageDetails {
     pub name: String,
     pub versions: Vec<String>,
-    pub generation_path: Option<String>
 }
 
 // TODO: Optimization might be possible here, and for other structures
-//       advised in https://discord.com/channels/619623572318453784/737119153282089109/1158659223534702674
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct PublishRegistry {

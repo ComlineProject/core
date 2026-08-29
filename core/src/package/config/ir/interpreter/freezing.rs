@@ -127,7 +127,6 @@ fn interpret_assignment_code_generation(
                     };
 
                     let mut versions = vec![];
-                    let path = None;
 
                     for detail in &details.assignments {
                         let detail_key = match &detail.key {
@@ -159,7 +158,6 @@ fn interpret_assignment_code_generation(
                     languages.push(FrozenUnit::CodeGeneration(LanguageDetails {
                         name: lang_name,
                         versions,
-                        generation_path: path,
                     }));
                 }
             }
