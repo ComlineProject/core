@@ -7,7 +7,6 @@ use std::path::Path;
 use std::rc::Rc;
 
 // Crate Uses
-use crate::codelib_gen::{find_generator, GeneratorFn};
 use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
 use crate::package::config::ir::interpreter::ProjectInterpreter;
 use crate::package::config::ir::{
@@ -21,8 +20,6 @@ use crate::schema::ir::{
 
 // External Uses
 use eyre::{bail, Result};
-use handlebars::{Handlebars, RenderError};
-use serde_derive::{Deserialize, Serialize};
 
 /// Compile and validate a package without touching CAS.
 ///
@@ -70,7 +67,8 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
         cas::build::process_initial_freezing(&package_path, &latest_project)?
     };
 
-    // generate_code_for_targets(&latest_project, project_path)?;
+    // Code generation is a consumer concern and lives entirely in the CLI now;
+    // `core` only produces the compiled/frozen context.
 
     Ok(BuildResult {
         previous_version: build_info.previous_version,
@@ -147,80 +145,6 @@ unsafe fn interpret_schemas(compiled_project: &ProjectContext, package_path: &Pa
 
 // Removed: freeze_project_auto() - no longer needed with CAS
 // CAS automatically handles freezing via process_initial_freezing/process_changes
-
-#[allow(unused)]
-fn generate_code_for_targets(compiled_project: &ProjectContext, base_path: &Path) -> Result<()> {
-    use crate::package::config::ir::frozen::FrozenUnit;
-
-    for item in compiled_project.config_frozen.as_ref().unwrap().iter() {
-        if let FrozenUnit::CodeGeneration(details) = item {
-            let Some((name, version)) = details.name.split_once('#') else {
-                panic!()
-            };
-
-            let args = Args {
-                default_path: "generated/{{language}}/{{version}}".to_owned(),
-                language: name.to_owned(),
-                version: version.to_owned(),
-            };
-
-            let path = resolve_path_query(&details.generation_path, args).unwrap();
-            let path = base_path.join(path);
-
-            let Some((gen_fn, extension)) = find_generator(name, version) else {
-                panic!(
-                    "No generator found for language named '{}' with version '{}'",
-                    name, version
-                )
-            };
-
-            generate_code_for_context(compiled_project, gen_fn, extension, &path)?;
-        }
-    }
-
-    Ok(())
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct Args {
-    default_path: String,
-    language: String,
-    version: String,
-}
-
-pub fn resolve_path_query(query: &Option<String>, args: Args) -> Result<String, RenderError> {
-    let mut reg = Handlebars::new();
-    reg.set_strict_mode(true);
-
-    if query.is_some() {
-        reg.render_template(&query.clone().unwrap(), &args)
-    } else {
-        reg.render_template(&args.default_path, &args)
-    }
-}
-
-pub fn generate_code_for_context(
-    context: &ProjectContext,
-    generator: &GeneratorFn,
-    extension: &str,
-    target_path: &Path,
-) -> Result<()> {
-    std::fs::create_dir_all(target_path)?;
-
-    for schema_context in context.schema_contexts.iter() {
-        let schema_ctx = schema_context.borrow();
-        let frozen_schema_opt = schema_ctx.frozen_schema.borrow();
-        let frozen_schema = frozen_schema_opt.as_ref().unwrap();
-        let file_path =
-            target_path.join(format!("{}.{}", &schema_ctx.namespace.join("/"), extension));
-
-        let code = &*generator(frozen_schema);
-
-        std::fs::write(file_path, code).unwrap();
-    }
-
-    Ok(())
-}
 
 pub struct BuildOptions {}
 
