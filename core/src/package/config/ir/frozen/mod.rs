@@ -37,11 +37,15 @@ pub struct Dependency {
     pub version: String
 }
 
+/// One entry from `code_generation.languages`, a declared
+/// `language#lang_version` the package supports being generated as. It is a
+/// *capability declaration* only: which of these a consumer realises, where the
+/// code lands, and which historical package versions to emit are all consumer
+/// concerns, configured outside the congregation.
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct LanguageDetails {
     pub name: String,
-    pub versions: Vec<String>,
 }
 
 // TODO: Optimization might be possible here, and for other structures

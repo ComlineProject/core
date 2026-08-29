@@ -3,9 +3,9 @@ specification_version = 1
 
 code_generation = {
     languages = {
-        python#3.11.0 = { package_versions=[all] }
-        rust#1.70.0 = { package_versions=[all] }
-        // lua#5.1 = { package_versions=[all] }
+        python#3.11.0 = {}
+        rust#1.70.0 = {}
+        // lua#5.1 = {}
     }
 }
 

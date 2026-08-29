@@ -132,7 +132,7 @@ specification_version = 1
 
 code_generation = {
     languages = {
-        python#3.11 = { package_versions = [all] }
+        python#3.11 = {}
         rust#1.70 = {}
     }
 }
