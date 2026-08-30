@@ -259,3 +259,86 @@ fn test_union_field_with_unknown_member_fails() {
     let errors = result.unwrap_err();
     assert!(errors.iter().any(|e| e.message.contains("Unknown type 'MissingType'")));
 }
+
+#[test]
+fn test_field_validator_reference_resolves() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+}
+
+struct Message {
+    @validators = [StringBounds(min_chars = 3)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "declared validator should resolve: {:?}", validate(&ir).err());
+}
+
+#[test]
+fn test_field_validator_reference_unknown_fails() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+}
+
+struct Message {
+    @validators = [StringBonds(min_chars = 3)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].message.contains("Unknown validator 'StringBonds'"), "got: {}", errors[0].message);
+    assert!(errors[0].message.contains("did you mean 'StringBounds'?"));
+}
+
+#[test]
+fn test_validator_reference_on_error_field() {
+    let code = r#"
+struct Message { body: str }
+
+error NotFound {
+    message = "{self.name} missing"
+
+    @validators = [Missing()]
+    name: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("Unknown validator 'Missing'")));
+}
+
+#[test]
+fn test_validator_reference_to_a_non_validator_fails() {
+    let code = r#"
+struct Helper { x: u32 }
+
+struct Message {
+    @validators = [Helper()]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("'Helper' is not a validator")), "got: {:?}", errors);
+}
+
+#[test]
+fn test_imported_validator_reference_is_not_flagged() {
+    // an imported symbol might be a validator - can't tell without the other
+    // schema, so it must not error.
+    let code = r#"
+import std::validators::string_bounds::StringBounds
+
+struct Message {
+    @validators = [StringBounds(min_chars = 3)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "imported validator ref should not error: {:?}", validate(&ir).err());
+}

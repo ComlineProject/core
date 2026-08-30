@@ -4,7 +4,7 @@
 // use crate::schema::idl::ast::unit;
 // use crate::schema::idl::ast::unit::ASTUnit;
 use crate::package::config::ir::context::ProjectContext;
-use crate::schema::idl::grammar::{Annotation, Declaration, UsePath};
+use crate::schema::idl::grammar::{Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::import_resolver::{
     declared_symbol_names, resolve_use_to_schema, schema_declares_symbol, ImportResolver,
 };
@@ -301,17 +301,38 @@ impl IncrementalInterpreter {
     */
 }
 
-/// Turn a declaration's `@key = value` annotations into frozen units — one
-/// `FrozenUnit::Property { name, expression: Some(value) }` per annotation, in
-/// source order. Empty when there are none.
+/// Turn a declaration's annotations into frozen units, in source order.
+///
+/// A scalar `@key = value` becomes one `FrozenUnit::Property { name, expression }`.
+/// A list `@key = [Name(k = v, ...), ...]` (only `@validators` today) becomes one
+/// `FrozenUnit::ValidatorRef { name, args }` per call, keeping the applied name
+/// and its keyword arguments structured.
 fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
-    annotations
-        .iter()
-        .map(|a| FrozenUnit::Property {
-            name: a.key(),
-            expression: Some(a.value()),
-        })
-        .collect()
+    let mut units = Vec::new();
+    for a in annotations {
+        match &a.value {
+            AnnotationValue::Scalar(_) => units.push(FrozenUnit::Property {
+                name: a.key(),
+                expression: Some(a.value()),
+            }),
+            AnnotationValue::List(list) => {
+                for call in &list.items {
+                    units.push(FrozenUnit::ValidatorRef {
+                        name: call.name.text.clone(),
+                        args: call
+                            .args
+                            .iter()
+                            .map(|arg| FrozenUnit::Property {
+                                name: arg.name.text.clone(),
+                                expression: Some(arg.value.as_text()),
+                            })
+                            .collect(),
+                    });
+                }
+            }
+        }
+    }
+    units
 }
 
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
