@@ -394,6 +394,8 @@ pub mod grammar {
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
         pub properties: Vec<rust_sitter::Spanned<ValidatorProperty>>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub validate: Option<ValidateBlock>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
     }
@@ -410,6 +412,91 @@ pub mod grammar {
         pub property_type: rust_sitter::Spanned<Type>,
         #[rust_sitter::repeat(non_empty = false)]
         pub default: Option<FieldDefault>,
+    }
+
+    /// `validate { assert(...) ... }`. The assert conditions use a deliberately
+    /// small expression language - member access, comparisons, `and` / `or` -
+    /// captured as text, not evaluated (see the validators design note).
+    #[derive(Debug, Clone)]
+    pub struct ValidateBlock {
+        #[rust_sitter::leaf(text = "validate")]
+        _validate: (),
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub asserts: Vec<rust_sitter::Spanned<AssertCall>>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// `assert(<condition>, <message>)`
+    #[derive(Debug, Clone)]
+    pub struct AssertCall {
+        #[rust_sitter::leaf(text = "assert")]
+        _assert: (),
+        #[rust_sitter::leaf(text = "(")]
+        _open: (),
+        pub condition: Condition,
+        #[rust_sitter::leaf(text = ",")]
+        _comma: (),
+        pub message: InterpolatedString,
+        #[rust_sitter::leaf(text = ")")]
+        _close: (),
+    }
+
+    /// One or more comparisons joined by `and` / `or`. Precedence is not
+    /// modelled - the block is text, not an evaluated AST.
+    #[derive(Debug, Clone)]
+    pub struct Condition {
+        pub first: Comparison,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<ConditionTail>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct ConditionTail {
+        pub op: LogicalOp,
+        pub comparison: Comparison,
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum LogicalOp {
+        #[rust_sitter::leaf(text = "and")]
+        And,
+        #[rust_sitter::leaf(text = "or")]
+        Or,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct Comparison {
+        pub left: Operand,
+        pub op: CompareOp,
+        pub right: Operand,
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum CompareOp {
+        #[rust_sitter::leaf(text = "==")]
+        Eq,
+        #[rust_sitter::leaf(text = "!=")]
+        Ne,
+        #[rust_sitter::leaf(text = ">=")]
+        Ge,
+        #[rust_sitter::leaf(text = "<=")]
+        Le,
+        #[rust_sitter::leaf(text = ">")]
+        Gt,
+        #[rust_sitter::leaf(text = "<")]
+        Lt,
+    }
+
+    /// A value in a comparison: a member path (`value.length`,
+    /// `params.min_chars`, or a bare name), an integer, or a plain string.
+    #[derive(Debug, Clone)]
+    pub enum Operand {
+        Path(DottedPath),
+        Integer(IntegerLiteral),
+        Str(StringLiteral),
     }
 
     // ===== Protocol Definition =====
@@ -856,6 +943,81 @@ pub mod grammar {
         }
         pub fn properties(&self) -> &Vec<rust_sitter::Spanned<ValidatorProperty>> {
             &self.properties
+        }
+        /// Each `assert(...)` in the `validate` block, rebuilt as text. Empty
+        /// when there is no `validate` block.
+        pub fn validate_asserts(&self) -> Vec<String> {
+            self.validate
+                .as_ref()
+                .map(|v| v.asserts.iter().map(|a| a.reconstruct()).collect())
+                .unwrap_or_default()
+        }
+    }
+
+    impl AssertCall {
+        pub fn reconstruct(&self) -> String {
+            format!(
+                "assert({}, {:?})",
+                self.condition.reconstruct(),
+                self.message.reconstruct()
+            )
+        }
+    }
+
+    impl Condition {
+        pub fn reconstruct(&self) -> String {
+            let mut out = self.first.reconstruct();
+            for tail in &self.rest {
+                out.push_str(&format!(
+                    " {} {}",
+                    tail.op.as_str(),
+                    tail.comparison.reconstruct()
+                ));
+            }
+            out
+        }
+    }
+
+    impl Comparison {
+        pub fn reconstruct(&self) -> String {
+            format!(
+                "{} {} {}",
+                self.left.reconstruct(),
+                self.op.as_str(),
+                self.right.reconstruct()
+            )
+        }
+    }
+
+    impl LogicalOp {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                LogicalOp::And => "and",
+                LogicalOp::Or => "or",
+            }
+        }
+    }
+
+    impl CompareOp {
+        pub fn as_str(&self) -> &'static str {
+            match self {
+                CompareOp::Eq => "==",
+                CompareOp::Ne => "!=",
+                CompareOp::Ge => ">=",
+                CompareOp::Le => "<=",
+                CompareOp::Gt => ">",
+                CompareOp::Lt => "<",
+            }
+        }
+    }
+
+    impl Operand {
+        pub fn reconstruct(&self) -> String {
+            match self {
+                Operand::Path(p) => p.joined(),
+                Operand::Integer(i) => i.value.to_string(),
+                Operand::Str(s) => format!("{:?}", s.value),
+            }
         }
     }
 

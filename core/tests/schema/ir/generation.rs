@@ -152,6 +152,13 @@ struct Message {
 validator StringBounds {
     min_chars: u32 = 0
     max_chars: u32 = 1024
+
+    validate {
+        assert(value.length >= params.min_chars,
+               "{value.name} must be at least {params.min_chars} characters")
+        assert(value.length <= params.max_chars or value.name == "root",
+               "{value.name} is too long")
+    }
 }
 "#;
         assert!(grammar::parse(code).is_ok(), "validator should parse");
@@ -170,11 +177,20 @@ validator StringBounds {
             &properties[0],
             FrozenUnit::Field { name, .. } if name == "min_chars"
         ));
-        // phase 1: the validate block is not parsed yet
-        assert!(matches!(
-            &**expression_block,
-            FrozenUnit::ExpressionBlock { function_calls } if function_calls.is_empty()
-        ));
+
+        // the validate block is captured as reconstructed assert() text
+        let FrozenUnit::ExpressionBlock { function_calls } = &**expression_block else {
+            panic!("expected ExpressionBlock, got {:?}", expression_block);
+        };
+        assert_eq!(function_calls.len(), 2);
+        assert_eq!(
+            function_calls[0],
+            r#"assert(value.length >= params.min_chars, "{value.name} must be at least {params.min_chars} characters")"#
+        );
+        assert_eq!(
+            function_calls[1],
+            r#"assert(value.length <= params.max_chars or value.name == "root", "{value.name} is too long")"#
+        );
     }
 
     #[test]
