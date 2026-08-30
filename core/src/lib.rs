@@ -8,4 +8,5 @@ pub mod package;
 pub mod autodoc;
 pub mod utils;
 pub mod report;
-pub mod codelib_gen;
+// Code generation moved to `ComlineProject/generation` (`comline-codelib-gen`);
+// the CLI is the composition root. See design/generation.md.
