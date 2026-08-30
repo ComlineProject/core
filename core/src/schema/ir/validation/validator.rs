@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 // Crate Uses
 use super::{ValidationError, symbols::{SymbolTable, SymbolType}};
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
+use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 
 
 
@@ -93,21 +93,18 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
     // Pass 2.5: every `@validators = [Name(...)]` on a struct/error field must
     // name a declared `validator`, and (for locally declared ones) its keyword
     // arguments must be that validator's properties.
-    let validator_props: HashMap<&str, Vec<&str>> = units
+    let validator_fields: HashMap<&str, &[FrozenUnit]> = units
         .iter()
         .filter_map(|u| match u {
-            FrozenUnit::Validator { name, properties, .. } => Some((
-                name.as_str(),
-                properties
-                    .iter()
-                    .filter_map(|p| match p {
-                        FrozenUnit::Field { name, .. } => Some(name.as_str()),
-                        _ => None,
-                    })
-                    .collect(),
-            )),
+            FrozenUnit::Validator { name, properties, .. } => {
+                Some((name.as_str(), properties.as_slice()))
+            }
             _ => None,
         })
+        .collect();
+    let validator_props: HashMap<&str, Vec<&str>> = validator_fields
+        .iter()
+        .map(|(&v, props)| (v, prop_names(props)))
         .collect();
 
     // Pass 2.6: a `validate {}` block references only `value.*` and this
@@ -230,6 +227,39 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                                         context: field_ctx.clone(),
                                         span: Some(*span),
                                     });
+                                    continue;
+                                }
+
+                                // value type vs the property's declared type
+                                let val = match arg {
+                                    FrozenUnit::Property {
+                                        expression: Some(v),
+                                        ..
+                                    } => v.as_str(),
+                                    _ => continue,
+                                };
+                                let want = validator_fields
+                                    .get(vname.as_str())
+                                    .and_then(|fs| prop_field(fs, kw))
+                                    .and_then(|f| match f {
+                                        FrozenUnit::Field { kind_value, .. } => {
+                                            type_category(kind_value)
+                                        }
+                                        _ => None,
+                                    });
+                                if let (Some(want), Some(got)) =
+                                    (want, value_category(val))
+                                {
+                                    if want != got {
+                                        errors.push(ValidationError {
+                                            message: format!(
+                                                "validator '{}': argument '{}' expects {}, got {}",
+                                                vname, kw, want, got
+                                            ),
+                                            context: field_ctx.clone(),
+                                            span: Some(*span),
+                                        });
+                                    }
                                 }
                             }
                         }
@@ -382,6 +412,71 @@ const PRIMITIVE_NAMES: &[&str] = &[
 
 fn is_primitive(name: &str) -> bool {
     PRIMITIVE_NAMES.contains(&name)
+}
+
+/// A validator's declared property names.
+fn prop_names(props: &[FrozenUnit]) -> Vec<&str> {
+    props
+        .iter()
+        .filter_map(|p| match p {
+            FrozenUnit::Field { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The property `FrozenUnit::Field` with the given name.
+fn prop_field<'a>(props: &'a [FrozenUnit], name: &str) -> Option<&'a FrozenUnit> {
+    props
+        .iter()
+        .find(|p| matches!(p, FrozenUnit::Field { name: n, .. } if n == name))
+}
+
+/// Coarse category of an `@validators` keyword-argument literal, from its
+/// frozen text. `None` for identifier / `::`-path references (unresolved -
+/// nothing to check).
+fn value_category(text: &str) -> Option<&'static str> {
+    let t = text.trim();
+    if t.starts_with('"') || t.starts_with("f\"") {
+        Some("string")
+    } else if matches!(t, "true" | "false" | "True" | "False") {
+        Some("bool")
+    } else if t.parse::<i128>().is_ok() {
+        Some("integer")
+    } else {
+        None
+    }
+}
+
+/// Coarse category of a validator property's declared type. `None` for a
+/// custom (non-primitive) type.
+fn type_category(kind: &KindValue) -> Option<&'static str> {
+    let name = match kind {
+        KindValue::Primitive(Primitive::Boolean(_)) => "bool",
+        KindValue::Primitive(Primitive::String(_)) => "str",
+        KindValue::Primitive(
+            Primitive::U8(_)
+            | Primitive::U16(_)
+            | Primitive::U32(_)
+            | Primitive::U64(_)
+            | Primitive::U128(_)
+            | Primitive::S8(_)
+            | Primitive::S16(_)
+            | Primitive::S32(_)
+            | Primitive::S64(_)
+            | Primitive::S128(_),
+        ) => "u64",
+        KindValue::Namespaced(n, _) => n.as_str(),
+        _ => return None,
+    };
+    match name {
+        "bool" => Some("bool"),
+        "str" | "string" => Some("string"),
+        "u8" | "u16" | "u32" | "u64" | "u128" | "s8" | "s16" | "s32" | "s64" | "s128" => {
+            Some("integer")
+        }
+        _ => None,
+    }
 }
 
 /// Closest candidate to `target` within a "plausibly a typo" edit distance
