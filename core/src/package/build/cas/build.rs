@@ -11,6 +11,7 @@ use super::object_store::ObjectStore;
 use super::refs::{main_ref, ref_exists, read_ref, update_ref};
 use super::version::VersionBump;
 use crate::package::config::ir::context::ProjectContext;
+use crate::package::config::ir::frozen::cas::blob as config_blob;
 use crate::schema::ir::diff::SchemaChanges;
 use crate::schema::ir::frozen::cas::blob::build_tree_from_schema;
 use crate::schema::ir::frozen::cas::commit::{create_initial_commit, create_version_commit};
@@ -54,11 +55,18 @@ pub fn process_initial_freezing(
             root_tree.add_entry(EntryMode::Tree, name, tree_hash);
         }
     }
-    
+
+    // Record the frozen congregation alongside the schemas so a version is
+    // reproducible from the commit alone.
+    if let Some(config) = latest_project.config_frozen.as_ref() {
+        let config_hash = config_blob::write_config(config, &store)?;
+        root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
+    }
+
     // Write root tree
     let root_tree_bytes = root_tree.to_bytes()?;
     let root_tree_hash = store.write(&root_tree_bytes)?;
-    
+
     // Create initial commit
     let initial_version = "0.0.1";
     let commit = create_initial_commit(root_tree_hash, initial_version);
@@ -123,7 +131,16 @@ pub fn process_changes(
             root_tree.add_entry(EntryMode::Tree, name, tree_hash);
         }
     }
-    
+
+    // Record the frozen congregation (see process_initial_freezing). A config
+    // change alters the root tree, so a rebuild that only touches config still
+    // produces a new commit; version-bump semantics for config changes are a
+    // follow-up (see the codegen output-config planning doc).
+    if let Some(config) = latest_project.config_frozen.as_ref() {
+        let config_hash = config_blob::write_config(config, &store)?;
+        root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
+    }
+
     // Check if tree changed
     let root_tree_bytes = root_tree.to_bytes()?;
     let root_tree_hash = store.write(&root_tree_bytes)?;

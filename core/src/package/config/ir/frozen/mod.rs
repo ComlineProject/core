@@ -1,6 +1,5 @@
 // Relative Modules
-// Removed: basic_storage - replaced by CAS
-// pub(crate) mod cas;
+pub mod cas;
 pub mod loader;
 
 // Standard Uses

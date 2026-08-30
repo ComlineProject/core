@@ -1,7 +1,2 @@
-// Standard Uses
-
-// Crate Uses
-
-// External Uses
-
-pub mod index;
+// Relative Modules
+pub mod blob;
