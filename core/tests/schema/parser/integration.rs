@@ -337,4 +337,14 @@ struct Message {
         // plain strings stay non-interpolating
         assert!(grammar::parse(r#"const S: str = "plain {not_a_path}""#).is_ok());
     }
+
+    #[test]
+    fn comprehensive_fixture_parses() {
+        // tests/schema/simple.ids touches import, const, settings, enum,
+        // struct (defaults, @validators), error, and an annotated protocol.
+        let src = std::fs::read_to_string("tests/schema/simple.ids")
+            .expect("read tests/schema/simple.ids");
+        let doc = grammar::parse(&src).expect("simple.ids should parse");
+        assert_eq!(doc.0.len(), 9);
+    }
 }

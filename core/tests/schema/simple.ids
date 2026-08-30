@@ -1,12 +1,13 @@
-// Simple Schema
+// A small schema exercising most of the grammar. Parsed by
+// schema/parser/integration.rs::comprehensive_fixture_parses.
 import std::validators::string_bounds::StringBounds
 
 const POWER: u8 = 1
 const DEFAULT_NAME: str = f"flower power: {POWER}"
 
 settings Test {
-    forbid_indexing=True
-    forbid_optional_indexing=True
+    forbid_indexing = True
+    forbid_optional_indexing = True
 }
 
 enum EncryptionAlgorithm {
@@ -19,28 +20,26 @@ enum EncryptionMode {
     Encrypt
 }
 
-/// A message that can be sent through the mail protocol
+/// A message that can be sent through the mail protocol.
 struct Message {
     name: str = DEFAULT_NAME
     encryption_mode: EncryptionMode = default
 
-    @validators=[StringBounds(min_chars=3 max_chars=12)]
+    @validators = [StringBounds(min_chars = 3, max_chars = 12)]
     optional recipient: str = "bee"
 }
 
-/// Throw when sending a message to a missing recipient
+/// Raised when a message is sent to a missing recipient.
 error RecipientNotFoundError {
     message = "Recipient with name {self.recipient} not found"
 
-    @validators=[StringBounds(min_chars=8 max_chars=16)]
+    @validators = [StringBounds(min_chars = 8, max_chars = 16)]
     recipient: str
 }
 
-/// Mail API for receiving and sending emails
-@provider=Any
+/// Mail API for receiving and sending emails.
+@provider = Any
 protocol Mail {
-
-    @timeout_ms=1000
-    function send_message(message: Message) -> str
-       ! RecipientNotFoundError(function.message.recipient)
+    @timeout_ms = 1000
+    function send_message(message: Message) -> str ! RecipientNotFoundError;
 }
