@@ -82,6 +82,27 @@ fn a_config_only_change_commits_without_bumping_the_version() {
     assert_ne!(head1, head2, "a config change creates a new commit");
     assert_eq!(
         res.current_version, v1,
-        "a config-only change does not bump the version yet (semantics are a follow-up)"
+        "adding a code_generation language does not bump the version"
     );
+    assert!(
+        res.config_changes.is_empty(),
+        "code_generation is not a versioned config unit"
+    );
+}
+
+#[test]
+fn changing_the_specification_version_bumps_major() {
+    let dir = TempDir::new().unwrap();
+    scaffold(dir.path(), CONFIG);
+    let v1 = build(dir.path()).unwrap().current_version; // 0.0.1
+
+    scaffold(
+        dir.path(),
+        &CONFIG.replace("specification_version = 1", "specification_version = 2"),
+    );
+    let res = build(dir.path()).unwrap();
+
+    assert_eq!(v1, "0.0.1");
+    assert_eq!(res.current_version, "1.0.0", "spec version change is major");
+    assert!(!res.config_changes.is_empty());
 }

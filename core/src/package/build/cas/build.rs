@@ -15,6 +15,7 @@ use super::object_store::ObjectStore;
 use super::refs::{main_ref, ref_exists, read_ref, update_ref};
 use super::version::VersionBump;
 use crate::package::config::ir::context::ProjectContext;
+use crate::package::config::ir::diff::{analyze_config_changes, ConfigChanges};
 use crate::package::config::ir::frozen::cas::blob as config_blob;
 use crate::schema::ir::diff::SchemaChanges;
 use crate::schema::ir::frozen::cas::blob::build_tree_from_schema;
@@ -29,6 +30,7 @@ pub struct BuildInfo {
     pub previous_version: Option<String>,
     pub current_version: String,
     pub schema_changes: Option<SchemaChanges>,
+    pub config_changes: ConfigChanges,
 }
 
 /// Process initial freezing using CAS (first build)
@@ -88,6 +90,7 @@ pub fn process_initial_freezing(
         previous_version: None,
         current_version: initial_version.to_string(),
         schema_changes: None,
+        config_changes: ConfigChanges::default(),
     })
 }
 
@@ -158,6 +161,7 @@ pub fn process_changes(
             previous_version: Some(parent_commit.version.clone()),
             current_version: parent_commit.version.clone(),
             schema_changes: None,
+            config_changes: ConfigChanges::default(),
         });
     }
     
@@ -268,7 +272,22 @@ pub fn process_changes(
         
         aggregated_bump = VersionBump::Major;
     }
-    
+
+    // 4. Congregation changes. Only units that affect the schema API count
+    //    (spec version, dependencies); code_generation / publish_registries /
+    //    namespace are excluded. `prev_config` is empty for a commit that
+    //    predates config being stored in CAS.
+    let prev_config = prev_tree
+        .entries
+        .iter()
+        .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
+        .map(|e| config_blob::read_config(&store, &e.hash))
+        .transpose()?
+        .unwrap_or_default();
+    let cur_config = latest_project.config_frozen.as_deref().unwrap_or_default();
+    let config_changes = analyze_config_changes(&prev_config, cur_config);
+    aggregated_bump = aggregated_bump.max(config_changes.bump());
+
     let version_bump = aggregated_bump;
     
     // Parse and bump version
@@ -307,5 +326,6 @@ pub fn process_changes(
         previous_version: Some(parent_commit.version.clone()),
         current_version: new_version.to_string(),
         schema_changes: merged_changes,
+        config_changes,
     })
 }
