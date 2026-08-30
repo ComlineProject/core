@@ -1,27 +1,18 @@
-/// Checks if a string length is between a minimum and a maximum
-/// @min_chars: Minimum length of the string
-/// @max_chars: Maximum length of the string
+/// Checks a string's length is within a minimum and a maximum.
+/// @min_chars: minimum length of the string
+/// @max_chars: maximum length of the string
 validator StringBounds {
-    min_chars: u32 = u32::MIN;
-    max_chars: u32 = 1024;
+    min_chars: u32 = 0
+    max_chars: u32 = 1024
 
-    validate {
-        assert(
-            value.length > params.max_chars or value.length < params.min_chars,
-            "String {value.name} must be more than {params.min_chars} and less than {params.max_chars}"
-        )
-    }
+    // TODO(validators phase 1b): the `validate { ... }` block is not in the
+    // grammar yet. Intended shape (corrected: `assert` holds when its condition
+    // is true):
+    //
+    // validate {
+    //     assert(value.length >= params.min_chars,
+    //            "{value.name} must be at least {params.min_chars} characters")
+    //     assert(value.length <= params.max_chars,
+    //            "{value.name} must be at most {params.max_chars} characters")
+    // }
 }
-
-/*
-assert(
-    value.length < params.max_chars
-    "String length {value.name} must be less than {params.max_chars} chars
-)
-
-assert(
-    value.length > params.min_chars,
-    "String length {value.name} must be more than {params.min_chars} chars
-)
-*/
-

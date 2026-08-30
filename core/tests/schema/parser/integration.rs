@@ -242,4 +242,24 @@ struct Message { body: str }
         // applies inside a settings value.
         assert!(grammar::parse("enum E { True False }").is_ok());
     }
+
+    #[test]
+    fn test_validator_declaration() {
+        assert!(grammar::parse("validator V {}").is_ok());
+        assert!(grammar::parse("validator V { a: u32 b: str = \"x\" }").is_ok());
+
+        let code = r#"
+/// bounds
+validator StringBounds {
+    min_chars: u32 = 0
+    max_chars: u32 = 1024
+}
+
+struct Message { body: str }
+"#;
+        assert!(grammar::parse(code).is_ok());
+
+        // `validator` is a keyword only in declaration position.
+        assert!(grammar::parse("enum E { validator }").is_ok());
+    }
 }
