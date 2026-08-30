@@ -308,4 +308,33 @@ struct Message {
         .is_ok());
         assert!(grammar::parse("struct S {\n@validators = []\nf: str\n}").is_ok());
     }
+
+    #[test]
+    fn test_scoped_path_values() {
+        // `::`-separated paths as const / default values
+        assert!(grammar::parse("const MIN_LEN: u32 = u32::MIN").is_ok());
+        assert!(grammar::parse("struct S { name: str = pkg::mod::DEFAULT }").is_ok());
+        assert!(grammar::parse("validator V { min: u32 = u32::MIN }").is_ok());
+        assert!(grammar::parse("@retries = core::defaults::MAX\nstruct S { x: u32 }").is_ok());
+
+        // bare identifiers and literals still work (no `::` -> not a path)
+        assert!(grammar::parse("const A: u32 = SOME_CONST").is_ok());
+        assert!(grammar::parse("const B: u32 = 5").is_ok());
+    }
+
+    #[test]
+    fn test_fstring_values() {
+        assert!(grammar::parse(r#"const NAME: str = f"flower power: {POWER}""#).is_ok());
+        assert!(grammar::parse(r#"const X: str = f"a {{lit}} {x.y} z""#).is_ok());
+        assert!(grammar::parse(r#"struct S { name: str = f"hi {n}" }"#).is_ok());
+
+        // `f` is not a keyword - only `f"` is. Identifiers / members named `f`
+        // still parse.
+        assert!(grammar::parse("const A: u32 = f").is_ok());
+        assert!(grammar::parse("struct S { f: str }").is_ok());
+        assert!(grammar::parse("protocol P { function f() -> str; }").is_ok());
+
+        // plain strings stay non-interpolating
+        assert!(grammar::parse(r#"const S: str = "plain {not_a_path}""#).is_ok());
+    }
 }

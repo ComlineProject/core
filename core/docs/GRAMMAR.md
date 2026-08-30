@@ -32,6 +32,12 @@ const MIN_VALUE: s8 = -128
 - Booleans: `bool`
 - Strings: `str`, `string`
 
+The value can be a literal, a bare identifier (another constant), a
+`::`-separated path (`u32::MIN`, `pkg::mod::DEFAULT`), or an f-string
+(`f"page {N} of {total}"` - `{path}` placeholders, `{{`/`}}` escapes). Anything
+other than a plain literal is recorded as text and not resolved to a value yet.
+The same value forms work as struct-field and validator-property defaults.
+
 ### 3. Structs
 
 Define data structures with typed fields:
@@ -195,9 +201,9 @@ error NotFoundError {
 raised. A **doubled** brace (`{{` / `}}`) is an escaped literal `{`/`}`
 character instead - since a single brace always attempts interpolation,
 write `{{404}}` for the literal text `{404}`, not `{404}` (which is a
-parse error, since `404` isn't a valid path). Interpolation is only
-recognized inside `message = ...` - `const`, annotation, and field-default
-string values stay plain, non-interpolating strings.
+parse error, since `404` isn't a valid path). The same interpolation is
+available in an [f-string](#2-constants) value (`f"..."`); a plain `"..."`
+string anywhere - `const`, annotation, field default - stays literal.
 
 **Declaring that a function can throw one:** append `! ErrorName` after
 the return type:
