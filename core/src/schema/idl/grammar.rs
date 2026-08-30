@@ -509,6 +509,51 @@ pub mod grammar {
         pub key: Identifier,
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
+        pub value: AnnotationValue,
+    }
+
+    /// An annotation's value: a scalar (`@timeout_ms = 1000`), or a list of
+    /// calls (`@validators = [StringBounds(min_chars = 3, max_chars = 12)]`).
+    #[derive(Debug, Clone)]
+    pub enum AnnotationValue {
+        Scalar(Expression),
+        List(AnnotationList),
+    }
+
+    /// `[Call(args), Call(args), ...]`
+    #[derive(Debug, Clone)]
+    pub struct AnnotationList {
+        #[rust_sitter::leaf(text = "[")]
+        _open: (),
+        #[rust_sitter::delimited(
+            #[rust_sitter::leaf(text = ",")]
+            ()
+        )]
+        pub items: Vec<AnnotationCall>,
+        #[rust_sitter::leaf(text = "]")]
+        _close: (),
+    }
+
+    /// `Name(key = value, key = value)` - a named call with keyword arguments.
+    #[derive(Debug, Clone)]
+    pub struct AnnotationCall {
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "(")]
+        _open: (),
+        #[rust_sitter::delimited(
+            #[rust_sitter::leaf(text = ",")]
+            ()
+        )]
+        pub args: Vec<AnnotationArg>,
+        #[rust_sitter::leaf(text = ")")]
+        _close: (),
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct AnnotationArg {
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
         pub value: Expression,
     }
 
@@ -1182,12 +1227,41 @@ pub mod grammar {
         pub fn key(&self) -> String {
             self.key.text.clone()
         }
+        /// The value rendered back to canonical text. Scalars round-trip as
+        /// written; a list normalises to `[Name(a = 1, b = 2), ...]`.
         pub fn value(&self) -> String {
             match &self.value {
-                Expression::Integer(i) => i.value.to_string(),
-                Expression::String(s) => s.value.clone(),
-                Expression::Identifier(i) => i.text.clone(),
+                // Scalars keep their plain rendering (a bare string, not a
+                // quoted literal) for back-compat with existing consumers.
+                AnnotationValue::Scalar(Expression::Integer(i)) => i.value.to_string(),
+                AnnotationValue::Scalar(Expression::String(s)) => s.value.clone(),
+                AnnotationValue::Scalar(Expression::Identifier(i)) => i.text.clone(),
+                AnnotationValue::List(list) => {
+                    let calls: Vec<String> = list
+                        .items
+                        .iter()
+                        .map(|call| {
+                            let args: Vec<String> = call
+                                .args
+                                .iter()
+                                .map(|a| {
+                                    format!("{} = {}", a.name.text, expression_text(&a.value))
+                                })
+                                .collect();
+                            format!("{}({})", call.name.text, args.join(", "))
+                        })
+                        .collect();
+                    format!("[{}]", calls.join(", "))
+                }
             }
+        }
+    }
+
+    fn expression_text(e: &Expression) -> String {
+        match e {
+            Expression::Integer(i) => i.value.to_string(),
+            Expression::String(s) => format!("{:?}", s.value),
+            Expression::Identifier(i) => i.text.clone(),
         }
     }
 }

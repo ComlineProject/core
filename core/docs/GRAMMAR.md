@@ -124,11 +124,20 @@ struct Product {
 }
 ```
 
-The value can be a number, a string, or a bare identifier. Annotations are
-parsed and available on the AST today, but nothing in the compiler reads
-them yet - they don't currently affect compilation, validation, or
-generated code (this is also true of the pre-existing `@provider=...`/
-`@timeout_ms=...` style annotations on protocols/functions).
+The value can be a scalar - a number, a string, or a bare identifier - or a
+list of named calls with keyword arguments:
+
+```idl
+struct Message {
+    @validators=[StringBounds(min_chars=3, max_chars=12)]
+    recipient: str
+}
+```
+
+Annotations are captured into the IR (as `FrozenUnit::Property` on the
+declaration, list values normalised to text) but nothing acts on them yet -
+they don't affect validation or generated code. `@validators` in particular is
+recorded, not enforced (see the validators design note).
 
 ### 7. Docstrings
 
