@@ -461,3 +461,67 @@ validator V {
         e.message.contains("`field` is not a valid reference in `validate`")
     ), "got: {:?}", errors);
 }
+
+#[test]
+fn test_validator_kwarg_type_ok() {
+    let code = r#"
+validator Bounds {
+    min: u32 = 0
+    strict: bool = false
+    label: str = "x"
+}
+
+struct Message {
+    @validators = [Bounds(min = 3, strict = true, label = "body")]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
+}
+
+#[test]
+fn test_validator_kwarg_string_for_int_fails() {
+    let code = r#"
+validator Bounds { min: u32 = 0 }
+
+struct Message {
+    @validators = [Bounds(min = "three")]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("argument 'min' expects integer, got string")), "got: {:?}", errors);
+}
+
+#[test]
+fn test_validator_kwarg_int_for_bool_fails() {
+    let code = r#"
+validator Flag { on: bool = false }
+
+struct Message {
+    @validators = [Flag(on = 1)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("argument 'on' expects bool, got integer")), "got: {:?}", errors);
+}
+
+#[test]
+fn test_validator_kwarg_reference_value_not_type_checked() {
+    // a bare identifier value is unresolved - can't judge its type.
+    let code = r#"
+const MIN: u32 = 3
+validator Bounds { min: u32 = 0 }
+
+struct Message {
+    @validators = [Bounds(min = MIN)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
+}
