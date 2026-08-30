@@ -52,8 +52,8 @@ fn test_protocol_parsing() {
     println!("=== Test 3: Protocol Parsing ===");
     let code = r#"
 protocol UserService {
-    function getUser(u64) returns str
-    function listUsers() returns str
+    function getUser(u64) -> str;
+    function listUsers() -> str;
 }
 "#;
     println!("Code:\n{}", code);
