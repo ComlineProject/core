@@ -107,6 +107,43 @@ settings Project {
     }
 
     #[test]
+    fn test_annotations_are_captured() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+@internal=true
+struct Message {
+    @min=3
+    body: str
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+
+        let FrozenUnit::Struct { parameters, fields, .. } = &ir_units[0] else {
+            panic!("expected Struct, got {:?}", ir_units[0]);
+        };
+
+        // struct-level @internal=true
+        assert_eq!(parameters.len(), 1);
+        assert!(matches!(
+            &parameters[0],
+            FrozenUnit::Property { name, expression }
+                if name == "internal" && expression.as_deref() == Some("true")
+        ));
+
+        // field-level @min=3
+        let FrozenUnit::Field { parameters: field_params, .. } = &fields[0] else {
+            panic!("expected Field, got {:?}", fields[0]);
+        };
+        assert!(matches!(
+            &field_params[0],
+            FrozenUnit::Property { name, expression }
+                if name == "min" && expression.as_deref() == Some("3")
+        ));
+    }
+
+    #[test]
     fn test_protocol_with_functions_ir() {
         let code = r#"
 protocol UserService {
