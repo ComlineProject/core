@@ -266,15 +266,21 @@ impl IncrementalInterpreter {
                         })
                         .collect();
 
+                    let asserts = validator_def
+                        .frozen_asserts()
+                        .into_iter()
+                        .map(|(condition, message, references)| FrozenUnit::Assert {
+                            condition,
+                            message,
+                            references,
+                        })
+                        .collect();
+
                     frozen_units.push(FrozenUnit::Validator {
                         docstring: validator_def.docstring(),
                         properties,
                         name: validator_def.name(),
-                        // Each `assert(...)` from the `validate` block, as text
-                        // (validators phase 1b — not yet an evaluated AST).
-                        expression_block: Box::new(FrozenUnit::ExpressionBlock {
-                            function_calls: validator_def.validate_asserts(),
-                        }),
+                        expression_block: Box::new(FrozenUnit::ExpressionBlock { asserts }),
                     });
                 }
             }

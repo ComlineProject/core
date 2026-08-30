@@ -110,6 +110,62 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
         })
         .collect();
 
+    // Pass 2.6: a `validate {}` block references only `value.*` and this
+    // validator's own `params.*`.
+    for unit in units {
+        let FrozenUnit::Validator { name: vname, expression_block, .. } = unit else {
+            continue;
+        };
+        let props = validator_props
+            .get(vname.as_str())
+            .cloned()
+            .unwrap_or_default();
+        let FrozenUnit::ExpressionBlock { asserts } = &**expression_block else {
+            continue;
+        };
+        let vctx = format!("Validator '{}'", vname);
+        for a in asserts {
+            let FrozenUnit::Assert { references, .. } = a else {
+                continue;
+            };
+            for path in references {
+                let mut segs = path.split('.');
+                match segs.next().unwrap_or("") {
+                    "value" => {}
+                    "params" => {
+                        if let Some(prop) = segs.next() {
+                            if !props.contains(&prop) {
+                                let mut message = format!(
+                                    "validator '{}': unknown property 'params.{}'",
+                                    vname, prop
+                                );
+                                if let Some(s) = closest(prop, props.iter().copied()) {
+                                    message.push_str(
+                                        &format!(" - did you mean 'params.{}'?", s),
+                                    );
+                                }
+                                errors.push(ValidationError {
+                                    message,
+                                    context: vctx.clone(),
+                                    span: None,
+                                });
+                            }
+                        }
+                    }
+                    other => errors.push(ValidationError {
+                        message: format!(
+                            "validator '{}': `{}` is not a valid reference in `validate` \
+                             (use `value.*` or `params.*`)",
+                            vname, other
+                        ),
+                        context: vctx.clone(),
+                        span: None,
+                    }),
+                }
+            }
+        }
+    }
+
     for unit in units {
         let (owner_kind, owner_name, fields) = match unit {
             FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),

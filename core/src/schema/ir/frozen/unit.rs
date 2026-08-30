@@ -38,8 +38,19 @@ pub enum FrozenUnit {
         name: String,
         default_value: String
     },
+    /// A validator's `validate { ... }` block: the parsed asserts.
     ExpressionBlock {
-        function_calls: Vec<String>
+        asserts: Vec<FrozenUnit>
+    },
+    /// One `assert(condition, message)` from a `validate` block.
+    Assert {
+        /// Canonical condition text, e.g. `value.length >= params.min_chars`.
+        condition: String,
+        /// The message template, with `{path}` placeholders intact.
+        message: String,
+        /// Every `root.seg...` member path used in the condition (`value.*`,
+        /// `params.*`, ...), for reference checking. Literals are not listed.
+        references: Vec<String>,
     },
     //
     Enum {

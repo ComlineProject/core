@@ -201,18 +201,33 @@ validator StringBounds {
             FrozenUnit::Field { name, .. } if name == "min_chars"
         ));
 
-        // the validate block is captured as reconstructed assert() text
-        let FrozenUnit::ExpressionBlock { function_calls } = &**expression_block else {
+        // the validate block is captured as structured asserts
+        let FrozenUnit::ExpressionBlock { asserts } = &**expression_block else {
             panic!("expected ExpressionBlock, got {:?}", expression_block);
         };
-        assert_eq!(function_calls.len(), 2);
+        assert_eq!(asserts.len(), 2);
+
+        let FrozenUnit::Assert { condition, message, references } = &asserts[0] else {
+            panic!("expected Assert, got {:?}", asserts[0]);
+        };
+        assert_eq!(condition, "value.length >= params.min_chars");
         assert_eq!(
-            function_calls[0],
-            r#"assert(value.length >= params.min_chars, "{value.name} must be at least {params.min_chars} characters")"#
+            message,
+            "{value.name} must be at least {params.min_chars} characters"
         );
+        assert_eq!(references, &["value.length", "params.min_chars"]);
+
+        let FrozenUnit::Assert { condition, references, .. } = &asserts[1] else {
+            panic!("expected Assert, got {:?}", asserts[1]);
+        };
         assert_eq!(
-            function_calls[1],
-            r#"assert(value.length <= params.max_chars or value.name == "root", "{value.name} is too long")"#
+            condition,
+            r#"value.length <= params.max_chars or value.name == "root""#
+        );
+        // string operand is not a member path -> not listed
+        assert_eq!(
+            references,
+            &["value.length", "params.max_chars", "value.name"]
         );
     }
 
