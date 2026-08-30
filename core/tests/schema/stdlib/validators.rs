@@ -1,7 +1,7 @@
 // Standard Uses
 use std::path::Path;
 
-// Local Uses
+// Crate Uses
 
 // External Uses
 use once_cell::sync::Lazy;

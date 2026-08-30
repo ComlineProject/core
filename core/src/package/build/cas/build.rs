@@ -6,6 +6,10 @@
 // - History is never modified or deleted
 // - refs/heads/main always moves forward, never rewinds
 
+// Standard Uses
+use std::path::Path;
+
+// Crate Uses
 use super::objects::{Commit, Tree, EntryMode};
 use super::object_store::ObjectStore;
 use super::refs::{main_ref, ref_exists, read_ref, update_ref};
@@ -15,8 +19,9 @@ use crate::package::config::ir::frozen::cas::blob as config_blob;
 use crate::schema::ir::diff::SchemaChanges;
 use crate::schema::ir::frozen::cas::blob::build_tree_from_schema;
 use crate::schema::ir::frozen::cas::commit::{create_initial_commit, create_version_commit};
+
+// External Uses
 use eyre::Result;
-use std::path::Path;
 
 /// Information returned from build processing
 pub struct BuildInfo {

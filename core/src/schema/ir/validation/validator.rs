@@ -1,7 +1,7 @@
 // Standard Uses
 use std::collections::{HashMap, HashSet};
 
-// Local Uses
+// Crate Uses
 use super::{ValidationError, symbols::{SymbolTable, SymbolType}};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreted::kind_search::KindValue;

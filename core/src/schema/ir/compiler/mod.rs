@@ -6,7 +6,7 @@ pub mod import_resolver;
 
 // Standard Uses
 
-// Local Uses
+// Crate Uses
 use crate::schema::idl::grammar::Declaration;
 // use crate::schema::idl::ast::unit::{ASTUnit, SourcedWholeRc};
 
