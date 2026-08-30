@@ -249,6 +249,34 @@ impl IncrementalInterpreter {
                         parameters,
                     });
                 }
+                Declaration::Validator(validator_def) => {
+                    let properties: Vec<FrozenUnit> = validator_def
+                        .properties()
+                        .iter()
+                        .map(|prop| FrozenUnit::Field {
+                            docstring: prop.docstring(),
+                            parameters: vec![],
+                            optional: false,
+                            name: prop.name(),
+                            kind_value: build_kind_value(
+                                prop.property_type(),
+                                prop.default_value(),
+                            ),
+                            span: prop.span,
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Validator {
+                        docstring: validator_def.docstring(),
+                        properties,
+                        name: validator_def.name(),
+                        // The `validate { ... }` block is not parsed yet
+                        // (validators phase 1b); freeze an empty block.
+                        expression_block: Box::new(FrozenUnit::ExpressionBlock {
+                            function_calls: vec![],
+                        }),
+                    });
+                }
             }
         }
 

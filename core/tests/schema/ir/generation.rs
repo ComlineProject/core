@@ -144,6 +144,40 @@ struct Message {
     }
 
     #[test]
+    fn test_validator_declaration_ir() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+/// Bounds a string's length.
+validator StringBounds {
+    min_chars: u32 = 0
+    max_chars: u32 = 1024
+}
+"#;
+        assert!(grammar::parse(code).is_ok(), "validator should parse");
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+
+        let FrozenUnit::Validator { docstring, name, properties, expression_block } = &ir_units[0]
+        else {
+            panic!("expected Validator, got {:?}", ir_units[0]);
+        };
+        assert_eq!(name, "StringBounds");
+        assert_eq!(docstring.as_deref(), Some("Bounds a string's length."));
+        assert_eq!(properties.len(), 2);
+        assert!(matches!(
+            &properties[0],
+            FrozenUnit::Field { name, .. } if name == "min_chars"
+        ));
+        // phase 1: the validate block is not parsed yet
+        assert!(matches!(
+            &**expression_block,
+            FrozenUnit::ExpressionBlock { function_calls } if function_calls.is_empty()
+        ));
+    }
+
+    #[test]
     fn test_protocol_with_functions_ir() {
         let code = r#"
 protocol UserService {

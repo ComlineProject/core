@@ -40,6 +40,7 @@ pub mod grammar {
         Protocol(Protocol),
         Error(Error),
         Settings(Settings),
+        Validator(Validator),
     }
 
     // ===== Imports & Constants =====
@@ -372,6 +373,43 @@ pub mod grammar {
         True,
         #[rust_sitter::leaf(text = "False")]
         False,
+    }
+
+    // ===== Validator Definition =====
+
+    /// Validator: validator NAME { property* }
+    ///
+    /// A named, parameterised field check. Phase 1: the declaration and its
+    /// typed properties parse and freeze. The `validate { ... }` block (the
+    /// assert expression language) is not in the grammar yet - see the
+    /// validators design note.
+    #[derive(Debug, Clone)]
+    pub struct Validator {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        #[rust_sitter::leaf(text = "validator")]
+        _validator: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub properties: Vec<rust_sitter::Spanned<ValidatorProperty>>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// `name: Type [= default]` - a validator's configuration parameter. Same
+    /// shape as a struct field, minus `optional` and annotations.
+    #[derive(Debug, Clone)]
+    pub struct ValidatorProperty {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = ":")]
+        _colon: (),
+        pub property_type: rust_sitter::Spanned<Type>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub default: Option<FieldDefault>,
     }
 
     // ===== Protocol Definition =====
@@ -806,6 +844,33 @@ pub mod grammar {
                 SettingValue::Integer(i) => i.value.to_string(),
                 SettingValue::Str(s) => s.value.clone(),
             }
+        }
+    }
+
+    impl Validator {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn name(&self) -> String {
+            self.name.text.clone()
+        }
+        pub fn properties(&self) -> &Vec<rust_sitter::Spanned<ValidatorProperty>> {
+            &self.properties
+        }
+    }
+
+    impl ValidatorProperty {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn name(&self) -> String {
+            self.name.text.clone()
+        }
+        pub fn property_type(&self) -> &Type {
+            &self.property_type.value
+        }
+        pub fn default_value(&self) -> Option<&Expression> {
+            self.default.as_ref().map(|d| &d.value)
         }
     }
 
