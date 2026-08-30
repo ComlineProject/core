@@ -796,7 +796,36 @@ pub mod grammar {
     pub enum Expression {
         Integer(IntegerLiteral),
         String(StringLiteral),
+        FString(FString),
+        Path(ScopedPath),
         Identifier(Identifier),
+    }
+
+    /// A `::`-separated path used as a value: `u32::MIN`, `pkg::mod::DEFAULT`.
+    /// Requires at least one `::` so it never overlaps a bare `Identifier`.
+    /// The path is recorded as text; it is not resolved to a value yet.
+    #[derive(Debug, Clone)]
+    pub struct ScopedPath {
+        #[rust_sitter::leaf(
+            pattern = r"[a-zA-Z_][a-zA-Z0-9_]*(::[a-zA-Z_][a-zA-Z0-9_]*)+",
+            transform = |s| s.to_string()
+        )]
+        pub text: String,
+    }
+
+    /// An f-string value: `f"flower power: {POWER}"`. Same interpolation as an
+    /// `error` message - `{dotted.path}` placeholders, `{{` / `}}` escapes. The
+    /// opening `f"` is a single token, so a bare identifier `f` is never
+    /// mistaken for the start of one. Recorded as text; `{POWER}` is not
+    /// resolved to the constant's value yet.
+    #[derive(Debug, Clone)]
+    pub struct FString {
+        #[rust_sitter::leaf(text = "f\"")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub parts: Vec<InterpolatedPart>,
+        #[rust_sitter::leaf(text = "\"")]
+        _close: (),
     }
 
     #[derive(Debug, Clone)]
@@ -915,21 +944,36 @@ pub mod grammar {
         /// placeholders re-inserted as `{a.b.c}`, escaped braces
         /// re-inserted as the single literal character they represent.
         pub fn reconstruct(&self) -> String {
-            let mut out = String::new();
-            for part in &self.parts {
-                match part {
-                    InterpolatedPart::Text(t) => out.push_str(&t.text),
-                    InterpolatedPart::Placeholder(p) => {
-                        out.push('{');
-                        out.push_str(&p.path.joined());
-                        out.push('}');
-                    }
-                    InterpolatedPart::EscapedOpenBrace(_) => out.push('{'),
-                    InterpolatedPart::EscapedCloseBrace(_) => out.push('}'),
-                }
-            }
-            out
+            render_interpolated_parts(&self.parts)
         }
+    }
+
+    impl FString {
+        /// The template between the quotes: `flower power: {POWER}`.
+        pub fn template(&self) -> String {
+            render_interpolated_parts(&self.parts)
+        }
+        /// The full source form: `f"flower power: {POWER}"`.
+        pub fn source(&self) -> String {
+            format!("f\"{}\"", self.template())
+        }
+    }
+
+    fn render_interpolated_parts(parts: &[InterpolatedPart]) -> String {
+        let mut out = String::new();
+        for part in parts {
+            match part {
+                InterpolatedPart::Text(t) => out.push_str(&t.text),
+                InterpolatedPart::Placeholder(p) => {
+                    out.push('{');
+                    out.push_str(&p.path.joined());
+                    out.push('}');
+                }
+                InterpolatedPart::EscapedOpenBrace(_) => out.push('{'),
+                InterpolatedPart::EscapedCloseBrace(_) => out.push('}'),
+            }
+        }
+        out
     }
 
     impl DottedPath {
@@ -1236,6 +1280,8 @@ pub mod grammar {
                 AnnotationValue::Scalar(Expression::Integer(i)) => i.value.to_string(),
                 AnnotationValue::Scalar(Expression::String(s)) => s.value.clone(),
                 AnnotationValue::Scalar(Expression::Identifier(i)) => i.text.clone(),
+                AnnotationValue::Scalar(Expression::Path(p)) => p.text.clone(),
+                AnnotationValue::Scalar(Expression::FString(f)) => f.source(),
                 AnnotationValue::List(list) => {
                     let calls: Vec<String> = list
                         .items
@@ -1262,6 +1308,8 @@ pub mod grammar {
             Expression::Integer(i) => i.value.to_string(),
             Expression::String(s) => format!("{:?}", s.value),
             Expression::Identifier(i) => i.text.clone(),
+            Expression::Path(p) => p.text.clone(),
+            Expression::FString(f) => f.source(),
         }
     }
 }
