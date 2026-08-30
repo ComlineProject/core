@@ -5,14 +5,10 @@ validator StringBounds {
     min_chars: u32 = 0
     max_chars: u32 = 1024
 
-    // TODO(validators phase 1b): the `validate { ... }` block is not in the
-    // grammar yet. Intended shape (corrected: `assert` holds when its condition
-    // is true):
-    //
-    // validate {
-    //     assert(value.length >= params.min_chars,
-    //            "{value.name} must be at least {params.min_chars} characters")
-    //     assert(value.length <= params.max_chars,
-    //            "{value.name} must be at most {params.max_chars} characters")
-    // }
+    validate {
+        assert(value.length >= params.min_chars,
+               "{value.name} must be at least {params.min_chars} characters")
+        assert(value.length <= params.max_chars,
+               "{value.name} must be at most {params.max_chars} characters")
+    }
 }

@@ -262,4 +262,28 @@ struct Message { body: str }
         // `validator` is a keyword only in declaration position.
         assert!(grammar::parse("enum E { validator }").is_ok());
     }
+
+    #[test]
+    fn test_validate_block() {
+        assert!(grammar::parse(
+            r#"validator V { x: u32 validate { assert(value.n >= params.x, "small") } }"#
+        )
+        .is_ok());
+
+        // and / or chain, string operand, multiple asserts
+        let code = r#"
+validator StringBounds {
+    min: u32 = 0
+    validate {
+        assert(value.length > params.max or value.length < params.min, "{value.name} out of range")
+        assert(value.kind == "email", "must be an email")
+    }
+}
+"#;
+        assert!(grammar::parse(code).is_ok());
+
+        // `assert` / `validate` / `and` / `or` are keywords only inside a
+        // validator - still fine as identifiers elsewhere.
+        assert!(grammar::parse("enum E { assert validate and or }").is_ok());
+    }
 }
