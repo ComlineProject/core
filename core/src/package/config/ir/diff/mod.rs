@@ -1,6 +1,9 @@
 // Relative Modules
+pub mod analyze;
 pub mod report;
 pub mod versioning;
+
+pub use analyze::{analyze_config_changes, ConfigChange, ConfigChanges};
 
 // Standard Uses
 use std::fmt::Debug;

@@ -74,6 +74,7 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
         previous_version: build_info.previous_version,
         current_version: build_info.current_version,
         schema_changes: build_info.schema_changes,
+        config_changes: build_info.config_changes,
         version_bump: build_info.version_bump,
         context: latest_project,
     })
@@ -160,6 +161,8 @@ pub struct BuildResult {
     pub current_version: String,
     /// Detected schema changes (None if initial build)
     pub schema_changes: Option<SchemaChanges>,
+    /// Detected congregation changes that moved the version (empty if none / initial build)
+    pub config_changes: crate::package::config::ir::diff::ConfigChanges,
     /// The type of version bump applied
     pub version_bump: VersionBump,
     /// The underlying project context
