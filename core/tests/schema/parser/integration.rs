@@ -218,4 +218,28 @@ protocol Service { // inline protocol comment
         let code3 = "\n\n\nstruct Test {\n\n\nfield: str\n\n\n}\n\n\n";
         assert!(grammar::parse(code3).is_ok());
     }
+
+    #[test]
+    fn test_settings_block() {
+        // bool / int / string values, an empty block, and one alongside other
+        // declarations.
+        assert!(grammar::parse("settings S { a = True b = False }").is_ok());
+        assert!(grammar::parse("settings S { n = 42 s = \"x\" }").is_ok());
+        assert!(grammar::parse("settings Empty {}").is_ok());
+
+        let code = r#"
+/// switches
+settings Project {
+    forbid_indexing = True
+    max_depth = 8
+}
+
+struct Message { body: str }
+"#;
+        assert!(grammar::parse(code).is_ok());
+
+        // `True` / `False` stay valid identifiers elsewhere - the keyword only
+        // applies inside a settings value.
+        assert!(grammar::parse("enum E { True False }").is_ok());
+    }
 }

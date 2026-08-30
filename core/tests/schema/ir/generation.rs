@@ -62,6 +62,51 @@ enum Status {
     }
 
     #[test]
+    fn test_settings_ir() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+/// Project-wide switches.
+settings Project {
+    forbid_indexing = True
+    max_depth = 8
+    label = "core"
+}
+"#;
+        assert!(grammar::parse(code).is_ok(), "Failed to parse settings block");
+
+        let ir_units = IncrementalInterpreter::from_source(code);
+        assert_eq!(ir_units.len(), 1);
+
+        match &ir_units[0] {
+            FrozenUnit::Settings { docstring, name, parameters } => {
+                assert_eq!(name, "Project");
+                assert_eq!(docstring.as_deref(), Some("Project-wide switches."));
+
+                let pairs: Vec<(&str, &str)> = parameters
+                    .iter()
+                    .map(|p| match p {
+                        FrozenUnit::Parameter { name, default_value } => {
+                            (name.as_str(), default_value.as_str())
+                        }
+                        other => panic!("Expected Parameter, got {other:?}"),
+                    })
+                    .collect();
+
+                assert_eq!(
+                    pairs,
+                    vec![
+                        ("forbid_indexing", "True"),
+                        ("max_depth", "8"),
+                        ("label", "core"),
+                    ]
+                );
+            }
+            other => panic!("Expected Settings unit, got {other:?}"),
+        }
+    }
+
+    #[test]
     fn test_protocol_with_functions_ir() {
         let code = r#"
 protocol UserService {
