@@ -115,6 +115,9 @@ settings Project {
 struct Message {
     @min=3
     body: str
+
+    @validators=[StringBounds(min_chars=3, max_chars=12)]
+    recipient: str
 }
 "#;
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -140,6 +143,18 @@ struct Message {
             &field_params[0],
             FrozenUnit::Property { name, expression }
                 if name == "min" && expression.as_deref() == Some("3")
+        ));
+
+        // field-level @validators=[Call(kwargs)] — captured as normalised text
+        let FrozenUnit::Field { parameters: rcpt_params, .. } = &fields[1] else {
+            panic!("expected Field, got {:?}", fields[1]);
+        };
+        assert!(matches!(
+            &rcpt_params[0],
+            FrozenUnit::Property { name, expression }
+                if name == "validators"
+                && expression.as_deref()
+                    == Some("[StringBounds(min_chars = 3, max_chars = 12)]")
         ));
     }
 

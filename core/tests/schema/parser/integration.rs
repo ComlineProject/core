@@ -286,4 +286,26 @@ validator StringBounds {
         // validator - still fine as identifiers elsewhere.
         assert!(grammar::parse("enum E { assert validate and or }").is_ok());
     }
+
+    #[test]
+    fn test_annotation_list_value() {
+        // scalar annotations still parse
+        assert!(grammar::parse("@timeout_ms = 1000\nstruct S { x: u32 }").is_ok());
+
+        // list of calls with keyword args, on a field
+        let code = r#"
+struct Message {
+    @validators = [StringBounds(min_chars = 3, max_chars = 12)]
+    recipient: str
+}
+"#;
+        assert!(grammar::parse(code).is_ok());
+
+        // multiple calls, a call with no args, an empty list
+        assert!(grammar::parse(
+            "struct S {\n@validators = [A(x = 1), B()]\nf: str\n}"
+        )
+        .is_ok());
+        assert!(grammar::parse("struct S {\n@validators = []\nf: str\n}").is_ok());
+    }
 }
