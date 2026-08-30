@@ -91,7 +91,25 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
     }
 
     // Pass 2.5: every `@validators = [Name(...)]` on a struct/error field must
-    // name a declared `validator`.
+    // name a declared `validator`, and (for locally declared ones) its keyword
+    // arguments must be that validator's properties.
+    let validator_props: HashMap<&str, Vec<&str>> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Validator { name, properties, .. } => Some((
+                name.as_str(),
+                properties
+                    .iter()
+                    .filter_map(|p| match p {
+                        FrozenUnit::Field { name, .. } => Some(name.as_str()),
+                        _ => None,
+                    })
+                    .collect(),
+            )),
+            _ => None,
+        })
+        .collect();
+
     for unit in units {
         let (owner_kind, owner_name, fields) = match unit {
             FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),
@@ -103,7 +121,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                 continue;
             };
             for param in parameters {
-                let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
+                let FrozenUnit::ValidatorRef { name: vname, args } = param else {
                     continue;
                 };
 
@@ -117,8 +135,49 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                             || k.ends_with("::*"))
                 });
 
+                let field_ctx =
+                    format!("{} '{}', field '{}'", owner_kind, owner_name, field_name);
+
                 match symbols.symbols.get(vname.as_str()) {
-                    Some(SymbolType::Validator) => {}
+                    Some(SymbolType::Validator) => {
+                        // Locally declared - check the keyword arguments.
+                        if let Some(props) = validator_props.get(vname.as_str()) {
+                            let mut seen: Vec<&str> = Vec::new();
+                            for arg in args {
+                                let FrozenUnit::Property { name: kw, .. } = arg else {
+                                    continue;
+                                };
+                                if seen.contains(&kw.as_str()) {
+                                    errors.push(ValidationError {
+                                        message: format!(
+                                            "duplicate argument '{}' to validator '{}'",
+                                            kw, vname
+                                        ),
+                                        context: field_ctx.clone(),
+                                        span: Some(*span),
+                                    });
+                                    continue;
+                                }
+                                seen.push(kw.as_str());
+                                if !props.contains(&kw.as_str()) {
+                                    let mut message = format!(
+                                        "validator '{}' has no argument '{}'",
+                                        vname, kw
+                                    );
+                                    if let Some(s) = closest(kw, props.iter().copied()) {
+                                        message.push_str(
+                                            &format!(" - did you mean '{}'?", s),
+                                        );
+                                    }
+                                    errors.push(ValidationError {
+                                        message,
+                                        context: field_ctx.clone(),
+                                        span: Some(*span),
+                                    });
+                                }
+                            }
+                        }
+                    }
                     Some(other) if *other != SymbolType::Import => {
                         errors.push(ValidationError {
                             message: format!("'{}' is not a validator", vname),
@@ -267,6 +326,19 @@ const PRIMITIVE_NAMES: &[&str] = &[
 
 fn is_primitive(name: &str) -> bool {
     PRIMITIVE_NAMES.contains(&name)
+}
+
+/// Closest candidate to `target` within a "plausibly a typo" edit distance
+/// (half the target's length, min 1) — `None` if nothing is close.
+fn closest<'a>(target: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
+    let len = target.chars().count();
+    let max_distance = ((len + 1) / 2).max(1);
+    candidates
+        .filter(|&c| c != target)
+        .map(|c| (c, levenshtein_distance(target, c)))
+        .filter(|&(_, d)| d <= max_distance)
+        .min_by_key(|&(_, d)| d)
+        .map(|(c, _)| c.to_string())
 }
 
 /// Standard Levenshtein edit distance (single-character insert/delete/

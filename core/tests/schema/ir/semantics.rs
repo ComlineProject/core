@@ -342,3 +342,73 @@ struct Message {
     let ir = IncrementalInterpreter::from_source(code);
     assert!(validate(&ir).is_ok(), "imported validator ref should not error: {:?}", validate(&ir).err());
 }
+
+#[test]
+fn test_validator_kwargs_ok() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+    max_chars: u32 = 1024
+}
+
+struct Message {
+    @validators = [StringBounds(min_chars = 3, max_chars = 12)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
+}
+
+#[test]
+fn test_validator_unknown_kwarg_fails_with_suggestion() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+    max_chars: u32 = 1024
+}
+
+struct Message {
+    @validators = [StringBounds(min_char = 3)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert_eq!(errors.len(), 1);
+    assert!(errors[0].message.contains("validator 'StringBounds' has no argument 'min_char'"), "got: {}", errors[0].message);
+    assert!(errors[0].message.contains("did you mean 'min_chars'?"));
+}
+
+#[test]
+fn test_validator_duplicate_kwarg_fails() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+}
+
+struct Message {
+    @validators = [StringBounds(min_chars = 3, min_chars = 5)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e| e.message.contains("duplicate argument 'min_chars'")), "got: {:?}", errors);
+}
+
+#[test]
+fn test_imported_validator_kwargs_not_checked() {
+    // the other schema isn't loaded, so its properties are unknown - a bogus
+    // kwarg on an imported validator can't be flagged here.
+    let code = r#"
+import std::validators::string_bounds::StringBounds
+
+struct Message {
+    @validators = [StringBounds(nonsense = 3)]
+    body: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
+}
