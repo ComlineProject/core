@@ -9,6 +9,7 @@ pub enum SymbolType {
     Function,
     Constant,
     Import,
+    Validator,
 }
 
 pub struct SymbolTable<'a> {

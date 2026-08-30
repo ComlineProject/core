@@ -1291,7 +1291,7 @@ pub mod grammar {
                                 .args
                                 .iter()
                                 .map(|a| {
-                                    format!("{} = {}", a.name.text, expression_text(&a.value))
+                                    format!("{} = {}", a.name.text, a.value.as_text())
                                 })
                                 .collect();
                             format!("{}({})", call.name.text, args.join(", "))
@@ -1303,13 +1303,17 @@ pub mod grammar {
         }
     }
 
-    fn expression_text(e: &Expression) -> String {
-        match e {
-            Expression::Integer(i) => i.value.to_string(),
-            Expression::String(s) => format!("{:?}", s.value),
-            Expression::Identifier(i) => i.text.clone(),
-            Expression::Path(p) => p.text.clone(),
-            Expression::FString(f) => f.source(),
+    impl Expression {
+        /// Render back to canonical source text — a quoted string literal, a
+        /// bare identifier, a `::`-path, or an `f"..."`.
+        pub fn as_text(&self) -> String {
+            match self {
+                Expression::Integer(i) => i.value.to_string(),
+                Expression::String(s) => format!("{:?}", s.value),
+                Expression::Identifier(i) => i.text.clone(),
+                Expression::Path(p) => p.text.clone(),
+                Expression::FString(f) => f.source(),
+            }
         }
     }
 }

@@ -20,6 +20,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             FrozenUnit::Protocol { name, span, .. } => (name.as_str(), SymbolType::Protocol, Some(*span)),
             FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
             FrozenUnit::Import(path, span) => (path.as_str(), SymbolType::Import, Some(*span)),
+            FrozenUnit::Validator { name, .. } => (name.as_str(), SymbolType::Validator, None),
             // TODO: Function handling if they become top-level
             _ => continue,
         };
@@ -86,6 +87,65 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                 }
             }
             _ => {}
+        }
+    }
+
+    // Pass 2.5: every `@validators = [Name(...)]` on a struct/error field must
+    // name a declared `validator`.
+    for unit in units {
+        let (owner_kind, owner_name, fields) = match unit {
+            FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),
+            FrozenUnit::Error { name, fields, .. } => ("Error", name, fields),
+            _ => continue,
+        };
+        for field in fields {
+            let FrozenUnit::Field { name: field_name, parameters, span, .. } = field else {
+                continue;
+            };
+            for param in parameters {
+                let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
+                    continue;
+                };
+
+                // Imports are keyed by their full `a::b::Name` path (or a
+                // `a::b::*` glob); the other schema isn't loaded here, so any
+                // import that could supply `vname` means we can't judge it.
+                let maybe_imported = symbols.symbols.iter().any(|(k, v)| {
+                    *v == SymbolType::Import
+                        && (*k == vname
+                            || k.ends_with(&format!("::{vname}"))
+                            || k.ends_with("::*"))
+                });
+
+                match symbols.symbols.get(vname.as_str()) {
+                    Some(SymbolType::Validator) => {}
+                    Some(other) if *other != SymbolType::Import => {
+                        errors.push(ValidationError {
+                            message: format!("'{}' is not a validator", vname),
+                            context: format!(
+                                "{} '{}', field '{}'",
+                                owner_kind, owner_name, field_name
+                            ),
+                            span: Some(*span),
+                        });
+                    }
+                    _ if maybe_imported => {}
+                    _ => {
+                        let mut message = format!("Unknown validator '{}'", vname);
+                        if let Some(s) = suggest_similar_name(vname, &symbols) {
+                            message.push_str(&format!(" - did you mean '{}'?", s));
+                        }
+                        errors.push(ValidationError {
+                            message,
+                            context: format!(
+                                "{} '{}', field '{}'",
+                                owner_kind, owner_name, field_name
+                            ),
+                            span: Some(*span),
+                        });
+                    }
+                }
+            }
         }
     }
 

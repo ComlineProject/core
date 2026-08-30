@@ -94,6 +94,13 @@ pub enum FrozenUnit {
         name: String,
         expression_block: Box<FrozenUnit>
     },
+    /// A validator applied to a field via `@validators = [Name(k = v, ...)]`.
+    /// One per call in the list; `args` holds a `Property { name, expression }`
+    /// per keyword argument.
+    ValidatorRef {
+        name: String,
+        args: Vec<FrozenUnit>,
+    },
     Field {
         docstring: Option<String>,
         parameters: Vec<FrozenUnit>,

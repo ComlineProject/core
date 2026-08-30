@@ -145,17 +145,25 @@ struct Message {
                 if name == "min" && expression.as_deref() == Some("3")
         ));
 
-        // field-level @validators=[Call(kwargs)] — captured as normalised text
+        // field-level @validators=[Call(kwargs)] — one ValidatorRef per call,
+        // name + kwargs kept structured.
         let FrozenUnit::Field { parameters: rcpt_params, .. } = &fields[1] else {
             panic!("expected Field, got {:?}", fields[1]);
         };
-        assert!(matches!(
-            &rcpt_params[0],
-            FrozenUnit::Property { name, expression }
-                if name == "validators"
-                && expression.as_deref()
-                    == Some("[StringBounds(min_chars = 3, max_chars = 12)]")
-        ));
+        let FrozenUnit::ValidatorRef { name, args } = &rcpt_params[0] else {
+            panic!("expected ValidatorRef, got {:?}", rcpt_params[0]);
+        };
+        assert_eq!(name, "StringBounds");
+        let kwargs: Vec<(&str, &str)> = args
+            .iter()
+            .map(|p| match p {
+                FrozenUnit::Property { name, expression } => {
+                    (name.as_str(), expression.as_deref().unwrap())
+                }
+                other => panic!("expected Property, got {other:?}"),
+            })
+            .collect();
+        assert_eq!(kwargs, vec![("min_chars", "3"), ("max_chars", "12")]);
     }
 
     #[test]
