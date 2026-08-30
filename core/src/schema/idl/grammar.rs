@@ -39,6 +39,7 @@ pub mod grammar {
         Enum(Enum),
         Protocol(Protocol),
         Error(Error),
+        Settings(Settings),
     }
 
     // ===== Imports & Constants =====
@@ -323,6 +324,54 @@ pub mod grammar {
     #[derive(Debug, Clone)]
     pub struct EnumVariant {
         pub name: Identifier,
+    }
+
+    // ===== Settings Definition =====
+
+    /// Settings: settings NAME { key = value ... }
+    ///
+    /// Schema-wide switches. Each value is a boolean, integer or string - there
+    /// is no expression language here. Parsed and frozen today; not yet
+    /// enforced.
+    #[derive(Debug, Clone)]
+    pub struct Settings {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        #[rust_sitter::leaf(text = "settings")]
+        _settings: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::repeat(non_empty = false)]
+        pub entries: Vec<rust_sitter::Spanned<Setting>>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
+    }
+
+    /// One `key = value` line inside a `settings` block.
+    #[derive(Debug, Clone)]
+    pub struct Setting {
+        pub key: Identifier,
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub value: SettingValue,
+    }
+
+    /// A `settings` value. No identifier alternative, so `True` / `False` lex
+    /// unambiguously here (unlike in a general `Expression`).
+    #[derive(Debug, Clone)]
+    pub enum SettingValue {
+        Bool(BoolLiteral),
+        Integer(IntegerLiteral),
+        Str(StringLiteral),
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum BoolLiteral {
+        #[rust_sitter::leaf(text = "True")]
+        True,
+        #[rust_sitter::leaf(text = "False")]
+        False,
     }
 
     // ===== Protocol Definition =====
@@ -730,6 +779,33 @@ pub mod grammar {
         }
         pub fn variants(&self) -> &Vec<rust_sitter::Spanned<EnumVariant>> {
             &self.variants
+        }
+    }
+
+    impl Settings {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn name(&self) -> String {
+            self.name.text.clone()
+        }
+        pub fn entries(&self) -> &Vec<rust_sitter::Spanned<Setting>> {
+            &self.entries
+        }
+    }
+
+    impl Setting {
+        pub fn key(&self) -> String {
+            self.key.text.clone()
+        }
+        /// The value rendered as a plain string (`"True"`, `"8"`, `"core"`).
+        pub fn value_string(&self) -> String {
+            match &self.value {
+                SettingValue::Bool(BoolLiteral::True) => "True".to_string(),
+                SettingValue::Bool(BoolLiteral::False) => "False".to_string(),
+                SettingValue::Integer(i) => i.value.to_string(),
+                SettingValue::Str(s) => s.value.clone(),
+            }
         }
     }
 

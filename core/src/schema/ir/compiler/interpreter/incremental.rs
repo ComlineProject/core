@@ -233,6 +233,22 @@ impl IncrementalInterpreter {
                         fields: field_units,
                     });
                 }
+                Declaration::Settings(settings_def) => {
+                    let parameters: Vec<FrozenUnit> = settings_def
+                        .entries()
+                        .iter()
+                        .map(|entry| FrozenUnit::Parameter {
+                            name: entry.key(),
+                            default_value: entry.value_string(),
+                        })
+                        .collect();
+
+                    frozen_units.push(FrozenUnit::Settings {
+                        docstring: settings_def.docstring(),
+                        name: settings_def.name(),
+                        parameters,
+                    });
+                }
             }
         }
 
