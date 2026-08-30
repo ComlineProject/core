@@ -412,3 +412,52 @@ struct Message {
     let ir = IncrementalInterpreter::from_source(code);
     assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
 }
+
+#[test]
+fn test_validate_block_params_resolve() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+    validate {
+        assert(value.length >= params.min_chars, "{value.name} too short")
+    }
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
+}
+
+#[test]
+fn test_validate_block_unknown_param_fails() {
+    let code = r#"
+validator StringBounds {
+    min_chars: u32 = 0
+    validate {
+        assert(value.length >= params.min_char, "{value.name} too short")
+    }
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e|
+        e.message.contains("unknown property 'params.min_char'")
+        && e.message.contains("did you mean 'params.min_chars'?")
+    ), "got: {:?}", errors);
+}
+
+#[test]
+fn test_validate_block_bad_root_fails() {
+    let code = r#"
+validator V {
+    n: u32 = 0
+    validate {
+        assert(field.length >= params.n, "bad")
+    }
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors.iter().any(|e|
+        e.message.contains("`field` is not a valid reference in `validate`")
+    ), "got: {:?}", errors);
+}

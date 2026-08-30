@@ -1033,12 +1033,23 @@ pub mod grammar {
         pub fn properties(&self) -> &Vec<rust_sitter::Spanned<ValidatorProperty>> {
             &self.properties
         }
-        /// Each `assert(...)` in the `validate` block, rebuilt as text. Empty
-        /// when there is no `validate` block.
-        pub fn validate_asserts(&self) -> Vec<String> {
+        /// One `(condition text, message template, member paths)` per assert in
+        /// the `validate` block. Empty when there is no block.
+        pub fn frozen_asserts(&self) -> Vec<(String, String, Vec<String>)> {
             self.validate
                 .as_ref()
-                .map(|v| v.asserts.iter().map(|a| a.reconstruct()).collect())
+                .map(|v| {
+                    v.asserts
+                        .iter()
+                        .map(|a| {
+                            (
+                                a.condition.reconstruct(),
+                                a.message.reconstruct(),
+                                a.condition.member_paths(),
+                            )
+                        })
+                        .collect()
+                })
                 .unwrap_or_default()
         }
     }
@@ -1062,6 +1073,23 @@ pub mod grammar {
                     tail.op.as_str(),
                     tail.comparison.reconstruct()
                 ));
+            }
+            out
+        }
+
+        /// Every member-path operand in the condition, `.`-joined
+        /// (`value.length`, `params.min_chars`). Integer / string operands are
+        /// not included.
+        pub fn member_paths(&self) -> Vec<String> {
+            let comparisons =
+                std::iter::once(&self.first).chain(self.rest.iter().map(|t| &t.comparison));
+            let mut out = Vec::new();
+            for c in comparisons {
+                for operand in [&c.left, &c.right] {
+                    if let Operand::Path(p) = operand {
+                        out.push(p.joined());
+                    }
+                }
             }
             out
         }
