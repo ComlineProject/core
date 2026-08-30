@@ -4,7 +4,7 @@
 // use crate::schema::idl::ast::unit;
 // use crate::schema::idl::ast::unit::ASTUnit;
 use crate::package::config::ir::context::ProjectContext;
-use crate::schema::idl::grammar::{Declaration, UsePath};
+use crate::schema::idl::grammar::{Annotation, Declaration, UsePath};
 use crate::schema::ir::compiler::import_resolver::{
     declared_symbol_names, resolve_use_to_schema, schema_declares_symbol, ImportResolver,
 };
@@ -98,7 +98,7 @@ impl IncrementalInterpreter {
 
                             FrozenUnit::Field {
                                 docstring: field.docstring(),
-                                parameters: vec![],
+                                parameters: annotation_units(&field.annotations()),
                                 optional: field.optional(),
                                 name: fname,
                                 kind_value,
@@ -109,7 +109,7 @@ impl IncrementalInterpreter {
 
                     frozen_units.push(FrozenUnit::Struct {
                         docstring: struct_def.docstring(),
-                        parameters: vec![],
+                        parameters: annotation_units(&struct_def.annotations()),
                         name: struct_name,
                         fields: field_units,
                         span,
@@ -197,7 +197,7 @@ impl IncrementalInterpreter {
                         docstring: protocol.docstring().unwrap_or_default(),
                         name: protocol_name,
                         functions: function_units,
-                        parameters: vec![],
+                        parameters: annotation_units(&protocol.annotations()),
                         span,
                     });
                 }
@@ -216,7 +216,7 @@ impl IncrementalInterpreter {
 
                             FrozenUnit::Field {
                                 docstring: field.docstring(),
-                                parameters: vec![],
+                                parameters: annotation_units(&field.annotations()),
                                 optional: field.optional(),
                                 name: fname,
                                 kind_value,
@@ -272,6 +272,20 @@ impl IncrementalInterpreter {
     }
     */
 }
+
+/// Turn a declaration's `@key = value` annotations into frozen units — one
+/// `FrozenUnit::Property { name, expression: Some(value) }` per annotation, in
+/// source order. Empty when there are none.
+fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
+    annotations
+        .iter()
+        .map(|a| FrozenUnit::Property {
+            name: a.key(),
+            expression: Some(a.value()),
+        })
+        .collect()
+}
+
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
     build_kind_value(type_def, None)
 }
