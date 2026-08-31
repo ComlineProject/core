@@ -48,9 +48,25 @@ fn multiple_schemas_are_all_interpreted() {
     for sc in &ctx.schema_contexts {
         assert!(sc.borrow().frozen_schema.borrow().is_some());
     }
-    // The interpretation pass is the same one `compile_package` runs on disk —
-    // cross-schema `import` resolution (where `core` supports it) is unaffected
-    // by the source being in memory.
+}
+
+#[test]
+fn cross_schema_use_resolves_across_the_added_schemas() {
+    // `use` brings the namespace into scope; the reference is qualified. (A bare
+    // `User` after `use types::User` is a separate, pre-existing `core` gap.)
+    let ctx = PackageSources::new()
+        .schema(["types"], "struct User {\n    id: u64\n}\n")
+        .schema(
+            ["api"],
+            "use types::User\n\nstruct Session {\n    user: types::User\n}\n",
+        )
+        .compile()
+        .expect("cross-schema `use` should resolve — same pass as on disk");
+
+    assert_eq!(ctx.schema_contexts.len(), 2);
+    for sc in &ctx.schema_contexts {
+        assert!(sc.borrow().frozen_schema.borrow().is_some());
+    }
 }
 
 #[test]
