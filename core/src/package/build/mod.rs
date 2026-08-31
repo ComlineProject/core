@@ -19,7 +19,7 @@ use crate::schema::ir::{
 };
 
 // External Uses
-use eyre::{bail, Result};
+use eyre::{bail, eyre, Result};
 
 /// Compile and validate a package without touching CAS.
 ///
@@ -31,6 +31,10 @@ use eyre::{bail, Result};
 ///
 /// On success the returned [`ProjectContext`] carries the frozen schema units for
 /// every schema (see `SchemaContext::frozen_schema`), ready for code generation.
+///
+/// This is the on-disk entry point; [`PackageSources`] is the in-memory twin for
+/// embedders (the playground) that never touch the filesystem. Both share the
+/// same interpretation + validation pass.
 pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
     let config_path = package_path.join(format!("config.{}", CONGREGATION_EXTENSION));
     let config_name = config_path.file_name().unwrap().to_str().unwrap();
@@ -43,13 +47,83 @@ pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
         )
     }
 
-    let latest_project = ProjectInterpreter::from_origin(&config_path)?;
-
-    unsafe {
-        interpret_schemas(&latest_project, package_path)?;
-    }
+    let mut latest_project = ProjectInterpreter::from_origin(&config_path)?;
+    interpret_schemas(&mut latest_project, package_path)?;
 
     Ok(latest_project)
+}
+
+/// Compile and validate a package from **in-memory sources** — no filesystem
+/// access. This is what the playground and other embedders use; `core` reads no
+/// files on this path.
+///
+/// ```ignore
+/// let context = PackageSources::new()
+///     .config(config_idp_source)           // optional; a minimal one is synthesised
+///     .schema(["chat"], chat_schema_src)   // namespace segments + source
+///     .schema(["chat", "admin"], admin_src)
+///     .compile()?;
+/// ```
+///
+/// The namespace segments are what the on-disk layout would derive from a
+/// schema's path under `src/` — structure comes from layout (Rust-module style),
+/// not from a keyword inside the file. Cross-schema `use` resolves across every
+/// schema added here, exactly as on disk.
+#[derive(Debug, Default)]
+pub struct PackageSources {
+    config: Option<String>,
+    schemas: Vec<(Vec<String>, String)>,
+}
+
+impl PackageSources {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// The `config.<ext>` (congregation) source. If never set, [`compile`] uses
+    /// a minimal synthesised congregation.
+    ///
+    /// [`compile`]: Self::compile
+    pub fn config(mut self, source: impl Into<String>) -> Self {
+        self.config = Some(source.into());
+        self
+    }
+
+    /// Add one schema: its namespace segments and its source.
+    pub fn schema(
+        mut self,
+        namespace: impl IntoIterator<Item = impl Into<String>>,
+        source: impl Into<String>,
+    ) -> Self {
+        self.schemas
+            .push((namespace.into_iter().map(Into::into).collect(), source.into()));
+        self
+    }
+
+    /// Parse, interpret and validate. The returned [`ProjectContext`] has
+    /// `config_frozen` set and a `SchemaContext` per schema, ready for codegen.
+    pub fn compile(self) -> Result<ProjectContext> {
+        let config = self.config.unwrap_or_else(default_congregation);
+
+        let mut context = ProjectInterpreter::from_config_source(&config)?;
+        context.config_frozen = Some(
+            crate::package::config::ir::interpreter::interpret::interpret_context(&context)
+                .map_err(|e| eyre!("{:?}", e))?,
+        );
+
+        interpret_schema_sources(&mut context, &self.schemas)?;
+        Ok(context)
+    }
+}
+
+/// A minimal congregation for the "just paste a schema" case — enough to
+/// interpret schemas and generate `rust`.
+fn default_congregation() -> String {
+    "congregation playground\n\
+     specification_version = 1\n\
+     \n\
+     code_generation = {\n    languages = {\n        rust#1.70.0 = {}\n    }\n}\n"
+        .to_string()
 }
 
 /// Builds the package, which step-by-step means:
@@ -80,21 +154,17 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
     })
 }
 
-/// Safety: This assumes caller handles mutability properly
-unsafe fn interpret_schemas(compiled_project: &ProjectContext, package_path: &Path) -> Result<()> {
-    // TODO: Decide if package configurations should be able to change the source of schemas
-    //       and/or how to look for them
-    /*
-    let schema_paths = frozen_project::schema_paths(
-        compiled_project.config_frozen.as_ref().unwrap()
-    );
-    */
-    let schemas_path = format!("{}/src/", package_path.display());
-    let schemas_path = Path::new(&*schemas_path);
-    let mut schema_paths = vec![];
-
+/// Glob `<package>/src/**/*.<ext>`, read each schema, and hand the
+/// `(namespace segments, source)` pairs to [`interpret_schema_sources`]. The
+/// namespace is the file's path under `src/`, extension dropped.
+fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
+    // TODO: Decide if package configurations should be able to change the source
+    //       of schemas and/or how to look for them.
+    let schemas_path = package_path.join("src");
     let pattern = format!("{}/**/*.{}", schemas_path.display(), SCHEMA_EXTENSION);
-    for result in glob::glob(&*pattern)? {
+
+    let mut sources: Vec<(Vec<String>, String)> = Vec::new();
+    for result in glob::glob(&pattern)? {
         let schema_path = result?;
         if !schema_path.is_file() {
             bail!(
@@ -102,46 +172,45 @@ unsafe fn interpret_schemas(compiled_project: &ProjectContext, package_path: &Pa
                 schema_path.display()
             )
         }
-        let relative_path = schema_path.strip_prefix(schemas_path)?.to_path_buf();
 
-        let parts = relative_path
+        let relative = schema_path.strip_prefix(&schemas_path)?;
+        let namespace = relative
             .with_extension("")
             .components()
-            .map(|c| format!("{}", c.as_os_str().to_str().unwrap()))
+            .map(|c| c.as_os_str().to_string_lossy().into_owned())
             .collect::<Vec<_>>();
 
-        schema_paths.push((relative_path, parts));
+        let source = std::fs::read_to_string(&schema_path)?;
+        sources.push((namespace, source));
     }
 
-    for relative in schema_paths {
-        let concrete_path = schemas_path.join(relative.0);
+    interpret_schema_sources(context, &sources)
+}
 
-        let source = std::fs::read_to_string(&concrete_path)?;
+/// Parse each `(namespace segments, source)`, register a `SchemaContext` on
+/// `context`, then run the project-aware interpretation + validation pass.
+/// Filesystem-free; shared by [`compile_package`] and [`PackageSources`].
+fn interpret_schema_sources(
+    context: &mut ProjectContext,
+    schemas: &[(Vec<String>, String)],
+) -> Result<()> {
+    for (namespace, source) in schemas {
+        let name = format!("{}.{}", namespace.join("/"), SCHEMA_EXTENSION);
 
-        // Initialize CodeMap for error reporting
         let mut codemap = crate::utils::codemap::CodeMap::new();
-        codemap.insert_file(concrete_path.to_string_lossy().to_string(), source.clone());
+        codemap.insert_file(name.clone(), source.clone());
 
-        match crate::schema::idl::grammar::parse(&source) {
+        match crate::schema::idl::grammar::parse(source) {
             Ok(document) => {
-                let context = SchemaContext::with_declarations(document.0, relative.1, codemap);
-                unsafe {
-                    let ptr = compiled_project as *const ProjectContext;
-                    let ptr_mut = ptr as *mut ProjectContext;
-                    (*ptr_mut).add_schema_context(Rc::new(RefCell::new(context)));
-                }
+                let schema_ctx =
+                    SchemaContext::with_declarations(document.0, namespace.clone(), codemap);
+                context.add_schema_context(Rc::new(RefCell::new(schema_ctx)));
             }
-            Err(e) => {
-                bail!(
-                    "Failed to parse schema at {}: {:?}",
-                    concrete_path.display(),
-                    e
-                );
-            }
+            Err(e) => bail!("Failed to parse schema '{}': {:?}", name, e),
         }
     }
 
-    compiler::interpret::interpret_context(compiled_project)
+    compiler::interpret::interpret_context(context)
 }
 
 // Removed: freeze_project_auto() - no longer needed with CAS
