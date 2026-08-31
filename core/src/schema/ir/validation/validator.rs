@@ -371,8 +371,10 @@ fn validate_type(
                 return;
             }
 
-            // Check if type exists
-            if !symbols.contains(base_type) {
+            // Check if type exists — either as a local declaration / qualified
+            // import (`contains`), or as the bare name a `use ns::Name` brought
+            // into scope.
+            if !symbols.contains(base_type) && !symbols.is_imported_bare(base_type) {
                 let mut message = format!("Unknown type '{}'", base_type);
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));

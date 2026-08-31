@@ -52,20 +52,22 @@ fn multiple_schemas_are_all_interpreted() {
 
 #[test]
 fn cross_schema_use_resolves_across_the_added_schemas() {
-    // `use` brings the namespace into scope; the reference is qualified. (A bare
-    // `User` after `use types::User` is a separate, pre-existing `core` gap.)
-    let ctx = PackageSources::new()
-        .schema(["types"], "struct User {\n    id: u64\n}\n")
-        .schema(
-            ["api"],
-            "use types::User\n\nstruct Session {\n    user: types::User\n}\n",
-        )
-        .compile()
-        .expect("cross-schema `use` should resolve — same pass as on disk");
+    // Both the bare name (`use ns::Name` -> `Name`) and the qualified form
+    // (`ns::Name`) resolve.
+    for reference in ["User", "types::User"] {
+        let ctx = PackageSources::new()
+            .schema(["types"], "struct User {\n    id: u64\n}\n")
+            .schema(
+                ["api"],
+                &format!("use types::User\n\nstruct Session {{\n    user: {reference}\n}}\n"),
+            )
+            .compile()
+            .unwrap_or_else(|e| panic!("`user: {reference}` should resolve: {e}"));
 
-    assert_eq!(ctx.schema_contexts.len(), 2);
-    for sc in &ctx.schema_contexts {
-        assert!(sc.borrow().frozen_schema.borrow().is_some());
+        assert_eq!(ctx.schema_contexts.len(), 2);
+        for sc in &ctx.schema_contexts {
+            assert!(sc.borrow().frozen_schema.borrow().is_some());
+        }
     }
 }
 
