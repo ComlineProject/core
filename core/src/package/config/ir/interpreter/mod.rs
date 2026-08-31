@@ -49,6 +49,10 @@ impl Compile for ProjectInterpreter {
         Ok(context)
     }
 
+    fn from_source(source: &str) -> Self::Output {
+        Self::from_config_source(source)
+    }
+
     fn from_origin(origin: &Path) -> Self::Output {
         Self::from_origin(origin) // Call the inherent method which handles file reading + parsing
     }
