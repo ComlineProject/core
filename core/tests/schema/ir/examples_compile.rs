@@ -115,7 +115,7 @@ fn test_imports_package_compiles_with_resolved_cross_file_use() {
     let import_paths: Vec<&str> = frozen
         .iter()
         .filter_map(|unit| match unit {
-            FrozenUnit::Import(path, _) => Some(path.as_str()),
+            FrozenUnit::Import(path, _, _) => Some(path.as_str()),
             _ => None,
         })
         .collect();

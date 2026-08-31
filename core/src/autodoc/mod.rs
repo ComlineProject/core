@@ -33,7 +33,7 @@ pub fn node_difference(from: FrozenUnit, to: FrozenUnit) {
     for node in from {
         match node {
             FrozenUnit::Namespace(n) => {}
-            FrozenUnit::Import(_, _) => {}
+            FrozenUnit::Import(..) => {}
             FrozenUnit::Constant { .. } => {}
             FrozenUnit::Property { .. } => {}
             FrozenUnit::Parameter { .. } => {}

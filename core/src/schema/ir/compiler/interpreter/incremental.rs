@@ -56,17 +56,23 @@ impl IncrementalInterpreter {
             match spanned_decl.value {
                 Declaration::Import(import) => {
                     // Legacy import support
-                    frozen_units.push(FrozenUnit::Import(import.path(), span));
+                    frozen_units.push(FrozenUnit::Import(import.path(), None, span));
                 }
                 Declaration::Use(use_stmt) => {
+                    let alias = use_stmt.alias.as_ref().map(|a| a.name.text.clone());
                     let units = match use_context {
                         Some((current_namespace, project_context)) => resolve_use_declaration(
                             project_context,
                             current_namespace,
                             &use_stmt.path,
+                            alias,
                             span,
                         ),
-                        None => vec![FrozenUnit::Import(extract_use_path(&use_stmt.path), span)],
+                        None => vec![FrozenUnit::Import(
+                            extract_use_path(&use_stmt.path),
+                            alias,
+                            span,
+                        )],
                     };
                     frozen_units.extend(units);
                 }
@@ -450,6 +456,7 @@ fn resolve_use_declaration(
     project_context: &ProjectContext,
     current_namespace: &[String],
     use_path: &UsePath,
+    alias: Option<String>,
     span: (usize, usize),
 ) -> Vec<FrozenUnit> {
     let resolver = ImportResolver::new(vec![], Default::default(), None);
@@ -458,24 +465,24 @@ fn resolve_use_declaration(
         Ok(target) => target,
         Err(message) => {
             tracing::warn!("Failed to resolve use path: {}", message);
-            return vec![FrozenUnit::Import(format!("<unresolved: {}>", message), span)];
+            return vec![FrozenUnit::Import(format!("<unresolved: {}>", message), alias, span)];
         }
     };
 
     let joined_namespace = target.resolved.absolute_namespace.join("::");
 
-    // Glob import: `use ns::*;`
+    // Glob import: `use ns::*;` — an alias here is meaningless.
     if target.resolved.symbols == ["*".to_string()] {
-        let mut units = vec![FrozenUnit::Import(format!("{}::*", joined_namespace), span)];
+        let mut units = vec![FrozenUnit::Import(format!("{}::*", joined_namespace), None, span)];
         if let Some(schema) = &target.schema {
             units.extend(declared_symbol_names(&schema.borrow()).into_iter().map(|name| {
-                FrozenUnit::Import(format!("{}::{}", joined_namespace, name), span)
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, name), None, span)
             }));
         }
         return units;
     }
 
-    // Item imports: `use ns::{A, B};`
+    // Item imports: `use ns::{A, B};` — an alias here is meaningless.
     if !target.resolved.symbols.is_empty() {
         return target
             .resolved
@@ -486,20 +493,21 @@ fn resolve_use_declaration(
                 {
                     tracing::warn!("Symbol '{}' not found in schema '{}'", item, joined_namespace);
                 }
-                FrozenUnit::Import(format!("{}::{}", joined_namespace, item), span)
+                FrozenUnit::Import(format!("{}::{}", joined_namespace, item), None, span)
             })
             .collect();
     }
 
-    // Whole-namespace or single-symbol import (`use ns;` / `use ns::Symbol;`)
+    // Whole-namespace or single-symbol import (`use ns;` / `use ns::Symbol;`).
+    // The alias (`use ... as X`) binds `X` to that one target.
     match &target.schema {
         Some(schema) if target.remaining.is_empty() => {
             let ns = schema.borrow().namespace_joined();
-            let mut units = vec![FrozenUnit::Import(ns.clone(), span)];
+            let mut units = vec![FrozenUnit::Import(ns.clone(), alias, span)];
             units.extend(
                 declared_symbol_names(&schema.borrow())
                     .into_iter()
-                    .map(|name| FrozenUnit::Import(format!("{}::{}", ns, name), span)),
+                    .map(|name| FrozenUnit::Import(format!("{}::{}", ns, name), None, span)),
             );
             units
         }
@@ -511,10 +519,14 @@ fn resolve_use_declaration(
                 tracing::warn!("Symbol '{}' not found in schema '{}'", symbol, schema_namespace);
             }
 
-            vec![FrozenUnit::Import(format!("{}::{}", schema_namespace, symbol), span)]
+            vec![FrozenUnit::Import(
+                format!("{}::{}", schema_namespace, symbol),
+                alias,
+                span,
+            )]
         }
         // Not part of this project (external dependency, stdlib, or genuinely
         // unresolved) - fall back to the raw resolved namespace.
-        None => vec![FrozenUnit::Import(joined_namespace, span)],
+        None => vec![FrozenUnit::Import(joined_namespace, alias, span)],
     }
 }

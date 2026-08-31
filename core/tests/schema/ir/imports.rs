@@ -60,7 +60,7 @@ fn test_whole_schema_use_resolves_across_files() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == "types")),
         "Expected a resolved import of 'types', got {:?}",
         frozen
     );
@@ -82,7 +82,7 @@ fn test_symbol_use_resolves_to_declaring_schema() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::User")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == "types::User")),
         "Expected a resolved import of 'types::User', got {:?}",
         frozen
     );
@@ -109,7 +109,7 @@ fn test_multi_item_use_resolves_each_symbol() {
         assert!(
             frozen
                 .iter()
-                .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == expected)),
+                .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == expected)),
             "Expected a resolved import of '{}', got {:?}",
             expected,
             frozen
@@ -133,7 +133,7 @@ fn test_glob_use_resolves_namespace() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::*")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == "types::*")),
         "Expected a resolved glob import of 'types::*', got {:?}",
         frozen
     );
@@ -166,7 +166,7 @@ fn test_unresolved_use_does_not_panic() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path.starts_with("<unresolved:"))),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path.starts_with("<unresolved:"))),
         "Expected an unresolved-import marker, got {:?}",
         frozen
     );
@@ -190,7 +190,7 @@ fn test_same_package_symbol_not_found_still_compiles() {
     assert!(
         frozen
             .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _) if path == "types::Missing")),
+            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == "types::Missing")),
         "Expected a best-effort import of 'types::Missing', got {:?}",
         frozen
     );
@@ -260,5 +260,60 @@ fn test_duplicate_struct_name_fails_compilation() {
         result.is_err(),
         "Two structs with the same name in one schema should fail compilation, got {:?}",
         result
+    );
+}
+
+#[test]
+fn test_use_binds_the_bare_name() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        // bare `User`, not `types::User`
+        "use types::User\n\nstruct Session {\n    user: User\n}\n",
+    );
+
+    interpret_context(&project).expect("a bare reference after `use` should resolve");
+}
+
+#[test]
+fn test_use_as_binds_the_alias() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types::User as Account\n\nstruct Session {\n    who: Account\n}\n",
+    );
+
+    interpret_context(&project).expect("the alias should resolve as a type");
+
+    let frozen = frozen_units_for(&project, "api");
+    assert!(
+        frozen.iter().any(|unit| matches!(
+            unit,
+            FrozenUnit::Import(path, alias, _)
+                if path == "types::User" && alias.as_deref() == Some("Account")
+        )),
+        "import should carry the alias, got {:?}",
+        frozen
+    );
+}
+
+#[test]
+fn test_use_as_does_not_bind_the_original_bare_name() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        // aliased, so bare `User` is NOT in scope — only `Account` (or `types::User`)
+        "use types::User as Account\n\nstruct Session {\n    who: User\n}\n",
+    );
+
+    assert!(
+        interpret_context(&project).is_err(),
+        "a bare `User` after `use ... as Account` should not resolve"
     );
 }
