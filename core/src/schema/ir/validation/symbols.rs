@@ -38,4 +38,16 @@ impl<'a> SymbolTable<'a> {
     pub fn contains(&self, name: &str) -> bool {
         self.symbols.contains_key(name)
     }
+
+    /// Whether `name` is the trailing segment of some `use ns::Name` import —
+    /// i.e. a bare reference that a `use` brought into scope, Rust-style.
+    /// `contains` is checked first; the qualified `ns::Name` form always
+    /// resolves through `contains`.
+    pub fn is_imported_bare(&self, name: &str) -> bool {
+        self.symbols.iter().any(|(key, kind)| {
+            *kind == SymbolType::Import
+                && key.contains("::")
+                && key.rsplit("::").next() == Some(name)
+        })
+    }
 }
