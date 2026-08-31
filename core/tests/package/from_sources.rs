@@ -52,17 +52,22 @@ fn multiple_schemas_are_all_interpreted() {
 
 #[test]
 fn cross_schema_use_resolves_across_the_added_schemas() {
-    // Both the bare name (`use ns::Name` -> `Name`) and the qualified form
-    // (`ns::Name`) resolve.
-    for reference in ["User", "types::User"] {
+    // The bare name (`use ns::Name` -> `Name`), the qualified form (`ns::Name`),
+    // and an alias (`use ns::Name as X` -> `X`) all resolve.
+    let cases = [
+        ("use types::User", "User"),
+        ("use types::User", "types::User"),
+        ("use types::User as Account", "Account"),
+    ];
+    for (import, reference) in cases {
         let ctx = PackageSources::new()
             .schema(["types"], "struct User {\n    id: u64\n}\n")
             .schema(
                 ["api"],
-                &format!("use types::User\n\nstruct Session {{\n    user: {reference}\n}}\n"),
+                &format!("{import}\n\nstruct Session {{\n    user: {reference}\n}}\n"),
             )
             .compile()
-            .unwrap_or_else(|e| panic!("`user: {reference}` should resolve: {e}"));
+            .unwrap_or_else(|e| panic!("`{import}` / `{reference}` should resolve: {e}"));
 
         assert_eq!(ctx.schema_contexts.len(), 2);
         for sc in &ctx.schema_contexts {

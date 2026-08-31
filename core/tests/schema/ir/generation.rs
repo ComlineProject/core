@@ -292,7 +292,7 @@ const MIN_VALUE: s8 = -128
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
         match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Import(path, _) => {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Import(path, _, _) => {
                 assert_eq!(path, "std");
             }
             _ => panic!("Expected Import unit"),

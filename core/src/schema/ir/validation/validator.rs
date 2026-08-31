@@ -14,27 +14,33 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
 
     // Pass 1: Collect Symbols & Check Duplicates
     for unit in units {
+        // Imports: the resolved path is a symbol (so a qualified `ns::Name`
+        // resolves), and the bare name a `use` brought into scope goes in a
+        // separate set (so it never conflicts and a local declaration shadows
+        // it). Redundant identical `use`s are fine, hence `let _`.
+        if let FrozenUnit::Import(path, alias, _span) = unit {
+            let _ = symbols.insert(path.as_str(), SymbolType::Import);
+            let bare = match alias {
+                Some(a) => Some(a.as_str()),
+                None => path.rsplit("::").next().filter(|s| *s != path.as_str()),
+            };
+            if let Some(bare) = bare {
+                symbols.add_bare_import(bare);
+            }
+            continue;
+        }
+
         let (name, kind, span) = match unit {
             FrozenUnit::Struct { name, span, .. } => (name.as_str(), SymbolType::Struct, Some(*span)),
             FrozenUnit::Enum { name, span, .. } => (name.as_str(), SymbolType::Enum, Some(*span)),
             FrozenUnit::Protocol { name, span, .. } => (name.as_str(), SymbolType::Protocol, Some(*span)),
             FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
-            FrozenUnit::Import(path, span) => (path.as_str(), SymbolType::Import, Some(*span)),
             FrozenUnit::Validator { name, .. } => (name.as_str(), SymbolType::Validator, None),
             // TODO: Function handling if they become top-level
             _ => continue,
         };
 
-        if let Err(existing_kind) = symbols.insert(name, kind) {
-            // Two `use` paths naming the same symbol (e.g. a whole-namespace
-            // import expanded alongside an explicit named import of one of
-            // its symbols) is redundant, not a conflict - only a real
-            // duplicate declaration, or an import colliding with one, is an
-            // error.
-            if kind == SymbolType::Import && existing_kind == SymbolType::Import {
-                continue;
-            }
-
+        if let Err(_existing_kind) = symbols.insert(name, kind) {
             errors.push(ValidationError {
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),

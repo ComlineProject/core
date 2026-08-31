@@ -23,7 +23,11 @@ pub enum FrozenUnit {
     // Span is included in the hash/CAS identity deliberately: two schemas
     // that only differ in formatting/position should not be considered
     // content-identical.
-    Import(String, (usize, usize)),
+    //
+    // `(resolved path, optional local alias, span)`. The alias is the `X` in
+    // `use ns::Name as X`; `None` for a plain `use` (the bare name it binds is
+    // then the path's trailing segment).
+    Import(String, Option<String>, (usize, usize)),
     Constant {
         docstring: Option<String>,
         name: String,
