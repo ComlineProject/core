@@ -94,15 +94,28 @@ pub enum FrozenUnit {
         // direction: Box<FrozenUnit>,
         arguments: Vec<FrozenArgument>,
         _return: Option<KindValue>,
-        // Names of the error(s) this function can throw - a reference by
-        // name only, not resolved/validated against a declared `error`
-        // (that's validator.rs-style work, out of scope here).
-        throws: Vec<String>,
+        // The schema-global ordinal of each `error` this function can throw -
+        // resolved at freeze from the `! Name` reference to the matching
+        // `FrozenUnit::Error`'s `ordinal` (local or a re-exported import; see
+        // `Error::ordinal`). An unresolvable name still gets a stable slot.
+        throws: Vec<u16>,
         span: (usize, usize),
     },
     Error {
         docstring: Option<String>,
         parameters: Vec<FrozenUnit>,
+        /// Schema-global error ordinal - this error's slot in the schema's
+        /// error space. Locally-declared errors take `0..N` in declaration
+        /// order; an imported error named by a `throws` gets the next slot as
+        /// a re-export. This is the `u16` that travels in the response
+        /// envelope. Append-only: an `error` is retired in place, its ordinal
+        /// never reordered or reused.
+        ordinal: u16,
+        /// `Some(ns)` when this unit is a re-export slot for an `error`
+        /// declared in another schema (`ns` = that schema's namespace, or
+        /// `<unresolved: Name>` if it could not be located); `None` for a
+        /// local `error` declaration.
+        imported_from: Option<String>,
         name: String,
         message: String,
         fields: Vec<FrozenUnit>

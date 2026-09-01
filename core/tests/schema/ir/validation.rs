@@ -207,29 +207,39 @@ error NotFoundError {
 
     #[test]
     fn test_function_throws_populates_ir() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        // `NotFoundError` is neither declared locally nor imported: it still
+        // gets a stable ordinal (0), and an `<unresolved: ...>` re-export slot
+        // is appended so the ordinal has a home in the IR.
         let code = "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}";
         let ir_units = IncrementalInterpreter::from_source(code);
-        match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
-                match &functions[0] {
-                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
-                        throws,
-                        ..
-                    } => {
-                        assert_eq!(throws, &vec!["NotFoundError".to_string()]);
-                    }
-                    _ => panic!("Expected Function"),
+
+        let FrozenUnit::Protocol { functions, .. } = &ir_units[0] else {
+            panic!("Expected Protocol");
+        };
+        let FrozenUnit::Function { throws, .. } = &functions[0] else {
+            panic!("Expected Function");
+        };
+        assert_eq!(throws, &vec![0u16]);
+
+        let reexport = ir_units
+            .iter()
+            .find_map(|u| match u {
+                FrozenUnit::Error { name, ordinal, imported_from, .. } if name == "NotFoundError" => {
+                    Some((*ordinal, imported_from.clone()))
                 }
-            }
-            _ => panic!("Expected Protocol"),
-        }
+                _ => None,
+            })
+            .expect("an Error unit for the thrown name");
+        assert_eq!(reexport.0, 0);
+        assert_eq!(reexport.1.as_deref(), Some("<unresolved: NotFoundError>"));
     }
 
     #[test]
     fn test_function_without_throws_still_empty_vec() {
-        // Regression guard for the Vec<FrozenUnit> -> Vec<String> type
-        // change: a function with no throws clause still gets an empty
-        // Vec, same as before.
+        // A function with no throws clause still gets an empty Vec (now
+        // Vec<u16>, resolved from the `! Name` references).
         let code = "protocol P {\n    function get(u64) -> str;\n}";
         let ir_units = IncrementalInterpreter::from_source(code);
         match &ir_units[0] {
@@ -246,6 +256,39 @@ error NotFoundError {
             }
             _ => panic!("Expected Protocol"),
         }
+    }
+
+    #[test]
+    fn test_local_error_gets_ordinal_and_throws_resolves_to_it() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = "\
+error Missing {\n    message = \"gone\"\n}\n\
+error Denied {\n    message = \"no\"\n}\n\
+protocol P {\n    function get(u64) -> str ! Denied;\n}";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        // Declaration order: Missing = 0, Denied = 1.
+        let ordinal_of = |want: &str| {
+            ir_units.iter().find_map(|u| match u {
+                FrozenUnit::Error { name, ordinal, imported_from: None, .. } if name == want => {
+                    Some(*ordinal)
+                }
+                _ => None,
+            })
+        };
+        assert_eq!(ordinal_of("Missing"), Some(0));
+        assert_eq!(ordinal_of("Denied"), Some(1));
+
+        let FrozenUnit::Protocol { functions, .. } =
+            ir_units.iter().find(|u| matches!(u, FrozenUnit::Protocol { .. })).unwrap()
+        else {
+            unreachable!()
+        };
+        let FrozenUnit::Function { throws, .. } = &functions[0] else {
+            panic!("Expected Function");
+        };
+        assert_eq!(throws, &vec![1u16]);
     }
 
     #[test]

@@ -1,10 +1,11 @@
 // Standard Uses
+use std::collections::HashMap;
 
 // Crate Uses
 // use crate::schema::idl::ast::unit;
 // use crate::schema::idl::ast::unit::ASTUnit;
 use crate::package::config::ir::context::ProjectContext;
-use crate::schema::idl::grammar::{Annotation, AnnotationValue, Declaration, UsePath};
+use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::import_resolver::{
     declared_symbol_names, resolve_use_to_schema, schema_declares_symbol, ImportResolver,
 };
@@ -47,6 +48,16 @@ impl IncrementalInterpreter {
         use_context: Option<(&[String], &ProjectContext)>,
     ) -> Vec<FrozenUnit> {
         tracing::debug!("Processing {} declarations...", declarations.len());
+
+        // Resolve the schema's error space up front: every locally-declared
+        // `error` gets an ordinal in declaration order, then every distinct
+        // `! Name` a function throws that *isn't* local gets the next slot as
+        // a re-exported import (resolved through the in-scope `use`s, or a
+        // `<unresolved: Name>` marker slot). `throws` then freezes as `u16`s.
+        let ErrorPlan {
+            ordinals: error_ordinals,
+            reexports,
+        } = plan_error_space(&declarations, use_context);
 
         let mut frozen_units: Vec<FrozenUnit> = vec![];
 
@@ -193,7 +204,16 @@ impl IncrementalInterpreter {
                                 arguments,
                                 _return: return_type,
                                 docstring: func.docstring().unwrap_or_default(),
-                                throws: func.throws().into_iter().collect(),
+                                throws: func
+                                    .throws()
+                                    .into_iter()
+                                    .map(|name| {
+                                        // Every throw name was given a slot by
+                                        // `plan_error_space`; the default is a
+                                        // defensive fallback only.
+                                        error_ordinals.get(&name).copied().unwrap_or(0)
+                                    })
+                                    .collect(),
                                 span: func.span,
                             }
                         })
@@ -208,36 +228,11 @@ impl IncrementalInterpreter {
                     });
                 }
                 Declaration::Error(error_decl) => {
-                    let error_name = error_decl.name();
-                    let message = error_decl.message();
-                    let fields = error_decl.fields();
-
-                    let field_units: Vec<FrozenUnit> = fields
-                        .iter()
-                        .map(|field| {
-                            let fname = field.name();
-                            let field_type = field.field_type();
-
-                            let kind_value = build_kind_value(field_type, field.default_value());
-
-                            FrozenUnit::Field {
-                                docstring: field.docstring(),
-                                parameters: annotation_units(&field.annotations()),
-                                optional: field.optional(),
-                                name: fname,
-                                kind_value,
-                                span: field.span,
-                            }
-                        })
-                        .collect();
-
-                    frozen_units.push(FrozenUnit::Error {
-                        docstring: error_decl.docstring(),
-                        parameters: vec![],
-                        name: error_name,
-                        message,
-                        fields: field_units,
-                    });
+                    // Local errors keep the ordinal `plan_error_space` gave
+                    // them; `None` only if a Protocol arm somehow references a
+                    // name before it's planned, which can't happen.
+                    let ordinal = error_ordinals.get(&error_decl.name()).copied().unwrap_or(0);
+                    frozen_units.push(frozen_error(&error_decl, ordinal, None));
                 }
                 Declaration::Settings(settings_def) => {
                     let parameters: Vec<FrozenUnit> = settings_def
@@ -292,6 +287,10 @@ impl IncrementalInterpreter {
             }
         }
 
+        // Re-exported foreign errors named by a `throws`, in ordinal order,
+        // after the local declarations.
+        frozen_units.extend(reexports);
+
         tracing::debug!("Generated {} IR units", frozen_units.len());
         for unit in &frozen_units {
             tracing::trace!("  {:?}", unit);
@@ -311,6 +310,163 @@ impl IncrementalInterpreter {
         todo!()
     }
     */
+}
+
+/// The resolved error space of one schema: every error name this schema can
+/// throw, mapped to its schema-global ordinal, plus the `FrozenUnit::Error`
+/// re-export slots for the foreign ones (in ordinal order).
+struct ErrorPlan {
+    ordinals: HashMap<String, u16>,
+    reexports: Vec<FrozenUnit>,
+}
+
+/// Assign schema-global error ordinals: locally-declared `error`s take
+/// `0..N` in declaration order; each distinct `! Name` a function throws that
+/// isn't local is appended as a re-exported import - resolved through the
+/// in-scope `use`s when there's a project context, or a `<unresolved: Name>`
+/// marker slot otherwise. Either way every throw name ends up with a stable
+/// `u16`.
+fn plan_error_space(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    use_context: Option<(&[String], &ProjectContext)>,
+) -> ErrorPlan {
+    let mut ordinals: HashMap<String, u16> = HashMap::new();
+    let mut next: u16 = 0;
+
+    // Locals, in declaration order. A duplicate `error` name (a validation
+    // error, reported elsewhere) keeps the first slot.
+    for decl in declarations {
+        if let Declaration::Error(error_decl) = &decl.value {
+            ordinals.entry(error_decl.name()).or_insert_with(|| {
+                let ord = next;
+                next += 1;
+                ord
+            });
+        }
+    }
+
+    // Foreign errors named by a `throws`, first-reference order.
+    let mut reexports: Vec<FrozenUnit> = Vec::new();
+    for decl in declarations {
+        let Declaration::Protocol(protocol) = &decl.value else {
+            continue;
+        };
+        for func in protocol.functions() {
+            let Some(name) = func.throws() else { continue };
+            if ordinals.contains_key(&name) {
+                continue;
+            }
+            let ord = next;
+            next += 1;
+            ordinals.insert(name.clone(), ord);
+            reexports.push(
+                resolve_foreign_error(&name, declarations, use_context, ord).unwrap_or_else(|| {
+                    FrozenUnit::Error {
+                        docstring: None,
+                        parameters: vec![],
+                        ordinal: ord,
+                        imported_from: Some(format!("<unresolved: {name}>")),
+                        name: name.clone(),
+                        message: String::new(),
+                        fields: vec![],
+                    }
+                }),
+            );
+        }
+    }
+
+    ErrorPlan { ordinals, reexports }
+}
+
+/// Locate a foreign `error` named by a bare `! Name` throw: walk the schema's
+/// `use` declarations, and for each that brings `name` into scope, look for a
+/// matching `error` declaration in the target schema. `None` if there's no
+/// project context, or nothing matches.
+fn resolve_foreign_error(
+    name: &str,
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    use_context: Option<(&[String], &ProjectContext)>,
+    ordinal: u16,
+) -> Option<FrozenUnit> {
+    let (current_namespace, project_context) = use_context?;
+    let resolver = ImportResolver::new(vec![], Default::default(), None);
+
+    for decl in declarations {
+        let Declaration::Use(use_stmt) = &decl.value else {
+            continue;
+        };
+        let Ok(target) =
+            resolve_use_to_schema(project_context, &resolver, current_namespace, &use_stmt.path)
+        else {
+            continue;
+        };
+        let Some(schema) = &target.schema else {
+            continue;
+        };
+
+        let alias = use_stmt.alias.as_ref().map(|a| a.name.text.as_str());
+        let brings_into_scope = if target.resolved.symbols == ["*".to_string()] {
+            true
+        } else if !target.resolved.symbols.is_empty() {
+            target.resolved.symbols.iter().any(|s| s == name)
+        } else if target.remaining.is_empty() {
+            // `use ns;` - the whole namespace; a bare `! Name` resolves if
+            // `ns` declares it.
+            true
+        } else {
+            let symbol = target.remaining.join("::");
+            symbol == name || alias == Some(name)
+        };
+        if !brings_into_scope {
+            continue;
+        }
+
+        let schema_ref = schema.borrow();
+        for target_decl in &schema_ref.declarations {
+            if let Declaration::Error(error_decl) = &target_decl.value {
+                if error_decl.name() == name {
+                    return Some(frozen_error(
+                        error_decl,
+                        ordinal,
+                        Some(schema_ref.namespace_joined()),
+                    ));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Freeze one `error` declaration - shared by a local declaration and a
+/// re-exported import (which only differ in `ordinal` / `imported_from`).
+fn frozen_error(
+    error_decl: &grammar::Error,
+    ordinal: u16,
+    imported_from: Option<String>,
+) -> FrozenUnit {
+    let field_units: Vec<FrozenUnit> = error_decl
+        .fields()
+        .iter()
+        .map(|field| FrozenUnit::Field {
+            docstring: field.docstring(),
+            parameters: annotation_units(&field.annotations()),
+            optional: field.optional(),
+            name: field.name(),
+            kind_value: build_kind_value(field.field_type(), field.default_value()),
+            span: field.span,
+        })
+        .collect();
+
+    FrozenUnit::Error {
+        docstring: error_decl.docstring(),
+        parameters: vec![],
+        ordinal,
+        imported_from,
+        name: error_decl.name(),
+        message: error_decl.message(),
+        fields: field_units,
+    }
 }
 
 /// Turn a declaration's annotations into frozen units, in source order.
