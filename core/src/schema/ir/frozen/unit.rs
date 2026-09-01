@@ -85,8 +85,12 @@ pub enum FrozenUnit {
     },
     Function {
         docstring: String,
+        // `@key = value` function annotations (per-call settings: `@timeout_ms`,
+        // `@idempotent`, ...) as `Property { name, expression }`, same shape as
+        // `Protocol` / `Struct` carry. Open namespace - a consumer acts on the
+        // keys it knows and ignores the rest.
+        parameters: Vec<FrozenUnit>,
         name: String,
-        synchronous: bool,
         // direction: Box<FrozenUnit>,
         arguments: Vec<FrozenArgument>,
         _return: Option<KindValue>,

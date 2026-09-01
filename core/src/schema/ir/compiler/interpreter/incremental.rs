@@ -189,9 +189,9 @@ impl IncrementalInterpreter {
 
                             FrozenUnit::Function {
                                 name: func_name,
+                                parameters: annotation_units(&func.annotations()),
                                 arguments,
                                 _return: return_type,
-                                synchronous: true,
                                 docstring: func.docstring().unwrap_or_default(),
                                 throws: func.throws().into_iter().collect(),
                                 span: func.span,
@@ -377,6 +377,10 @@ fn build_kind_value(
         );
     }
 
+    if matches!(type_def, crate::schema::idl::grammar::Type::Unit(_)) {
+        return KindValue::Unit;
+    }
+
     let type_name = type_to_string(type_def);
 
     match (type_name.as_str(), value) {
@@ -421,6 +425,7 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
             let members: Vec<String> = union_type.members().iter().map(type_to_string).collect();
             format!("union({})", members.join(" "))
         }
+        crate::schema::idl::grammar::Type::Unit(_) => "()".to_string(),
     }
 }
 

@@ -710,6 +710,17 @@ pub mod grammar {
         Named(ScopedIdentifier),
         Array(Box<ArrayType>),
         Union(UnionType),
+        Unit(UnitType),
+    }
+
+    /// The unit type `()` - an explicit "reply, but no value" (an empty ack),
+    /// distinct from omitting `->` entirely, which means "no reply at all".
+    #[derive(Debug, Clone)]
+    pub struct UnitType {
+        #[rust_sitter::leaf(text = "(")]
+        _open: (),
+        #[rust_sitter::leaf(text = ")")]
+        _close: (),
     }
 
     /// Array type: Type[] or Type[SIZE]
