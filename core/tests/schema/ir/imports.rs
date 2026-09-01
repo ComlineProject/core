@@ -317,3 +317,103 @@ fn test_use_as_does_not_bind_the_original_bare_name() {
         "a bare `User` after `use ... as Account` should not resolve"
     );
 }
+
+/// Pull the `(ordinal, imported_from)` of every frozen `Error` unit.
+fn error_slots(frozen: &[FrozenUnit]) -> Vec<(u16, String, Option<String>)> {
+    frozen
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Error { name, ordinal, imported_from, .. } => {
+                Some((*ordinal, name.clone(), imported_from.clone()))
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+fn only_function_throws(frozen: &[FrozenUnit]) -> Vec<u16> {
+    frozen
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Protocol { functions, .. } => Some(functions),
+            _ => None,
+        })
+        .and_then(|fns| {
+            fns.iter().find_map(|f| match f {
+                FrozenUnit::Function { throws, .. } => Some(throws.clone()),
+                _ => None,
+            })
+        })
+        .expect("a protocol with one function")
+}
+
+#[test]
+fn test_thrown_foreign_error_gets_a_reexport_slot() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["errs"],
+        "error NotFound {\n    message = \"{self.id} is gone\"\n    id: u64\n}\n",
+    );
+    add_schema(
+        &mut project,
+        &["api"],
+        "use errs::NotFound\n\nprotocol Store {\n    function get(u64) -> str ! NotFound;\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+    let frozen = frozen_units_for(&project, "api");
+
+    // The foreign error is re-exported into `api`'s ordinal space at 0 (no
+    // local errors), with its fields/message carried over from `errs`.
+    let slots = error_slots(&frozen);
+    assert_eq!(
+        slots,
+        vec![(0u16, "NotFound".to_string(), Some("errs".to_string()))],
+        "got {frozen:?}"
+    );
+    let reexport = frozen
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Error { name, fields, message, .. } if name == "NotFound" => {
+                Some((fields.len(), message.clone()))
+            }
+            _ => None,
+        })
+        .unwrap();
+    assert_eq!(reexport, (1, "{self.id} is gone".to_string()));
+
+    // ...and the function points at that ordinal.
+    assert_eq!(only_function_throws(&frozen), vec![0u16]);
+}
+
+#[test]
+fn test_local_errors_keep_low_ordinals_foreign_reexports_come_after() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["errs"],
+        "error Denied {\n    message = \"no\"\n}\n",
+    );
+    add_schema(
+        &mut project,
+        &["api"],
+        "use errs::Denied\n\n\
+         error Local {\n    message = \"local\"\n}\n\
+         protocol Store {\n    function act(u64) -> str ! Denied;\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+    let frozen = frozen_units_for(&project, "api");
+
+    let slots = error_slots(&frozen);
+    assert_eq!(
+        slots,
+        vec![
+            (0u16, "Local".to_string(), None),
+            (1u16, "Denied".to_string(), Some("errs".to_string())),
+        ],
+        "local error takes ordinal 0, the re-exported foreign one comes after"
+    );
+    assert_eq!(only_function_throws(&frozen), vec![1u16]);
+}
