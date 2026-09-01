@@ -364,6 +364,13 @@ enum DayOfWeek {
     }
 
     #[test]
+    fn test_protocol_unit_return() {
+        // `-> ()` is an explicit empty reply, distinct from no `->` at all.
+        let code = "protocol API { function commit() -> (); }";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
     fn test_protocol_multiple_args() {
         let code = "protocol API { function process(str, u32, bool) -> s64; }";
         assert!(grammar::parse(code).is_ok());

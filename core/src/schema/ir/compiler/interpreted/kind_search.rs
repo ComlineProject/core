@@ -99,7 +99,10 @@ pub enum KindValue {
     Primitive(Primitive),
     EnumVariant(String, Option<Box<KindValue>>),
     Union(Vec<KindValue>),
-    Namespaced(String, Option<Box<KindValue>>)
+    Namespaced(String, Option<Box<KindValue>>),
+    /// The unit type `()` - a reply carrying no value. Distinct from a
+    /// function with no `_return` at all (no reply).
+    Unit,
 }
 
 impl KindValue {
@@ -127,6 +130,7 @@ impl KindValue {
                 // TODO: Properly implement, it was testing at this stage
                 (namespace.clone(), None)
             }
+            KindValue::Unit => ("()".to_owned(), None),
         }
     }
 }

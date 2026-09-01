@@ -404,6 +404,48 @@ protocol EventService {
     }
 
     #[test]
+    fn test_protocol_unit_return_ir() {
+        // `-> ()` freezes as `_return: Some(KindValue::Unit)` - an empty
+        // reply - where a function with no `->` freezes as `_return: None`.
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+        let code = r#"
+protocol TxService {
+    function commit() -> ();
+    function log(str);
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        match &ir_units[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
+                match &functions[0] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        name,
+                        _return,
+                        ..
+                    } => {
+                        assert_eq!(name, "commit");
+                        assert_eq!(_return, &Some(KindValue::Unit));
+                    }
+                    _ => panic!("Expected Function"),
+                }
+                match &functions[1] {
+                    comline_core::schema::ir::frozen::unit::FrozenUnit::Function {
+                        name,
+                        _return,
+                        ..
+                    } => {
+                        assert_eq!(name, "log");
+                        assert_eq!(_return, &None);
+                    }
+                    _ => panic!("Expected Function"),
+                }
+            }
+            _ => panic!("Expected Protocol"),
+        }
+    }
+
+    #[test]
     fn test_struct_and_field_spans_are_populated() {
         let code = "struct User {\n    id: u64\n    name: str\n}\n";
 

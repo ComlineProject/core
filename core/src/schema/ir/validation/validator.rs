@@ -401,6 +401,9 @@ fn validate_type(
             // type today (it's only ever used to represent one variant inside
             // an Enum's own `variants` list, not as a referenceable type).
         }
+        KindValue::Unit => {
+            // `()` - the empty-reply type. Nothing to resolve.
+        }
     }
 }
 

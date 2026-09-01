@@ -544,6 +544,7 @@ fn kind_to_string(kind: &KindValue) -> String {
             let parts: Vec<String> = members.iter().map(kind_to_string).collect();
             format!("union({})", parts.join(" | "))
         }
+        KindValue::Unit => "()".to_string(),
     }
 }
 
