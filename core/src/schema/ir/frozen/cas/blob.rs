@@ -7,6 +7,27 @@ use crate::package::build::cas::storage::Hash;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use eyre::{eyre, Result};
 
+/// A canonical, cross-language-stable digest of one schema's frozen units:
+/// BLAKE3 over their `bincode` encoding — the same serialization the CAS uses
+/// for blobs (see [`frozen_unit_to_blob`]) — folded to 64 bits for the
+/// connection handshake's `ir_hash`.
+///
+/// Deterministic for a given frozen IR: independent of the generator, the host,
+/// and whether the units were read from the working tree or a committed
+/// version. Two ends of a connection generated from the same schema — in any
+/// target language — get the same value, so a generator embeds this verbatim
+/// rather than hashing its own (language-specific) rendering.
+pub fn schema_ir_hash(units: &[FrozenUnit]) -> u64 {
+    let bytes = bincode::serialize(units)
+        .expect("FrozenUnit implements Serialize; in-memory encoding cannot fail");
+    let digest = blake3::hash(&bytes);
+    u64::from_le_bytes(
+        digest.as_bytes()[..8]
+            .try_into()
+            .expect("a BLAKE3 digest is 32 bytes"),
+    )
+}
+
 /// Convert a FrozenUnit to a Blob
 pub fn frozen_unit_to_blob(unit: &FrozenUnit) -> Result<Blob> {
     // Serialize FrozenUnit using bincode
