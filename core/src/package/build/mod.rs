@@ -1,5 +1,5 @@
 // Relative Modules
-pub mod cas;  // CAS module (public for tests)
+pub mod cas; // CAS module (public for tests)
 
 // Standard Uses
 use std::cell::RefCell;
@@ -9,14 +9,9 @@ use std::rc::Rc;
 // Crate Uses
 use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
 use crate::package::config::ir::interpreter::ProjectInterpreter;
-use crate::package::config::ir::{
-    compiler,
-    context::ProjectContext,
-};
+use crate::package::config::ir::{compiler, context::ProjectContext};
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
-use crate::schema::ir::{
-    context::SchemaContext, diff::SchemaChanges,
-};
+use crate::schema::ir::{context::SchemaContext, diff::SchemaChanges};
 
 // External Uses
 use eyre::{bail, eyre, Result};
@@ -95,8 +90,10 @@ impl PackageSources {
         namespace: impl IntoIterator<Item = impl Into<String>>,
         source: impl Into<String>,
     ) -> Self {
-        self.schemas
-            .push((namespace.into_iter().map(Into::into).collect(), source.into()));
+        self.schemas.push((
+            namespace.into_iter().map(Into::into).collect(),
+            source.into(),
+        ));
         self
     }
 
@@ -154,10 +151,12 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
     })
 }
 
-/// Glob `<package>/src/**/*.<ext>`, read each schema, and hand the
-/// `(namespace segments, source)` pairs to [`interpret_schema_sources`]. The
-/// namespace is the file's path under `src/`, extension dropped.
-fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
+/// Glob `<package>/src/**/*.<ext>` and read each schema into a
+/// `(namespace segments, source)` pair. The namespace is the file's path
+/// under `src/`, extension dropped — shared by local-package loading and (via
+/// `package::deps::resolve`, prefixed by the dependency's declared name)
+/// dependency loading.
+pub(crate) fn glob_schema_sources(package_path: &Path) -> Result<Vec<(Vec<String>, String)>> {
     // TODO: Decide if package configurations should be able to change the source
     //       of schemas and/or how to look for them.
     let schemas_path = package_path.join("src");
@@ -182,6 +181,25 @@ fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Resul
 
         let source = std::fs::read_to_string(&schema_path)?;
         sources.push((namespace, source));
+    }
+
+    Ok(sources)
+}
+
+/// Local schemas, plus — behind `feature = "deps"` — every declared
+/// dependency's own schemas, namespaced under the dependency's name
+/// (`shared_types = { path = "../shared-types" }`'s `foo.ids` becomes
+/// `shared_types::foo` here), merged into one [`interpret_schema_sources`]
+/// pass so cross-package `use` resolves normally.
+fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
+    let mut sources = glob_schema_sources(package_path)?;
+
+    #[cfg(feature = "deps")]
+    {
+        sources.extend(crate::package::deps::resolve_dependency_sources(
+            context,
+            package_path,
+        )?);
     }
 
     interpret_schema_sources(context, &sources)
