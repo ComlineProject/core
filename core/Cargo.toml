@@ -52,6 +52,12 @@ handlebars = "4.3.7"
 blake3 = "1.4.1"
 lz4_flex = "0.11.1"
 
+[features]
+# Dependency resolution: fetches Path/Git dependencies and vendors them into
+# the CAS. Not part of `default` — it's CLI-only functionality (only a native
+# build that actually runs `comline build`/`check` needs it) and keeps every
+# other consumer's dependency tree exactly as it is today.
+deps = []
 
 [build-dependencies]
 rust-sitter-tool = "0.4.5" # Build-time grammar compilation

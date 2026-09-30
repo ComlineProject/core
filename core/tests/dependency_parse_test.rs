@@ -30,7 +30,8 @@ dependencies = {
     let parsed = grammar::parse(config_source).expect("Failed to parse config");
     
     // Extract dependencies
-    let deps = DependencyConfig::parse_dependencies(&parsed.assignments);
+    let deps = DependencyConfig::parse_dependencies(&parsed.assignments)
+        .expect("well-formed dependencies block should parse");
     
     // Verify we got the dependencies
     assert_eq!(deps.len(), 3, "Should have 3 dependencies");
@@ -53,7 +54,7 @@ dependencies = {
     // Check local_lib is recognized as Path
     let local_lib = deps.get("local_lib").unwrap();
     match &local_lib.source {
-        comline_core::package::config::dependency::DependencySource::Path { path } => {
+        comline_core::package::config::dependency::DependencySource::Path { path, .. } => {
             assert_eq!(path.to_str().unwrap(), "../mylib");
         }
         _ => panic!("Expected Path source"),

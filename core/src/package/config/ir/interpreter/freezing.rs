@@ -4,7 +4,7 @@
 use crate::package::config::idl::grammar::{Assignment, Key, Value};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::{
-    FrozenUnit, FrozenWhole, LanguageDetails, PublishRegistry, RegistryKind,
+    Dependency, FrozenUnit, FrozenWhole, LanguageDetails, PublishRegistry, RegistryKind,
 };
 // use crate::utils::codemap::Span;
 
@@ -82,6 +82,13 @@ pub fn interpret_assignment(
             };
 
             interpret_assigment_publish_registries(items.assignments.as_ref())?
+        }
+        "dependencies" => {
+            let Value::Dictionary(items) = &node.value else {
+                panic!("Expected dictionary for dependencies")
+            };
+
+            interpret_assignment_dependencies(items)?
         }
         any => {
             // panic!("Assignment '{}' is not a valid assignment", any)
@@ -235,6 +242,39 @@ fn interpret_assigment_publish_registries(
     }
 
     Ok(targets)
+}
+
+/// `dependencies = { name = { version, uri/path/commit, hash }, ... }` — each
+/// entry freezes to a `FrozenUnit::Dependency`. A `Path` dependency has no
+/// declared version (there's nothing to read without touching the
+/// filesystem, which this interpretation pass deliberately never does); it
+/// freezes with a placeholder `"unresolved"` version that
+/// `package::deps::resolve` overwrites with the dependency's actual current
+/// version once it resolves it (see `compile_package`).
+fn interpret_assignment_dependencies(
+    dict: &crate::package::config::idl::grammar::Dictionary,
+) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
+    use crate::package::config::dependency::DependencyConfig;
+
+    let deps = match DependencyConfig::parse_dict(dict) {
+        Ok(deps) => deps,
+        Err(msg) => panic!("{msg}"),
+    };
+
+    let mut names: Vec<&String> = deps.keys().collect();
+    names.sort(); // deterministic freeze order regardless of HashMap iteration
+
+    Ok(names
+        .into_iter()
+        .map(|name| {
+            let dep = &deps[name];
+            FrozenUnit::Dependency(Dependency {
+                author: dep.author(),
+                project: dep.name.clone(),
+                version: dep.declared_version().unwrap_or("unresolved").to_string(),
+            })
+        })
+        .collect())
 }
 
 #[allow(unused)]
