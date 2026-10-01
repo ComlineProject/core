@@ -114,8 +114,10 @@ fn size_of_struct_inner(
     }
 }
 
-/// Discriminant width for a plain (no associated data) enum variant list.
-fn enum_size(e: &grammar::Enum) -> WireSize {
+/// Discriminant width for a plain (no associated data) enum variant list —
+/// the entry point for an enum's *own* declaration hover, symmetric with
+/// [`size_of_struct`]. 1 byte for up to 256 variants, 2 above.
+pub fn size_of_enum(e: &grammar::Enum) -> WireSize {
     WireSize::Fixed(if e.variants().len() > 256 { 2 } else { 1 })
 }
 
@@ -177,7 +179,7 @@ fn size_of_type_inner(ty: &Type, lookup: &impl SizeLookup, visiting: &mut HashSe
             let bare = id.text.rsplit("::").next().unwrap_or(&id.text);
             match lookup.resolve(bare) {
                 None => WireSize::Unknown,
-                Some(SizeTarget::Enum(e)) => enum_size(e),
+                Some(SizeTarget::Enum(e)) => size_of_enum(e),
                 Some(SizeTarget::Struct(s)) => size_of_struct_inner(s, lookup, visiting),
             }
         }
@@ -341,7 +343,7 @@ mod tests {
         let doc = parse("enum E { A B C }");
         for decl in &doc.0 {
             if let Declaration::Enum(e) = &**decl {
-                assert_eq!(enum_size(e), WireSize::Fixed(1));
+                assert_eq!(size_of_enum(e), WireSize::Fixed(1));
             }
         }
     }
@@ -352,7 +354,7 @@ mod tests {
         let doc = parse(&format!("enum E {{ {variants} }}"));
         for decl in &doc.0 {
             if let Declaration::Enum(e) = &**decl {
-                assert_eq!(enum_size(e), WireSize::Fixed(2));
+                assert_eq!(size_of_enum(e), WireSize::Fixed(2));
             }
         }
     }
