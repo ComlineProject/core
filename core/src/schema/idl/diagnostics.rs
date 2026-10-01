@@ -77,25 +77,13 @@ pub fn print_parse_error(
     // Determine error message and help text
     let (message, help) = match &error.reason {
         rust_sitter::errors::ParseErrorReason::UnexpectedToken(token) => {
-            let msg = format!("unexpected token `{}`", token);
-            let help_text = get_suggestion(token);
-            (msg, help_text)
+            (format!("unexpected token `{}`", token), get_suggestion(token))
         }
-        rust_sitter::errors::ParseErrorReason::FailedNode(nested) => {
-            // Try to extract useful info from nested errors
-            if let Some(first) = nested.first() {
-                if let rust_sitter::errors::ParseErrorReason::UnexpectedToken(token) = &first.reason {
-                    let msg = format!("unexpected token `{}`", token);
-                    let help_text = get_suggestion(token);
-                    (msg, help_text)
-                } else {
-                    ("syntax error".to_string(), None)
-                }
-            } else {
-                ("syntax error".to_string(), None)
-            }
+        rust_sitter::errors::ParseErrorReason::MissingToken(expected) => {
+            (format!("missing required token `{}`", expected), None)
         }
-        _ => ("syntax error".to_string(), None),
+        rust_sitter::errors::ParseErrorReason::FailedNode(nested) => first_informative(nested)
+            .unwrap_or_else(|| ("syntax error: unrecognized or incomplete syntax".to_string(), None)),
     };
     
     // Create diagnostic
@@ -134,6 +122,34 @@ pub fn print_parse_error(
     let config = codespan_reporting::term::Config::default();
     
     let _ = term::emit(&mut writer.lock(), &config, &files, &diagnostic);
+}
+
+/// Depth-first search for the first leaf in a `FailedNode`'s nested errors
+/// that actually names a token — mirrors the equivalent fix in
+/// `language-server/src/analysis/diagnostics.rs`'s `format_error_message`;
+/// `nested.first()` alone missed anything past the first entry, a
+/// `MissingToken` first entry, or nesting more than one `FailedNode` deep.
+fn first_informative(
+    nested: &[rust_sitter::errors::ParseError],
+) -> Option<(String, Option<String>)> {
+    use rust_sitter::errors::ParseErrorReason;
+
+    for err in nested {
+        match &err.reason {
+            ParseErrorReason::UnexpectedToken(token) => {
+                return Some((format!("unexpected token `{}`", token), get_suggestion(token)));
+            }
+            ParseErrorReason::MissingToken(expected) => {
+                return Some((format!("missing required token `{}`", expected), None));
+            }
+            ParseErrorReason::FailedNode(inner) => {
+                if let Some(found) = first_informative(inner) {
+                    return Some(found);
+                }
+            }
+        }
+    }
+    None
 }
 
 /// Get helpful suggestion for common mistakes
@@ -175,5 +191,66 @@ mod tests {
         assert_eq!(map.get_line(1), "line 1");
         assert_eq!(map.get_line(2), "line 2");
         assert_eq!(map.get_line(3), "line 3");
+    }
+
+    // `first_informative` cases — mirrors the equivalent test suite in
+    // `language-server/src/analysis/diagnostics.rs::format_error_message`.
+    // `print_parse_error` itself only prints to stderr via `term::emit`
+    // rather than returning its computed message, so these exercise the
+    // recursion directly with constructed `ParseError` values instead of
+    // capturing output.
+
+    #[test]
+    fn finds_an_unexpected_token_one_level_in() {
+        use rust_sitter::errors::{ParseError, ParseErrorReason};
+
+        let nested = vec![ParseError {
+            reason: ParseErrorReason::UnexpectedToken("???".to_string()),
+            start: 5,
+            end: 8,
+        }];
+        assert_eq!(
+            first_informative(&nested),
+            Some(("unexpected token `???`".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn finds_a_missing_token_one_level_in() {
+        use rust_sitter::errors::{ParseError, ParseErrorReason};
+
+        let nested = vec![ParseError {
+            reason: ParseErrorReason::MissingToken(":".to_string()),
+            start: 5,
+            end: 5,
+        }];
+        assert_eq!(
+            first_informative(&nested),
+            Some(("missing required token `:`".to_string(), None))
+        );
+    }
+
+    #[test]
+    fn recurses_through_a_doubly_nested_failed_node() {
+        use rust_sitter::errors::{ParseError, ParseErrorReason};
+
+        let nested = vec![ParseError {
+            reason: ParseErrorReason::FailedNode(vec![ParseError {
+                reason: ParseErrorReason::UnexpectedToken("string".to_string()),
+                start: 7,
+                end: 13,
+            }]),
+            start: 5,
+            end: 13,
+        }];
+        assert_eq!(
+            first_informative(&nested),
+            Some(("unexpected token `string`".to_string(), Some("help: did you mean `str`?".to_string())))
+        );
+    }
+
+    #[test]
+    fn an_empty_nested_vec_yields_nothing() {
+        assert_eq!(first_informative(&[]), None);
     }
 }
