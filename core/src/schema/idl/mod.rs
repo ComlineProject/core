@@ -1,6 +1,7 @@
 // Relative Modules
 pub mod grammar;  // Rust-sitter generated parser
 pub mod diagnostics;  // Beautiful error reporting
+pub mod size;  // Static wire-size estimate (hover)
 
 
 
