@@ -666,4 +666,54 @@ protocol MessagingService {
         // import + 3 consts + 2 enums + 4 structs + 2 protocols = 12 units
         assert_eq!(ir_units.len(), 12);
     }
+
+    // ===== TYPE ALIAS DIAGNOSTICS, VIA THE PUBLIC `check_and_from_declarations` ENTRY =====
+    //
+    // `compiler::alias_resolution`'s own unit tests already cover
+    // `check_aliases`'s internals directly; these confirm the public
+    // `IncrementalInterpreter::check_and_from_declarations` wiring itself
+    // reports errors (and, on success, still returns correctly-substituted
+    // units) without requiring a full `ProjectContext`.
+
+    fn declarations_for(code: &str) -> Vec<rust_sitter::Spanned<comline_core::schema::idl::grammar::Declaration>> {
+        grammar::parse(code).expect("should parse").0
+    }
+
+    #[test]
+    fn test_check_and_from_declarations_rejects_a_cycle() {
+        let declarations = declarations_for("type A = B\ntype B = A\n");
+        let result = IncrementalInterpreter::check_and_from_declarations(declarations, None);
+        assert!(result.is_err(), "a cyclic alias should be rejected");
+    }
+
+    #[test]
+    fn test_check_and_from_declarations_rejects_an_unresolvable_target() {
+        let declarations = declarations_for(
+            "type X = Nope\nstruct A {\n    a: X\n}\nstruct B {\n    b: X\n}\n",
+        );
+        let result = IncrementalInterpreter::check_and_from_declarations(declarations, None);
+        let errors = result.expect_err("an unresolvable alias target should be rejected");
+        assert_eq!(errors.len(), 1, "one error at the alias, not one per use site");
+    }
+
+    #[test]
+    fn test_check_and_from_declarations_succeeds_and_still_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let declarations = declarations_for("type UserId = u64\nstruct X {\n    id: UserId\n}\n");
+        let ir_units = IncrementalInterpreter::check_and_from_declarations(declarations, None)
+            .expect("a valid alias should compile");
+
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            FrozenUnit::Struct { fields, .. } => match &fields[0] {
+                FrozenUnit::Field { kind_value, .. } => {
+                    assert_eq!(kind_value, &KindValue::Namespaced("u64".to_string(), None));
+                }
+                other => panic!("Expected Field, got {:?}", other),
+            },
+            other => panic!("Expected Struct, got {:?}", other),
+        }
+    }
 }

@@ -47,6 +47,10 @@ pub enum WireSize {
 pub enum SizeTarget<'a> {
     Struct(&'a grammar::Struct),
     Enum(&'a grammar::Enum),
+    /// A `type` alias's own target type - recurse into it, same as if the
+    /// field had been written with that type directly (aliases are fully
+    /// transparent; see `compiler::alias_resolution` in the IR compiler).
+    Alias(&'a Type),
 }
 
 /// Resolves a bare (last-segment) type name to its declaration. Deliberately
@@ -181,6 +185,7 @@ fn size_of_type_inner(ty: &Type, lookup: &impl SizeLookup, visiting: &mut HashSe
                 None => WireSize::Unknown,
                 Some(SizeTarget::Enum(e)) => size_of_enum(e),
                 Some(SizeTarget::Struct(s)) => size_of_struct_inner(s, lookup, visiting),
+                Some(SizeTarget::Alias(target)) => size_of_type_inner(target, lookup, visiting),
             }
         }
     }

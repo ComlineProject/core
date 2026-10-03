@@ -41,6 +41,7 @@ pub mod grammar {
         Error(Error),
         Settings(Settings),
         Validator(Validator),
+        TypeAlias(TypeAlias),
     }
 
     // ===== Imports & Constants =====
@@ -142,6 +143,23 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: Expression,
+    }
+
+    /// Type alias: type NAME = TYPE — fully transparent (Rust's `type`, not
+    /// a newtype wrapper). Erased entirely before freezing: the IR
+    /// compiler's alias-resolution pass substitutes every `Type::Named`
+    /// occurrence of NAME with TYPE before any `KindValue` is built, so
+    /// this declaration itself never produces a `FrozenUnit`.
+    #[derive(Debug, Clone)]
+    pub struct TypeAlias {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub docstring: Option<Docstring>,
+        #[rust_sitter::leaf(text = "type")]
+        _type: (),
+        pub name: Identifier,
+        #[rust_sitter::leaf(text = "=")]
+        _eq: (),
+        pub target_type: rust_sitter::Spanned<Type>,
     }
 
     // ===== Struct Definition =====
@@ -890,6 +908,21 @@ pub mod grammar {
         }
     }
 
+    impl TypeAlias {
+        pub fn docstring(&self) -> Option<String> {
+            self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn name(&self) -> String {
+            self.name.text.clone()
+        }
+        pub fn target_type(&self) -> &Type {
+            &self.target_type.value
+        }
+        pub fn target_type_span(&self) -> (usize, usize) {
+            self.target_type.span
+        }
+    }
+
     impl Struct {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
@@ -1246,11 +1279,23 @@ pub mod grammar {
         pub fn elem_type(&self) -> &Type {
             &self.key
         }
+        /// Rebuild with a substituted element type - used by the IR
+        /// compiler's alias-resolution pass to erase an alias nested
+        /// inside `Type[]` / `Type[N]`.
+        pub fn with_key(&self, key: Type) -> ArrayType {
+            ArrayType { key, _open: (), size: self.size.clone(), _close: () }
+        }
     }
 
     impl UnionType {
         pub fn members(&self) -> &Vec<Type> {
             &self.members
+        }
+        /// Rebuild with substituted member types - used by the IR
+        /// compiler's alias-resolution pass to erase an alias nested
+        /// inside `union(...)`.
+        pub fn with_members(&self, members: Vec<Type>) -> UnionType {
+            UnionType { _union: (), _open: (), members, _close: () }
         }
     }
 

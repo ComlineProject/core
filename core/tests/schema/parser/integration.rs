@@ -264,6 +264,15 @@ struct Message { body: str }
     }
 
     #[test]
+    fn test_type_is_a_keyword_only_in_declaration_position() {
+        // `type` is a far more common English word than `validator` - worth
+        // pinning down explicitly as both an enum variant AND a field name,
+        // not just one of the two.
+        assert!(grammar::parse("enum E { type }").is_ok());
+        assert!(grammar::parse("struct S { type: u32 }").is_ok());
+    }
+
+    #[test]
     fn test_validate_block() {
         assert!(grammar::parse(
             r#"validator V { x: u32 validate { assert(value.n >= params.x, "small") } }"#

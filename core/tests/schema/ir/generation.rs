@@ -537,4 +537,164 @@ struct Company {
             _ => panic!("Expected Struct"),
         }
     }
+
+    // ===== TYPE ALIAS ERASURE TESTS =====
+    //
+    // A `type` alias must never produce its own `FrozenUnit`, and every
+    // `Type::Named` reference to it must freeze to exactly the same
+    // `KindValue` as if the target had been written out by hand - see
+    // `compiler::alias_resolution`.
+
+    fn field_kind_value(
+        ir_units: &[comline_core::schema::ir::frozen::unit::FrozenUnit],
+    ) -> &comline_core::schema::ir::compiler::interpreted::kind_search::KindValue {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        match &ir_units[0] {
+            FrozenUnit::Struct { fields, .. } => match &fields[0] {
+                FrozenUnit::Field { kind_value, .. } => kind_value,
+                other => panic!("Expected Field, got {:?}", other),
+            },
+            other => panic!("Expected Struct, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_erases_completely() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+        let code = "type UserId = u64\nstruct X {\n    id: UserId\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1, "the alias must not produce its own FrozenUnit");
+        assert_eq!(
+            field_kind_value(&ir_units),
+            &KindValue::Namespaced("u64".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn test_type_alias_chain_resolves_to_final_target() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+        let code = "type A = B\ntype B = u32\nstruct X {\n    id: A\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        assert_eq!(
+            field_kind_value(&ir_units),
+            &KindValue::Namespaced("u32".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn test_type_alias_inside_array_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+        let code = "type Id = u64\nstruct X {\n    ids: Id[]\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        assert_eq!(
+            field_kind_value(&ir_units),
+            &KindValue::Namespaced("u64[]".to_string(), None)
+        );
+    }
+
+    #[test]
+    fn test_type_alias_inside_union_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+        let code = "type Id = u64\nstruct X {\n    v: union(Id str)\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        match field_kind_value(&ir_units) {
+            KindValue::Union(members) => {
+                assert_eq!(members[0], KindValue::Namespaced("u64".to_string(), None));
+            }
+            other => panic!("Expected KindValue::Union, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_used_as_const_type_erases() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = "type UserId = u64\nconst ROOT_ID: UserId = 0\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            FrozenUnit::Constant { kind_value, .. } => {
+                use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+                // A literal `0` default against a `u64`-rooted alias still
+                // captures the literal, same as writing `u64` directly.
+                assert_eq!(kind_value, &KindValue::Primitive(Primitive::U64(Some(0))));
+            }
+            other => panic!("Expected Constant, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_used_as_fn_arg_and_return_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code =
+            "type UserId = u64\nprotocol Store {\n    function get(UserId) -> UserId;\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            FrozenUnit::Protocol { functions, .. } => match &functions[0] {
+                FrozenUnit::Function { arguments, _return, .. } => {
+                    assert_eq!(arguments[0].kind, KindValue::Namespaced("u64".to_string(), None));
+                    assert_eq!(_return, &Some(KindValue::Namespaced("u64".to_string(), None)));
+                }
+                other => panic!("Expected Function, got {:?}", other),
+            },
+            other => panic!("Expected Protocol, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_used_as_validator_property_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = "type Count = u32\nvalidator Bounded {\n    max: Count\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            FrozenUnit::Validator { properties, .. } => match &properties[0] {
+                FrozenUnit::Field { kind_value, .. } => {
+                    assert_eq!(kind_value, &KindValue::Namespaced("u32".to_string(), None));
+                }
+                other => panic!("Expected Field, got {:?}", other),
+            },
+            other => panic!("Expected Validator, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_alias_used_as_error_field_erases() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code =
+            "type UserId = u64\nerror NotFound {\n    message = \"gone\"\n    id: UserId\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(code);
+
+        assert_eq!(ir_units.len(), 1);
+        match &ir_units[0] {
+            FrozenUnit::Error { fields, .. } => match &fields[0] {
+                FrozenUnit::Field { kind_value, .. } => {
+                    assert_eq!(kind_value, &KindValue::Namespaced("u64".to_string(), None));
+                }
+                other => panic!("Expected Field, got {:?}", other),
+            },
+            other => panic!("Expected Error, got {:?}", other),
+        }
+    }
 }
