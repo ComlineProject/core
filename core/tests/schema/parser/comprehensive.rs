@@ -436,6 +436,46 @@ protocol UserService {
         assert!(grammar::parse(code).is_ok());
     }
 
+    // ===== TYPE ALIAS TESTS =====
+
+    #[test]
+    fn test_type_alias_primitive() {
+        let code = "type UserId = u64";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_array() {
+        let code = "type Ids = u64[]";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_union() {
+        let code = "type Mixed = union(u32 str)";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_named_target_forward_reference() {
+        // The target may name a struct declared later in the file - parsing
+        // doesn't resolve names, only the later IR/validation stage does.
+        let code = "type UserAlias = User\nstruct User {\n    id: u64\n}\n";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_type_alias_docstring() {
+        let code = "/// A user's unique id.\ntype UserId = u64";
+        let document = grammar::parse(code).expect("should parse");
+        match &document.0[0].value {
+            grammar::Declaration::TypeAlias(alias) => {
+                assert_eq!(alias.docstring(), Some("A user's unique id.".to_string()));
+            }
+            other => panic!("Expected TypeAlias, got {:?}", other),
+        }
+    }
+
     // ===== IMPORT TESTS =====
 
     #[test]

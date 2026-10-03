@@ -8,7 +8,7 @@ use std::rc::Rc;
 
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
-use crate::schema::idl::grammar::{UsePath, RelativePrefix};
+use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 
 /// Resolved import information
@@ -278,26 +278,24 @@ pub fn resolve_use_to_schema(
     Ok(ResolvedUseTarget { schema, remaining, resolved })
 }
 
-/// Whether a schema declares a top-level symbol (struct/enum/protocol/const) by name.
+/// Whether a schema declares a top-level symbol
+/// (struct/enum/protocol/const/type-alias) by name.
 pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> bool {
-    use crate::schema::idl::grammar::Declaration;
-
     schema_context.declarations.iter().any(|decl| match &decl.value {
         Declaration::Struct(s) => s.name.text == symbol,
         Declaration::Enum(e) => e.name.text == symbol,
         Declaration::Protocol(p) => p.name.text == symbol,
         Declaration::Const(c) => c.name.text == symbol,
+        Declaration::TypeAlias(t) => t.name.text == symbol,
         _ => false,
     })
 }
 
-/// All top-level symbol (struct/enum/protocol/const) names a schema declares.
-/// Used to expand whole-namespace/glob `use` imports into per-symbol
-/// `FrozenUnit::Import`s, so field types written as `ns::Symbol` after such
-/// an import can actually be found by validation.
+/// All top-level symbol (struct/enum/protocol/const/type-alias) names a
+/// schema declares. Used to expand whole-namespace/glob `use` imports into
+/// per-symbol `FrozenUnit::Import`s, so field types written as `ns::Symbol`
+/// after such an import can actually be found by validation.
 pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
-    use crate::schema::idl::grammar::Declaration;
-
     schema_context
         .declarations
         .iter()
@@ -306,9 +304,59 @@ pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
             Declaration::Enum(e) => Some(e.name.text.clone()),
             Declaration::Protocol(p) => Some(p.name.text.clone()),
             Declaration::Const(c) => Some(c.name.text.clone()),
+            Declaration::TypeAlias(t) => Some(t.name.text.clone()),
             _ => None,
         })
         .collect()
+}
+
+/// Walk `declarations`' `use` statements for one that brings `name` into
+/// scope, returning the schema it resolves to (if part of this project).
+/// Shared by `resolve_foreign_error` (`incremental.rs`, for `! Name`
+/// throws) and the alias-resolution pass (`alias_resolution.rs`) - both
+/// need to answer "does some `use` here bring a bare name into scope, and
+/// if so from which schema."
+pub fn find_schema_bringing_into_scope(
+    name: &str,
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    current_namespace: &[String],
+    project_context: &ProjectContext,
+) -> Option<Rc<RefCell<SchemaContext>>> {
+    let resolver = ImportResolver::new(vec![], Default::default(), None);
+
+    for decl in declarations {
+        let Declaration::Use(use_stmt) = &decl.value else {
+            continue;
+        };
+        let Ok(target) =
+            resolve_use_to_schema(project_context, &resolver, current_namespace, &use_stmt.path)
+        else {
+            continue;
+        };
+        let Some(schema) = &target.schema else {
+            continue;
+        };
+
+        let alias = use_stmt.alias.as_ref().map(|a| a.name.text.as_str());
+        let brings_into_scope = if target.resolved.symbols == ["*".to_string()] {
+            true
+        } else if !target.resolved.symbols.is_empty() {
+            target.resolved.symbols.iter().any(|s| s == name)
+        } else if target.remaining.is_empty() {
+            // `use ns;` - the whole namespace; a bare name resolves if `ns`
+            // declares it.
+            true
+        } else {
+            let symbol = target.remaining.join("::");
+            symbol == name || alias == Some(name)
+        };
+
+        if brings_into_scope {
+            return Some(Rc::clone(schema));
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

@@ -417,3 +417,144 @@ fn test_local_errors_keep_low_ordinals_foreign_reexports_come_after() {
     );
     assert_eq!(only_function_throws(&frozen), vec![1u16]);
 }
+
+// ===== CROSS-FILE TYPE ALIAS TESTS =====
+
+/// The `KindValue` of `api::Response`'s first (only) field, for the tests
+/// below - all exercise a `type` alias imported from another schema.
+fn response_field_kind_value(
+    frozen: &[FrozenUnit],
+) -> &comline_core::schema::ir::compiler::interpreted::kind_search::KindValue {
+    frozen
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Struct { name, fields, .. } if name == "Response" => match &fields[0] {
+                FrozenUnit::Field { kind_value, .. } => Some(kind_value),
+                _ => None,
+            },
+            _ => None,
+        })
+        .expect("Response struct with one field")
+}
+
+#[test]
+fn test_cross_file_type_alias_erases_via_single_symbol_use() {
+    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "type UserId = u64\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use types::UserId\n\nstruct Response {\n    id: UserId\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+
+    let frozen = frozen_units_for(&project, "api");
+    assert_eq!(
+        response_field_kind_value(&frozen),
+        &KindValue::Namespaced("u64".to_string(), None),
+        "a use-imported alias must erase to its real target, not stay 'UserId'"
+    );
+}
+
+#[test]
+fn test_cross_file_type_alias_erases_via_whole_namespace_use() {
+    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "type UserId = u64\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        // bare `id: UserId`, not `id: types::UserId` - exercises the
+        // `declared_symbol_names` whole-namespace expansion path.
+        "use types\n\nstruct Response {\n    id: UserId\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+
+    let frozen = frozen_units_for(&project, "api");
+    assert_eq!(
+        response_field_kind_value(&frozen),
+        &KindValue::Namespaced("u64".to_string(), None)
+    );
+}
+
+#[test]
+fn test_cross_file_alias_chain_through_two_files() {
+    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+    let mut project = build_project();
+    add_schema(&mut project, &["a"], "type Id = u64\n");
+    add_schema(&mut project, &["b"], "use a::Id\n\ntype ForeignId = Id\n");
+    add_schema(
+        &mut project,
+        &["c"],
+        "use b::ForeignId\n\nstruct Response {\n    id: ForeignId\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+
+    let frozen = frozen_units_for(&project, "c");
+    assert_eq!(
+        response_field_kind_value(&frozen),
+        &KindValue::Namespaced("u64".to_string(), None),
+        "a two-hop alias chain across three files must still erase to the root primitive"
+    );
+}
+
+#[test]
+fn test_cross_file_alias_target_that_is_a_real_struct_is_not_inlined() {
+    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        // `User` is a real struct, not a `type` alias - must be left as a
+        // by-name reference, not inlined into its field list.
+        "use types::User\n\nstruct Response {\n    id: User\n}\n",
+    );
+
+    interpret_context(&project).expect("compilation should succeed");
+
+    let frozen = frozen_units_for(&project, "api");
+    assert_eq!(
+        response_field_kind_value(&frozen),
+        &KindValue::Namespaced("User".to_string(), None),
+        "a real cross-file struct reference must stay a by-name reference, not be inlined"
+    );
+}
+
+#[test]
+fn test_type_alias_colliding_with_struct_name_fails_compilation() {
+    let mut project = build_project();
+    add_schema(
+        &mut project,
+        &["api"],
+        "struct User {\n    id: u64\n}\ntype User = u64\n",
+    );
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "a type alias with the same name as a local struct should fail compilation, got {:?}",
+        result
+    );
+}
+
+#[test]
+fn test_type_alias_cycle_fails_compilation() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api"], "type A = B\ntype B = A\n");
+
+    let result = interpret_context(&project);
+    assert!(
+        result.is_err(),
+        "a cyclic type alias should fail compilation, got {:?}",
+        result
+    );
+}

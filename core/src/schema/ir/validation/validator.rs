@@ -413,7 +413,7 @@ fn validate_type(
     }
 }
 
-const PRIMITIVE_NAMES: &[&str] = &[
+pub(crate) const PRIMITIVE_NAMES: &[&str] = &[
     "bool",
     "u8", "u16", "u32", "u64", "u128",
     "s8", "s16", "s32", "s64", "s128",
@@ -421,7 +421,7 @@ const PRIMITIVE_NAMES: &[&str] = &[
     "str", "string",
 ];
 
-fn is_primitive(name: &str) -> bool {
+pub(crate) fn is_primitive(name: &str) -> bool {
     PRIMITIVE_NAMES.contains(&name)
 }
 

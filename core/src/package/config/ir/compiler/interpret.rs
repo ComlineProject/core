@@ -4,6 +4,7 @@ use std::collections::{HashMap, HashSet};
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::Declaration;
+use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{resolve_use_to_schema, ImportResolver};
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::diagnostics::render_validation_error;
@@ -23,6 +24,19 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     for schema_context in project_context.schema_contexts.iter() {
         let declarations = { schema_context.borrow().declarations.clone() };
         let namespace = { schema_context.borrow().namespace.clone() };
+
+        if let Err(errors) = check_aliases(&declarations, Some((&namespace, project_context))) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| render_validation_error(error, &schema_context.borrow()))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' failed alias resolution:\n{}",
+                namespace.join("::"),
+                rendered.join("\n\n")
+            ));
+            continue;
+        }
 
         let mut frozen_units = IncrementalInterpreter::from_declarations_with_context(
             declarations,
