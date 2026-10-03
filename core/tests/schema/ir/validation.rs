@@ -697,7 +697,7 @@ protocol MessagingService {
     }
 
     #[test]
-    fn test_check_and_from_declarations_succeeds_and_still_erases() {
+    fn test_check_and_from_declarations_succeeds_and_freezes_the_alias() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
@@ -705,15 +705,26 @@ protocol MessagingService {
         let ir_units = IncrementalInterpreter::check_and_from_declarations(declarations, None)
             .expect("a valid alias should compile");
 
-        assert_eq!(ir_units.len(), 1);
-        match &ir_units[0] {
-            FrozenUnit::Struct { fields, .. } => match &fields[0] {
-                FrozenUnit::Field { kind_value, .. } => {
-                    assert_eq!(kind_value, &KindValue::Namespaced("u64".to_string(), None));
-                }
-                other => panic!("Expected Field, got {:?}", other),
-            },
-            other => panic!("Expected Struct, got {:?}", other),
-        }
+        assert_eq!(ir_units.len(), 2, "the alias freezes to its own unit, alongside the struct");
+        assert!(ir_units.iter().any(|u| matches!(
+            u,
+            FrozenUnit::TypeAlias { name, target, .. }
+                if name == "UserId" && *target == KindValue::Namespaced("u64".to_string(), None)
+        )));
+        let field_kind = ir_units
+            .iter()
+            .find_map(|u| match u {
+                FrozenUnit::Struct { fields, .. } => match &fields[0] {
+                    FrozenUnit::Field { kind_value, .. } => Some(kind_value),
+                    _ => None,
+                },
+                _ => None,
+            })
+            .expect("a struct with one field");
+        assert_eq!(
+            field_kind,
+            &KindValue::Namespaced("UserId".to_string(), None),
+            "the field keeps the alias's name, same as a struct/enum reference would"
+        );
     }
 }

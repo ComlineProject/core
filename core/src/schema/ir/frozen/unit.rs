@@ -140,7 +140,23 @@ pub enum FrozenUnit {
         name: String,
         kind_value: KindValue,
         span: (usize, usize),
-    }
+    },
+    /// A `type NAME = TARGET` declaration - transparent like Rust's own
+    /// `type` (not a newtype): `target` is frozen exactly as written (by
+    /// name, one level - an alias-of-alias's own target stays a `Named`
+    /// reference, not flattened), the same way a struct/enum reference
+    /// freezes. A reference to this alias elsewhere (a field, an argument,
+    /// ...) freezes to the *same* `KindValue::Namespaced(name, _)` a
+    /// struct/enum reference would, so generators need only one new case -
+    /// emitting the alias declaration itself (`pub type NAME = ...;`,
+    /// `export type NAME = ...;`) - to pick it up correctly; no other
+    /// codegen path changes.
+    TypeAlias {
+        docstring: Option<String>,
+        name: String,
+        target: KindValue,
+        span: (usize, usize),
+    },
 }
 
 #[derive(Deserialize, Serialize)]

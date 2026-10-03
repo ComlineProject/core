@@ -438,7 +438,7 @@ fn response_field_kind_value(
 }
 
 #[test]
-fn test_cross_file_type_alias_erases_via_single_symbol_use() {
+fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
     use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
 
     let mut project = build_project();
@@ -454,13 +454,15 @@ fn test_cross_file_type_alias_erases_via_single_symbol_use() {
     let frozen = frozen_units_for(&project, "api");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("u64".to_string(), None),
-        "a use-imported alias must erase to its real target, not stay 'UserId'"
+        &KindValue::Namespaced("UserId".to_string(), None),
+        "a use-imported alias is a by-name reference, same as a struct/enum would be - the \
+         import only needs to prove 'UserId' is a real, known symbol (see \
+         import_resolver::schema_declares_symbol's TypeAlias arm)"
     );
 }
 
 #[test]
-fn test_cross_file_type_alias_erases_via_whole_namespace_use() {
+fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
     use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
 
     let mut project = build_project();
@@ -478,12 +480,12 @@ fn test_cross_file_type_alias_erases_via_whole_namespace_use() {
     let frozen = frozen_units_for(&project, "api");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("u64".to_string(), None)
+        &KindValue::Namespaced("UserId".to_string(), None)
     );
 }
 
 #[test]
-fn test_cross_file_alias_chain_through_two_files() {
+fn test_cross_file_alias_chain_through_two_files_keeps_the_written_name() {
     use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
 
     let mut project = build_project();
@@ -500,8 +502,10 @@ fn test_cross_file_alias_chain_through_two_files() {
     let frozen = frozen_units_for(&project, "c");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("u64".to_string(), None),
-        "a two-hop alias chain across three files must still erase to the root primitive"
+        &KindValue::Namespaced("ForeignId".to_string(), None),
+        "the field keeps exactly what was written, regardless of how many files/aliases the \
+         chain behind that name spans - validity of the whole chain is `check_aliases`'s job, \
+         not freezing's"
     );
 }
 
