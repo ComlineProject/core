@@ -6,7 +6,7 @@ use std::collections::HashMap;
 // use crate::schema::idl::ast::unit::ASTUnit;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
-use crate::schema::ir::compiler::alias_resolution::{self, check_aliases};
+use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{
     declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     schema_declares_symbol, ImportResolver,
@@ -78,12 +78,6 @@ impl IncrementalInterpreter {
             reexports,
         } = plan_error_space(&declarations, use_context);
 
-        // `declarations` is moved into the `for` loop just below, so a
-        // clone is kept for the alias-resolution substitution calls inside
-        // the loop body (which need to see every local `type` alias, not
-        // just the one declaration being processed).
-        let all_declarations = declarations.clone();
-
         let mut frozen_units: Vec<FrozenUnit> = vec![];
 
         for spanned_decl in declarations {
@@ -114,14 +108,10 @@ impl IncrementalInterpreter {
                 }
                 Declaration::Const(const_decl) => {
                     let name = const_decl.name();
-                    let type_def = alias_resolution::resolve_type(
-                        const_decl.type_def(),
-                        &all_declarations,
-                        use_context,
-                    );
+                    let type_def = const_decl.type_def();
                     let value = const_decl.value();
 
-                    let kind_value = build_kind_value(&type_def, Some(value));
+                    let kind_value = build_kind_value(type_def, Some(value));
 
                     frozen_units.push(FrozenUnit::Constant {
                         docstring: const_decl.docstring(),
@@ -138,13 +128,9 @@ impl IncrementalInterpreter {
                         .iter()
                         .map(|field| {
                             let fname = field.name();
-                            let field_type = alias_resolution::resolve_type(
-                                field.field_type(),
-                                &all_declarations,
-                                use_context,
-                            );
+                            let field_type = field.field_type();
 
-                            let kind_value = build_kind_value(&field_type, field.default_value());
+                            let kind_value = build_kind_value(field_type, field.default_value());
 
                             FrozenUnit::Field {
                                 docstring: field.docstring(),
@@ -207,11 +193,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| "arg0".to_string()),
-                                        kind: type_to_kind_value(&alias_resolution::resolve_type(
-                                            first_arg.arg_type(),
-                                            &all_declarations,
-                                            use_context,
-                                        )),
+                                        kind: type_to_kind_value(first_arg.arg_type()),
                                         span: first_arg.arg_type_span(),
                                     }];
 
@@ -222,11 +204,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| format!("arg{}", i + 1)),
-                                        kind: type_to_kind_value(&alias_resolution::resolve_type(
-                                            arg.arg_type(),
-                                            &all_declarations,
-                                            use_context,
-                                        )),
+                                        kind: type_to_kind_value(arg.arg_type()),
                                         span: arg.arg_type_span(),
                                     });
                                 }
@@ -235,13 +213,9 @@ impl IncrementalInterpreter {
                                 vec![]
                             };
 
-                            let return_type = ret_opt.as_ref().map(|rt| {
-                                type_to_kind_value(&alias_resolution::resolve_type(
-                                    rt.return_type(),
-                                    &all_declarations,
-                                    use_context,
-                                ))
-                            });
+                            let return_type = ret_opt
+                                .as_ref()
+                                .map(|rt| type_to_kind_value(rt.return_type()));
 
                             FrozenUnit::Function {
                                 name: func_name,
@@ -277,13 +251,7 @@ impl IncrementalInterpreter {
                     // them; `None` only if a Protocol arm somehow references a
                     // name before it's planned, which can't happen.
                     let ordinal = error_ordinals.get(&error_decl.name()).copied().unwrap_or(0);
-                    frozen_units.push(frozen_error(
-                        &error_decl,
-                        ordinal,
-                        None,
-                        &all_declarations,
-                        use_context,
-                    ));
+                    frozen_units.push(frozen_error(&error_decl, ordinal, None));
                 }
                 Declaration::Settings(settings_def) => {
                     let parameters: Vec<FrozenUnit> = settings_def
@@ -311,11 +279,7 @@ impl IncrementalInterpreter {
                             optional: false,
                             name: prop.name(),
                             kind_value: build_kind_value(
-                                &alias_resolution::resolve_type(
-                                    prop.property_type(),
-                                    &all_declarations,
-                                    use_context,
-                                ),
+                                prop.property_type(),
                                 prop.default_value(),
                             ),
                             span: prop.span,
@@ -339,12 +303,25 @@ impl IncrementalInterpreter {
                         expression_block: Box::new(FrozenUnit::ExpressionBlock { asserts }),
                     });
                 }
-                Declaration::TypeAlias(_) => {
-                    // Fully transparent - every reference was already
-                    // substituted above by `alias_resolution::resolve_type`
-                    // (or, on a path that skipped `check_aliases`, is left
-                    // as an ordinary unresolved name for the validator to
-                    // flag). Never produces a `FrozenUnit` of its own.
+                Declaration::TypeAlias(alias) => {
+                    // Transparent like Rust's own `type`: a reference to
+                    // this alias elsewhere (a field, an argument, ...)
+                    // freezes to a plain `Type::Named` -> `KindValue::
+                    // Namespaced` just like any struct/enum reference
+                    // does - no substitution happens here. The alias's
+                    // *own* target freezes the same way, one level, as
+                    // written (an alias-of-alias stays a `Named`
+                    // reference to the other alias, not flattened) - a
+                    // generator picks this up with exactly the same
+                    // `rust_type`/`ts_type`-style string mapping it
+                    // already uses for every other `KindValue`, plus one
+                    // new top-level case to emit the declaration itself.
+                    frozen_units.push(FrozenUnit::TypeAlias {
+                        docstring: alias.docstring(),
+                        name: alias.name(),
+                        target: type_to_kind_value(alias.target_type()),
+                        span,
+                    });
                 }
             }
         }
@@ -462,8 +439,6 @@ fn resolve_foreign_error(
                     error_decl,
                     ordinal,
                     Some(schema_ref.namespace_joined()),
-                    &schema_ref.declarations,
-                    Some((&schema_ref.namespace, project_context)),
                 ));
             }
         }
@@ -474,33 +449,21 @@ fn resolve_foreign_error(
 
 /// Freeze one `error` declaration - shared by a local declaration and a
 /// re-exported import (which only differ in `ordinal` / `imported_from`).
-/// `declarations`/`use_context` are whichever schema actually declares
-/// `error_decl` (the local one, or - for a re-exported import - the
-/// foreign one), so its fields' own `type` aliases resolve correctly.
 fn frozen_error(
     error_decl: &grammar::Error,
     ordinal: u16,
     imported_from: Option<String>,
-    declarations: &[rust_sitter::Spanned<Declaration>],
-    use_context: Option<(&[String], &ProjectContext)>,
 ) -> FrozenUnit {
     let field_units: Vec<FrozenUnit> = error_decl
         .fields()
         .iter()
-        .map(|field| {
-            let field_type = alias_resolution::resolve_type(
-                field.field_type(),
-                declarations,
-                use_context,
-            );
-            FrozenUnit::Field {
-                docstring: field.docstring(),
-                parameters: annotation_units(&field.annotations()),
-                optional: field.optional(),
-                name: field.name(),
-                kind_value: build_kind_value(&field_type, field.default_value()),
-                span: field.span,
-            }
+        .map(|field| FrozenUnit::Field {
+            docstring: field.docstring(),
+            parameters: annotation_units(&field.annotations()),
+            optional: field.optional(),
+            name: field.name(),
+            kind_value: build_kind_value(field.field_type(), field.default_value()),
+            span: field.span,
         })
         .collect();
 

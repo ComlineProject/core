@@ -1,47 +1,44 @@
-//! Resolution for `type` aliases (`type UserId = u64`) - fully transparent,
-//! like Rust's `type`, not a newtype wrapper. An alias is erased entirely
-//! before freezing: every `Type::Named` occurrence of it is substituted
-//! with its target type before any `KindValue` is built, so the alias
-//! declaration itself never produces a `FrozenUnit` and nothing downstream
-//! (validation, codegen) ever needs to know it existed.
+//! Pre-freeze validation for `type` aliases (`type UserId = u64`) - fully
+//! transparent, like Rust's own `type`, not a newtype wrapper.
 //!
-//! This module has two halves:
-//! - [`check_aliases`] - duplicate/cycle/unresolvable-target diagnostics,
-//!   run once per schema before any substitution happens.
-//! - [`resolve_type`] - the substitution itself, called at every type-use
-//!   site in `interpreter::incremental` before `build_kind_value`/
-//!   `type_to_kind_value` run.
+//! A `type` alias freezes to its own lightweight `FrozenUnit::TypeAlias`
+//! (see `interpreter::incremental`), exactly the same way a struct or enum
+//! declaration freezes to its own named unit - and a reference to the
+//! alias elsewhere (a field, an argument, ...) freezes to an ordinary
+//! `KindValue::Namespaced(name, _)`, exactly the same way a struct/enum
+//! reference already does. No substitution happens anywhere; the alias's
+//! name survives all the way to codegen, which needs only one new case
+//! (emit the declaration itself) to support it correctly - every *use* of
+//! the alias already works for free, through the same string-based type
+//! mapping every generator already applies to any other `KindValue`.
 //!
-//! An erased alias never reaches the `FrozenUnit`-based `SymbolTable` that
-//! `validation::validator` builds, so neither its duplicate-name check nor
-//! its struct-cycle `detect_cycle` can catch a bad alias - both concerns
-//! are this module's own responsibility instead.
+//! What *is* this module's job: a `type` alias is still required to make
+//! sense before any of that happens - no name collision with another
+//! declaration, no cycle among aliases, and every alias's target must
+//! ultimately resolve to something real (a primitive, a local nominal
+//! declaration, another valid alias, or - with `use_context` - a name
+//! reachable through this schema's own `use` statements). None of this
+//! can be caught after freezing: the `FrozenUnit`-based `SymbolTable` in
+//! `validation::validator` only sees one flat list of names, with no
+//! notion of "this name's own definition might itself be broken" - a
+//! struct can be self-referential (through an array) but an alias cycle
+//! or a dangling target is always a mistake, so it's checked explicitly,
+//! here, before freezing ever runs.
 
 use std::collections::{HashMap, HashSet};
 
 use crate::package::config::ir::context::ProjectContext;
-use crate::schema::idl::grammar::{self, Declaration, Type, TypeAlias};
+use crate::schema::idl::grammar::{Declaration, Type};
 use crate::schema::ir::compiler::import_resolver::{find_schema_bringing_into_scope, schema_declares_symbol};
 use crate::schema::ir::validation::validator::is_primitive;
 use crate::schema::ir::validation::ValidationError;
 
-/// Defensive recursion cap for [`resolve_type`] - [`check_aliases`] rejects
-/// real cycles before substitution ever runs, so this should never bind in
-/// practice. It exists only so a caller that skips `check_aliases` (there
-/// is one: `IncrementalInterpreter::compile_declarations`'s plain,
-/// non-checking entry point) degrades to "leave unresolved" rather than
-/// hanging on a cyclic alias.
-const MAX_ALIAS_DEPTH: u32 = 64;
-
 /// Validate every local `type` alias in `declarations`: no name collision
-/// with another declaration (local or, via `other_names`, nothing further -
-/// cross-file collisions aren't meaningful, since importing a name that
-/// collides with a local one is already an existing "shadowing" case
-/// `SymbolTable`/`bare_imports` handles elsewhere), no cycle among local
-/// aliases, and every alias's target ultimately resolves to something real
-/// (a primitive, a local struct/enum/const/protocol, another valid local
-/// alias, or - with `use_context` - a name reachable through this schema's
-/// own `use` statements).
+/// with another declaration (local), no cycle among local aliases, and
+/// every alias's target ultimately resolves to something real (a
+/// primitive, a local struct/enum/const/protocol, another valid local
+/// alias, or - with `use_context` - a name reachable through this
+/// schema's own `use` statements).
 pub fn check_aliases(
     declarations: &[rust_sitter::Spanned<Declaration>],
     use_context: Option<(&[String], &ProjectContext)>,
@@ -273,132 +270,13 @@ fn first_unresolvable_name(
     }
 }
 
-/// Find a local `type` alias declared by `declarations`.
-fn find_local_alias<'a>(
-    declarations: &'a [rust_sitter::Spanned<Declaration>],
-    name: &str,
-) -> Option<&'a TypeAlias> {
-    declarations.iter().find_map(|d| match &d.value {
-        Declaration::TypeAlias(t) if t.name() == name => Some(t),
-        _ => None,
-    })
-}
-
-/// Substitute every `Type::Named` occurrence of a `type` alias with its
-/// resolved target, recursively (an alias may target another alias; an
-/// array/union containing an alias is resolved member-wise). Cross-file:
-/// if a name isn't a local alias, and `use_context` is `Some`, this walks
-/// `declarations`' own `use` statements to find a foreign schema bringing
-/// that name into scope - if the foreign declaration is itself a `type`
-/// alias, its target is cloned and resolution continues **in the foreign
-/// schema's own context** (its own locals/`use`s); if it's a real
-/// struct/enum/const, the reference is left unchanged (today's by-name
-/// cross-file behavior for genuine nominal types - not inlined).
-///
-/// Call this on every `grammar::Type` immediately before building a
-/// `KindValue` from it (`build_kind_value`/`type_to_kind_value` in
-/// `interpreter::incremental`) - never after.
-pub fn resolve_type(
-    ty: &Type,
-    declarations: &[rust_sitter::Spanned<Declaration>],
-    use_context: Option<(&[String], &ProjectContext)>,
-) -> Type {
-    resolve_type_inner(ty, declarations, use_context, 0)
-}
-
-fn resolve_type_inner(
-    ty: &Type,
-    declarations: &[rust_sitter::Spanned<Declaration>],
-    use_context: Option<(&[String], &ProjectContext)>,
-    depth: u32,
-) -> Type {
-    if depth >= MAX_ALIAS_DEPTH {
-        return ty.clone();
-    }
-
-    match ty {
-        Type::Named(id) => {
-            let full = id.to_string();
-            let bare = full.rsplit("::").next().unwrap_or(&full).to_string();
-
-            if let Some(alias) = find_local_alias(declarations, &bare) {
-                return resolve_type_inner(alias.target_type(), declarations, use_context, depth + 1);
-            }
-
-            if let Some((current_namespace, project_context)) = use_context {
-                if let Some(schema) =
-                    find_schema_bringing_into_scope(&bare, declarations, current_namespace, project_context)
-                {
-                    let schema_ref = schema.borrow();
-                    if let Some(alias) = find_local_alias(&schema_ref.declarations, &bare) {
-                        return resolve_type_inner(
-                            alias.target_type(),
-                            &schema_ref.declarations,
-                            Some((&schema_ref.namespace, project_context)),
-                            depth + 1,
-                        );
-                    }
-                    // A real struct/enum/const (or genuinely unresolvable) -
-                    // don't inline; fall through to the unchanged clone.
-                }
-            }
-
-            ty.clone()
-        }
-        Type::Array(arr) => Type::Array(Box::new(arr.with_key(resolve_type_inner(
-            arr.elem_type(),
-            declarations,
-            use_context,
-            depth + 1,
-        )))),
-        Type::Union(u) => Type::Union(u.with_members(
-            u.members()
-                .iter()
-                .map(|m| resolve_type_inner(m, declarations, use_context, depth + 1))
-                .collect(),
-        )),
-        _ => ty.clone(),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::idl::grammar;
 
     fn decls(source: &str) -> Vec<rust_sitter::Spanned<Declaration>> {
         grammar::parse(source).expect("should parse").0
-    }
-
-    #[test]
-    fn simple_alias_resolves() {
-        let declarations = decls("type UserId = u64");
-        let ty = Type::Named(grammar::ScopedIdentifier { text: "UserId".to_string() });
-        let resolved = resolve_type(&ty, &declarations, None);
-        assert!(matches!(resolved, Type::U64(_)));
-    }
-
-    #[test]
-    fn alias_chain_resolves_to_final_target() {
-        let declarations = decls("type A = B\ntype B = u32");
-        let ty = Type::Named(grammar::ScopedIdentifier { text: "A".to_string() });
-        let resolved = resolve_type(&ty, &declarations, None);
-        assert!(matches!(resolved, Type::U32(_)));
-    }
-
-    #[test]
-    fn alias_inside_array_resolves() {
-        let declarations = decls("type Id = u64");
-        let source = "struct S {\nids: Id[]\n}";
-        let full = decls(source);
-        // Reach into the struct's own field type via the parsed AST, same
-        // as `incremental.rs` would.
-        let Declaration::Struct(s) = &full[0].value else { panic!() };
-        let field_ty = s.fields()[0].field_type();
-        let resolved = resolve_type(field_ty, &declarations, None);
-        match resolved {
-            Type::Array(arr) => assert!(matches!(arr.elem_type(), Type::U64(_))),
-            other => panic!("expected array, got {:?}", other),
-        }
     }
 
     #[test]

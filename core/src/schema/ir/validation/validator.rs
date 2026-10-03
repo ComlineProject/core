@@ -36,6 +36,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             FrozenUnit::Protocol { name, span, .. } => (name.as_str(), SymbolType::Protocol, Some(*span)),
             FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
             FrozenUnit::Validator { name, .. } => (name.as_str(), SymbolType::Validator, None),
+            FrozenUnit::TypeAlias { name, span, .. } => (name.as_str(), SymbolType::TypeAlias, Some(*span)),
             // TODO: Function handling if they become top-level
             _ => continue,
         };
@@ -91,6 +92,17 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                         span: Some(*span),
                     });
                 }
+            }
+            FrozenUnit::TypeAlias { name, target, span, .. } => {
+                // Catches an unresolvable target even on a path that skips
+                // `alias_resolution::check_aliases`'s own pre-freeze check
+                // (e.g. `Compile::from_source`/`from_declarations`, used
+                // directly by most of this crate's own tests) - without
+                // this, a bad target would otherwise only be caught at
+                // each individual *use* site, if even that (a field typed
+                // as this very alias validates fine on its own, since the
+                // alias's own name is now a registered symbol).
+                validate_type(target, &symbols, &mut errors, &format!("Type alias '{}'", name), *span);
             }
             _ => {}
         }

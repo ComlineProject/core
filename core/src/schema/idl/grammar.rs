@@ -1279,23 +1279,11 @@ pub mod grammar {
         pub fn elem_type(&self) -> &Type {
             &self.key
         }
-        /// Rebuild with a substituted element type - used by the IR
-        /// compiler's alias-resolution pass to erase an alias nested
-        /// inside `Type[]` / `Type[N]`.
-        pub fn with_key(&self, key: Type) -> ArrayType {
-            ArrayType { key, _open: (), size: self.size.clone(), _close: () }
-        }
     }
 
     impl UnionType {
         pub fn members(&self) -> &Vec<Type> {
             &self.members
-        }
-        /// Rebuild with substituted member types - used by the IR
-        /// compiler's alias-resolution pass to erase an alias nested
-        /// inside `union(...)`.
-        pub fn with_members(&self, members: Vec<Type>) -> UnionType {
-            UnionType { _union: (), _open: (), members, _close: () }
         }
     }
 
