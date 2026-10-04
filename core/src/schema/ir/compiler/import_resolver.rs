@@ -8,6 +8,7 @@ use std::rc::Rc;
 
 use crate::package::config::dependency::DependencyConfig;
 use crate::package::config::ir::context::ProjectContext;
+use crate::package::stdlib;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
@@ -177,8 +178,10 @@ impl ImportResolver {
             return result;
         }
 
-        // Check if it's a stdlib import (std::)
-        if parts[0] == "std" {
+        // A stdlib import (std::) loads from `stdlib_root` when one is given.
+        // Without one it's an ordinary path: builds merge the embedded std's
+        // schemas under `std` (see `package::stdlib`).
+        if parts[0] == "std" && self.stdlib_root.is_some() {
             return self.resolve_stdlib(&parts);
         }
         
@@ -503,21 +506,24 @@ pub fn find_schema_bringing_into_scope(
     None
 }
 
-/// The first segment of a `use` path as written (`std` in `use std::x::Y`).
-fn use_path_root(path: &UsePath) -> Option<&str> {
-    let text = match path {
-        UsePath::Absolute(scoped) => &scoped.text,
-        UsePath::Glob(glob) => &glob.path.text,
-        UsePath::Multi(multi) => &multi.path.text,
-        UsePath::Relative(_) => return None,
-    };
-    text.split("::").next()
+/// The error for a `std::` path no std schema matches, with the closest std
+/// namespace when there's one (`std::htp::Request` → `std::http`).
+fn unknown_std_path(path: &[String]) -> String {
+    let mut context = format!("std has no schema matching '{}'", path.join("::"));
+    let written = path.iter().take(2).cloned().collect::<Vec<_>>().join("::");
+    let namespaces: BTreeSet<String> = stdlib::schemas()
+        .map(|(namespace, _)| namespace.iter().take(2).cloned().collect::<Vec<_>>().join("::"))
+        .collect();
+    if let Some(suggestion) = closest(&written, namespaces.iter().map(String::as_str)) {
+        context.push_str(&format!(" - did you mean '{suggestion}'?"));
+    }
+    context
 }
 
 /// Every name a `use` can import from a schema: the type-level symbols
 /// ([`declared_symbol_names`]) plus errors (`! Name` throws), validators and
 /// settings.
-fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
+pub(crate) fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
     let mut names = declared_symbol_names(schema_context);
     names.extend(schema_context.declarations.iter().filter_map(|decl| match &decl.value {
         Declaration::Error(e) => Some(e.name.text.clone()),
@@ -535,14 +541,17 @@ fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
 /// before a schema is compiled, so `comline build` / `check` reject the import
 /// instead of trusting it.
 ///
+/// A `std::` path is checked like any other: the build merges the std
+/// schemas a package imports (see `package::stdlib`), and one that no std
+/// schema matches gets a suggestion from std's namespaces.
+///
 /// Passes, because there is nothing to check it against:
-/// - a `std::` path: std schemas aren't part of a build yet (and with no
-///   stdlib configured, the resolver rejects the path outright);
 /// - a declared dependency with no schemas in this project: a build without
 ///   the `deps` feature never merges them;
 /// - every `use` in a dependency's own schemas (`current_namespace` under a
 ///   dependency's name). Those resolve against the dependency itself, and were
-///   checked when it was compiled on its own during resolution.
+///   checked when it was compiled on its own during resolution. The same goes
+///   for std's own schemas, which core's tests compile.
 pub fn check_imports(
     declarations: &[rust_sitter::Spanned<Declaration>],
     current_namespace: &[String],
@@ -553,7 +562,10 @@ pub fn check_imports(
             .map(|deps| deps.into_keys().collect())
             .unwrap_or_default();
 
-    if current_namespace.first().is_some_and(|first| dependencies.contains(first)) {
+    if current_namespace
+        .first()
+        .is_some_and(|first| dependencies.contains(first) || first == stdlib::NAMESPACE)
+    {
         return Ok(());
     }
 
@@ -571,9 +583,6 @@ pub fn check_imports(
         let Declaration::Use(use_stmt) = &decl.value else {
             continue;
         };
-        if use_path_root(&use_stmt.path) == Some("std") {
-            continue;
-        }
         let unresolved = |context: String| ValidationError {
             message: "Unresolved import".to_string(),
             context,
@@ -591,6 +600,11 @@ pub fn check_imports(
 
         let Some(schema) = &target.schema else {
             if dependencies.contains(first) && !top_level.contains(first) {
+                continue;
+            }
+
+            if first == stdlib::NAMESPACE {
+                errors.push(unresolved(unknown_std_path(&target.resolved.absolute_namespace)));
                 continue;
             }
 
@@ -851,12 +865,14 @@ mod tests {
     }
 
     #[test]
-    fn resolve_still_errors_on_std_without_stdlib_root() {
-        // `resolve_namespace`'s improved std:: contract is additive - the
-        // real compiler path through `resolve` is unchanged.
+    fn resolve_treats_std_as_merged_schemas_without_a_stdlib_root() {
+        // Builds merge the embedded std's schemas under `std`, so with no
+        // on-disk root a std path resolves like any other.
         let resolver = ImportResolver::new(vec![], HashMap::new(), None);
-        let path = parse_use_path("use std::collections::HashMap");
-        assert!(resolver.resolve(&path, &[]).is_err());
+        let path = parse_use_path("use std::http::Request");
+        let resolved = resolver.resolve(&path, &[]).expect("std resolves without a root");
+        assert_eq!(resolved.absolute_namespace, vec!["std", "http", "Request"]);
+        assert_eq!(resolved.schema_path, None);
     }
 
     fn resolved_with_symbols(symbols: Vec<&str>) -> ResolvedImport {

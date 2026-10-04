@@ -5,7 +5,7 @@ use std::collections::HashMap;
 
 #[test]
 fn test_load_stdlib_hashmap() {
-    let stdlib_root = PathBuf::from("stdlib");
+    let stdlib_root = PathBuf::from("tests/fixtures/stdlib");
     
     let resolver = ImportResolver::new(
         vec!["mypackage".to_string()],
@@ -16,7 +16,7 @@ fn test_load_stdlib_hashmap() {
     // Create a resolved import for std::collections::HashMap
     let resolved = ResolvedImport {
         absolute_namespace: vec!["std".to_string(), "collections".to_string(), "HashMap".to_string()],
-        schema_path: Some(PathBuf::from("stdlib/collections/HashMap.ids")),
+        schema_path: Some(PathBuf::from("tests/fixtures/stdlib/collections/HashMap.ids")),
         symbols: vec![],
         alias: None,
     };
@@ -39,7 +39,7 @@ fn test_load_stdlib_hashmap() {
 fn test_resolve_and_load_stdlib() {
     use comline_core::schema::idl::grammar;
 
-    let stdlib_root = PathBuf::from("stdlib");
+    let stdlib_root = PathBuf::from("tests/fixtures/stdlib");
 
     let resolver = ImportResolver::new(
         vec!["mypackage".to_string()],
@@ -63,7 +63,7 @@ fn test_resolve_and_load_stdlib() {
         resolved.absolute_namespace,
         vec!["std".to_string(), "collections".to_string(), "HashMap".to_string()]
     );
-    assert_eq!(resolved.schema_path, Some(PathBuf::from("stdlib/collections/HashMap.ids")));
+    assert_eq!(resolved.schema_path, Some(PathBuf::from("tests/fixtures/stdlib/collections/HashMap.ids")));
 
     let doc = resolver
         .load_schema(&resolved)

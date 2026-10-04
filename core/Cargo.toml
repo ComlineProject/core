@@ -18,6 +18,9 @@ exclude = ["benches/benchmark_results.html", "benches/run_bench.sh"]
 
 
 [dependencies]
+# The embedded standard library (`use std::…`)
+comline-core-stdlib = { path = "../core_stdlib", version = "0.1.0" }
+
 # General
 eyre = "0.6.8"
 snafu = { version = "0.7.5" }

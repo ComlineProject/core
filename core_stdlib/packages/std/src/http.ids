@@ -1,0 +1,18 @@
+/// An HTTP request method.
+enum HttpMethod {
+    GET
+    POST
+    PUT
+    DELETE
+}
+
+/// An HTTP request: its method and target URI.
+struct Request {
+    method: HttpMethod
+    uri: str
+}
+
+/// An HTTP response, by its status code.
+struct Response {
+    status_code: u16
+}

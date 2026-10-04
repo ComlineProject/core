@@ -3,6 +3,8 @@ name = "comline-core-stdlib"
 version = "0.1.0"
 edition = "2021"
 license = "GPL-3.0-only"
+description = "The schemas of Comline's standard library (`use std::…`), embedded for comline-core"
+repository = "https://github.com/ComlineProject/core"
 
 
 [dependencies]
