@@ -147,3 +147,39 @@ fn an_unchanged_dependency_contributes_no_bump() {
     // new to commit at all.
     assert_eq!(res.version_bump, VersionBump::None);
 }
+
+#[test]
+fn a_dependency_whose_schemas_import_each_other_still_builds() {
+    let workspace = TempDir::new().unwrap();
+    let dependency = workspace.path().join("shared-types");
+    write_dependency(&dependency, "use common::Base\n\nstruct Thing {\n    base: Base\n}\n");
+    fs::write(dependency.join("src/common.ids"), "struct Base {\n    id: u64\n}\n").unwrap();
+    let consumer_dir = workspace.path().join("consumer");
+    write_consumer(&consumer_dir, CONSUMER_SCHEMA);
+
+    build(&consumer_dir).expect("the dependency's own imports resolve against the dependency");
+}
+
+#[test]
+fn an_import_the_dependency_does_not_declare_fails_the_build() {
+    let workspace = TempDir::new().unwrap();
+    write_dependency(&workspace.path().join("shared-types"), "struct Thing {\n    id: u64\n}\n");
+    let consumer_dir = workspace.path().join("consumer");
+    write_consumer(&consumer_dir, "use shared_types::models::Thign\n\nstruct Holder {\n    id: u64\n}\n");
+
+    let error = build(&consumer_dir).expect_err("an unresolved import should fail the build").to_string();
+    assert!(error.contains("schema 'shared_types::models' doesn't declare 'Thign'"), "{error}");
+    assert!(error.contains("did you mean 'Thing'?"), "{error}");
+}
+
+#[test]
+fn a_typo_in_the_dependency_name_fails_the_build() {
+    let workspace = TempDir::new().unwrap();
+    write_dependency(&workspace.path().join("shared-types"), "struct Thing {\n    id: u64\n}\n");
+    let consumer_dir = workspace.path().join("consumer");
+    write_consumer(&consumer_dir, "use shared_typse::models::Thing\n\nstruct Holder {\n    id: u64\n}\n");
+
+    let error = build(&consumer_dir).expect_err("an unresolved import should fail the build").to_string();
+    assert!(error.contains("did you mean 'shared_types'?"), "{error}");
+}
+

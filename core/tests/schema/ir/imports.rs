@@ -173,7 +173,7 @@ fn test_unresolved_use_does_not_panic() {
 }
 
 #[test]
-fn test_same_package_symbol_not_found_still_compiles() {
+fn test_same_package_symbol_not_found_is_rejected() {
     let mut project = build_project();
     add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
     add_schema(
@@ -182,18 +182,90 @@ fn test_same_package_symbol_not_found_still_compiles() {
         "use types::Missing\n\nstruct Response {\n    id: u64\n}\n",
     );
 
-    // The symbol doesn't exist in the target schema - this should still
-    // compile (best-effort) rather than panic; catching it is validation's job.
-    interpret_context(&project).expect("compilation should succeed");
+    // Builds used to trust this; an import of something that doesn't exist
+    // is now an error.
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("Unresolved import"), "{error}");
+    assert!(error.contains("schema 'types' doesn't declare 'Missing'"), "{error}");
+}
 
-    let frozen = frozen_units_for(&project, "api");
-    assert!(
-        frozen
-            .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path == "types::Missing")),
-        "Expected a best-effort import of 'types::Missing', got {:?}",
-        frozen
-    );
+#[test]
+fn test_unknown_namespace_is_rejected_with_a_suggestion() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(&mut project, &["api"], "use typse::User\n\nstruct R {\n    u: User\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("no schema in this package or its dependencies matches 'typse::User'"), "{error}");
+    assert!(error.contains("did you mean 'types'?"), "{error}");
+}
+
+#[test]
+fn test_multi_item_use_rejects_only_the_undeclared_item() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
+    add_schema(&mut project, &["api"], "use types::{User, Nope}\n\nstruct R {\n    u: User\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("doesn't declare 'Nope'"), "{error}");
+    assert!(!error.contains("doesn't declare 'User'"), "{error}");
+}
+
+#[test]
+fn test_glob_of_a_missing_schema_is_rejected() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api"], "use nothing::*\n\nstruct R {\n    id: u64\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("matches 'nothing'"), "{error}");
+}
+
+#[test]
+fn test_importing_an_error_resolves() {
+    let mut project = build_project();
+    add_schema(&mut project, &["errs"], "error Gone {\n    message = \"gone\"\n}\n");
+    add_schema(&mut project, &["api"], "use errs::Gone\n\nstruct R {\n    id: u64\n}\n");
+
+    interpret_context(&project).expect("an error is importable");
+}
+
+fn build_project_with_dependency() -> ProjectContext {
+    let congregation = config_grammar::parse(
+        "congregation test\nspecification_version = 1\n\n\
+         dependencies = {\n    shared = {\n        path = \"../shared\"\n    }\n}\n",
+    )
+    .expect("congregation should parse");
+    ProjectContext::with_config(congregation)
+}
+
+#[test]
+fn test_a_declared_dependency_without_merged_schemas_is_not_checked() {
+    // A build without the `deps` feature never merges a dependency's schemas,
+    // so there's nothing to check its imports against.
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["api"], "use shared::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
+
+    interpret_context(&project).expect("a declared dependency's import passes");
+}
+
+#[test]
+fn test_a_typo_in_a_dependency_name_is_rejected_with_a_suggestion() {
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["api"], "use shard::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("did you mean 'shared'?"), "{error}");
+}
+
+#[test]
+fn test_a_dependency_schemas_own_imports_are_not_checked_in_the_consumer() {
+    // Merged under its name, a dependency's own `use foo::X` (relative to
+    // the dependency) doesn't line up with the consumer's namespaces; it was
+    // checked when the dependency was compiled on its own.
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["shared", "bar"], "use foo::X\n\nstruct B {\n    x: X\n}\n");
+
+    interpret_context(&project).expect("a dependency's own imports pass");
 }
 
 #[test]
