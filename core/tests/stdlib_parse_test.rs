@@ -3,7 +3,7 @@ use comline_core::schema::idl::grammar;
 
 #[test]
 fn test_stdlib_hashmap_parses() {
-    let source = std::fs::read_to_string("stdlib/collections/HashMap.ids")
+    let source = std::fs::read_to_string("tests/fixtures/stdlib/collections/HashMap.ids")
         .expect("Failed to read HashMap.ids");
     
     let result = grammar::parse(&source);
@@ -20,7 +20,7 @@ fn test_stdlib_hashmap_parses() {
 
 #[test]
 fn test_stdlib_vec_parses() {
-    let source = std::fs::read_to_string("stdlib/collections/Vec.ids")
+    let source = std::fs::read_to_string("tests/fixtures/stdlib/collections/Vec.ids")
         .expect("Failed to read Vec.ids");
     
     let result = grammar::parse(&source);
@@ -31,7 +31,7 @@ fn test_stdlib_vec_parses() {
 
 #[test]
 fn test_stdlib_http_request_parses() {
-    let source = std::fs::read_to_string("stdlib/http/Request.ids")
+    let source = std::fs::read_to_string("tests/fixtures/stdlib/http/Request.ids")
         .expect("Failed to read Request.ids");
     
     let result = grammar::parse(&source);
@@ -42,7 +42,7 @@ fn test_stdlib_http_request_parses() {
 
 #[test]
 fn test_stdlib_http_response_parses() {
-    let source = std::fs::read_to_string("stdlib/http/Response.ids")
+    let source = std::fs::read_to_string("tests/fixtures/stdlib/http/Response.ids")
         .expect("Failed to read Response.ids");
     
     let result = grammar::parse(&source);

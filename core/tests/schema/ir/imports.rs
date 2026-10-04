@@ -150,7 +150,7 @@ fn test_import_cycle_between_schemas_is_rejected() {
 }
 
 #[test]
-fn test_unresolved_use_does_not_panic() {
+fn test_std_import_without_std_merged_is_an_error_not_a_panic() {
     let mut project = build_project();
     add_schema(
         &mut project,
@@ -158,18 +158,11 @@ fn test_unresolved_use_does_not_panic() {
         "use std::http::Request\n\nstruct Response {\n    id: u64\n}\n",
     );
 
-    // Not part of this project and stdlib isn't configured - should not panic,
-    // just fall back to an explicit unresolved-import marker.
-    interpret_context(&project).expect("compilation should succeed");
-
-    let frozen = frozen_units_for(&project, "api");
-    assert!(
-        frozen
-            .iter()
-            .any(|unit| matches!(unit, FrozenUnit::Import(path, _, _) if path.starts_with("<unresolved:"))),
-        "Expected an unresolved-import marker, got {:?}",
-        frozen
-    );
+    // A hand-built context has no std merged in (only `compile_package` and
+    // `PackageSources` add the std schemas a package imports): the import
+    // can't resolve, and that's reported, not a panic.
+    let error = interpret_context(&project).expect_err("nothing here declares std::http").to_string();
+    assert!(error.contains("std has no schema matching 'std::http::Request'"), "{error}");
 }
 
 #[test]

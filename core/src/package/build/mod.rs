@@ -108,7 +108,7 @@ impl PackageSources {
                 .map_err(|e| eyre!("{:?}", e))?,
         );
 
-        interpret_schema_sources(&mut context, &self.schemas)?;
+        interpret_schema_sources(&mut context, &with_std(self.schemas))?;
         Ok(context)
     }
 }
@@ -194,8 +194,9 @@ pub(crate) fn glob_schema_sources(package_path: &Path) -> Result<Vec<(Vec<String
 /// Local schemas, plus — behind `feature = "deps"` — every declared
 /// dependency's own schemas, namespaced under the dependency's name
 /// (`shared_types = { path = "../shared-types" }`'s `foo.ids` becomes
-/// `shared_types::foo` here), merged into one [`interpret_schema_sources`]
-/// pass so cross-package `use` resolves normally.
+/// `shared_types::foo` here), plus the std schemas any of them import
+/// (see [`with_std`]), merged into one [`interpret_schema_sources`] pass so
+/// cross-package `use` resolves normally.
 fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
     let mut sources = glob_schema_sources(package_path)?;
 
@@ -207,7 +208,16 @@ fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Resul
         )?);
     }
 
-    interpret_schema_sources(context, &sources)
+    interpret_schema_sources(context, &with_std(sources))
+}
+
+/// `sources`, then the std schemas they import (`use std::…`), directly or
+/// through each other, under the `std` namespace. Appended after them, so a
+/// package's own schemas keep their order (and their CAS entry names).
+fn with_std(mut sources: Vec<(Vec<String>, String)>) -> Vec<(Vec<String>, String)> {
+    let std = crate::package::stdlib::used_by(&sources);
+    sources.extend(std);
+    sources
 }
 
 /// Parse each `(namespace segments, source)`, register a `SchemaContext` on

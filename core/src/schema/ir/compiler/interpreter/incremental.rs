@@ -9,7 +9,7 @@ use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
-    schema_declares_symbol, ImportResolver,
+    importable_names, ImportResolver,
 };
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
@@ -668,7 +668,7 @@ fn resolve_use_declaration(
             .symbols
             .iter()
             .map(|item| {
-                if !matches!(&target.schema, Some(schema) if schema_declares_symbol(&schema.borrow(), item))
+                if !matches!(&target.schema, Some(schema) if importable_names(&schema.borrow()).contains(item))
                 {
                     tracing::warn!("Symbol '{}' not found in schema '{}'", item, joined_namespace);
                 }
@@ -694,7 +694,7 @@ fn resolve_use_declaration(
             let symbol = target.remaining.join("::");
             let schema_namespace = schema.borrow().namespace_joined();
 
-            if !schema_declares_symbol(&schema.borrow(), &symbol) {
+            if !importable_names(&schema.borrow()).contains(&symbol) {
                 tracing::warn!("Symbol '{}' not found in schema '{}'", symbol, schema_namespace);
             }
 

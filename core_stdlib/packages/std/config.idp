@@ -1,3 +1,2 @@
 congregation std
-
-schema_paths = auto
+specification_version = 1
