@@ -220,6 +220,48 @@ fn test_glob_of_a_missing_schema_is_rejected() {
     assert!(error.contains("matches 'nothing'"), "{error}");
 }
 
+const COMMON: &str = "struct Error {\n    code: u32\n}\n\nstruct Other {\n    code: u32\n}\n";
+
+#[test]
+fn test_relative_glob_and_multi_imports_resolve() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api", "common"], COMMON);
+    add_schema(&mut project, &["api", "glob"], "use parent::common::*\n\nstruct G {\n    o: Other\n}\n");
+    add_schema(
+        &mut project,
+        &["api", "multi"],
+        "use parent::common::{Error, Other}\n\nstruct M {\n    e: Error\n    o: Other\n}\n",
+    );
+
+    // Both used to resolve to a schema literally named `parent::common`.
+    interpret_context(&project).expect("relative glob and multi imports should resolve");
+
+    let imports = |namespace| -> Vec<String> {
+        frozen_units_for(&project, namespace)
+            .into_iter()
+            .filter_map(|unit| match unit {
+                FrozenUnit::Import(path, _, _) => Some(path),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(imports("api::glob").iter().any(|path| path == "api::common::*"), "{:?}", imports("api::glob"));
+    for expected in ["api::common::Error", "api::common::Other"] {
+        assert!(imports("api::multi").iter().any(|path| path == expected), "{:?}", imports("api::multi"));
+    }
+}
+
+#[test]
+fn test_relative_multi_import_rejects_an_undeclared_item_by_its_resolved_schema() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api", "common"], COMMON);
+    add_schema(&mut project, &["api", "multi"], "use parent::common::{Error, Nope}\n\nstruct M {\n    e: Error\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("schema 'api::common' doesn't declare 'Nope'"), "{error}");
+    assert!(!error.contains("doesn't declare 'Error'"), "{error}");
+}
+
 #[test]
 fn test_importing_an_error_resolves() {
     let mut project = build_project();

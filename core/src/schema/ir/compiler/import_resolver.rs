@@ -71,11 +71,11 @@ impl ImportResolver {
                 self.resolve_relative(rel, current_namespace)
             }
             UsePath::Glob(glob) => {
-                self.resolve_glob(&glob.path.to_string())
+                self.resolve_glob(&glob.path.to_string(), current_namespace)
             }
             UsePath::Multi(multi) => {
                 let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
-                self.resolve_multi(&multi.path.to_string(), &items)
+                self.resolve_multi(&multi.path.to_string(), &items, current_namespace)
             }
         }
     }
@@ -116,11 +116,11 @@ impl ImportResolver {
                 self.resolve_relative(rel, current_namespace)
             }
             UsePath::Glob(glob) => {
-                self.resolve_glob(&glob.path.to_string())
+                self.resolve_glob(&glob.path.to_string(), current_namespace)
             }
             UsePath::Multi(multi) => {
                 let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
-                self.resolve_multi(&multi.path.to_string(), &items)
+                self.resolve_multi(&multi.path.to_string(), &items, current_namespace)
             }
         }
     }
@@ -288,24 +288,38 @@ impl ImportResolver {
         }
     }
     
+    /// The namespace a glob's or multi-import's path names: its segments,
+    /// with a leading `self`/`parent`/`package` resolved against
+    /// `current_namespace` the way an absolute path's is, so
+    /// `use parent::common::*` and `use parent::common::{A, B}` point where
+    /// `use parent::common::A` does.
+    fn path_namespace(&self, path: &str, current_namespace: &[String]) -> Result<Vec<String>, String> {
+        let parts = Self::split_absolute(path)?;
+        match self.try_resolve_relative_prefix(&parts, current_namespace) {
+            Some(resolved) => Ok(resolved?.absolute_namespace),
+            None => Ok(parts),
+        }
+    }
+
     /// Resolve glob import (e.g., mypackage::types::*)
-    fn resolve_glob(&self, path: &str) -> Result<ResolvedImport, String> {
-        let parts: Vec<String> = path.split("::").map(|s| s.to_string()).collect();
-        
+    fn resolve_glob(&self, path: &str, current_namespace: &[String]) -> Result<ResolvedImport, String> {
         Ok(ResolvedImport {
-            absolute_namespace: parts,
+            absolute_namespace: self.path_namespace(path, current_namespace)?,
             schema_path: None,
             symbols: vec!["*".to_string()], // Glob marker
             alias: None,
         })
     }
-    
+
     /// Resolve multi-import (e.g., mypackage::{User, Post})
-    fn resolve_multi(&self, path: &str, items: &[String]) -> Result<ResolvedImport, String> {
-        let parts: Vec<String> = path.split("::").map(|s| s.to_string()).collect();
-        
+    fn resolve_multi(
+        &self,
+        path: &str,
+        items: &[String],
+        current_namespace: &[String],
+    ) -> Result<ResolvedImport, String> {
         Ok(ResolvedImport {
-            absolute_namespace: parts,
+            absolute_namespace: self.path_namespace(path, current_namespace)?,
             schema_path: None,
             symbols: items.to_vec(),
             alias: None,
@@ -720,6 +734,47 @@ mod tests {
             resolved.absolute_namespace,
             vec!["mypackage".to_string(), "users".to_string(), "common".to_string()]
         );
+    }
+
+    #[test]
+    fn relative_prefixes_resolve_in_globs_and_multi_imports() {
+        let resolver = ImportResolver::new(vec!["mypackage".to_string()], HashMap::new(), None);
+        let current_ns =
+            vec!["mypackage".to_string(), "users".to_string(), "models".to_string()];
+        let common = vec!["mypackage".to_string(), "users".to_string(), "common".to_string()];
+
+        for source in ["use parent::common::*", "use parent::common::{Error, Other}"] {
+            let path = parse_use_path(source);
+            for resolved in [
+                resolver.resolve(&path, &current_ns).unwrap(),
+                resolver.resolve_namespace(&path, &current_ns).unwrap(),
+            ] {
+                assert_eq!(resolved.absolute_namespace, common, "{source}");
+            }
+        }
+
+        // A bare `self::{...}` / `parent::*` doesn't parse (the prefix lexes
+        // as its keyword there, see `try_resolve_relative_prefix`); with a
+        // segment after the prefix it's one `ScopedIdentifier` like any path.
+        let path = parse_use_path("use self::nested::{Profile, Avatar}");
+        let resolved = resolver.resolve(&path, &current_ns).unwrap();
+        let mut nested = current_ns.clone();
+        nested.push("nested".to_string());
+        assert_eq!(resolved.absolute_namespace, nested);
+        assert_eq!(resolved.symbols, vec!["Profile".to_string(), "Avatar".to_string()]);
+
+        let path = parse_use_path("use package::types::*");
+        let resolved = resolver.resolve(&path, &current_ns).unwrap();
+        assert_eq!(resolved.absolute_namespace, vec!["mypackage".to_string(), "types".to_string()]);
+        assert_eq!(resolved.symbols, vec!["*".to_string()]);
+    }
+
+    #[test]
+    fn a_glob_from_the_root_namespace_cannot_go_up() {
+        let resolver = ImportResolver::new(vec![], HashMap::new(), None);
+        let path = parse_use_path("use parent::common::*");
+        assert!(resolver.resolve(&path, &[]).is_err());
+        assert!(resolver.resolve_namespace(&path, &[]).is_err());
     }
 
     #[test]
