@@ -520,11 +520,23 @@ pub mod grammar {
     // ===== Protocol Definition =====
 
     // ===== Annotation Definition =====
+    /// `@key = value`, or a bare `@key` marker with no value at all (e.g.
+    /// `@idempotent`) — [`assignment`](Annotation::value) is `None` for
+    /// the latter.
     #[derive(Debug, Clone)]
     pub struct Annotation {
         #[rust_sitter::leaf(text = "@")]
         _at: (),
         pub key: Identifier,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub assignment: Option<AnnotationAssignment>,
+    }
+
+    /// The `= value` half of an annotation, factored out so `Annotation`
+    /// can make the whole thing optional (same shape as `FieldDefault` for
+    /// a struct field's `= value`).
+    #[derive(Debug, Clone)]
+    pub struct AnnotationAssignment {
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: AnnotationValue,
@@ -1343,10 +1355,19 @@ pub mod grammar {
         pub fn key(&self) -> String {
             self.key.text.clone()
         }
-        /// The value rendered back to canonical text. Scalars round-trip as
-        /// written; a list normalises to `[Name(a = 1, b = 2), ...]`.
-        pub fn value(&self) -> String {
-            match &self.value {
+        /// The value rendered back to canonical text, if this annotation
+        /// has one — `None` for a bare marker (`@idempotent`, no
+        /// `=value`).
+        pub fn value(&self) -> Option<String> {
+            self.assignment.as_ref().map(|a| a.value.render())
+        }
+    }
+
+    impl AnnotationValue {
+        /// Render back to canonical text. Scalars round-trip as written; a
+        /// list normalises to `[Name(a = 1, b = 2), ...]`.
+        fn render(&self) -> String {
+            match self {
                 // Scalars keep their plain rendering (a bare string, not a
                 // quoted literal) for back-compat with existing consumers.
                 AnnotationValue::Scalar(Expression::Integer(i)) => i.value.to_string(),

@@ -167,6 +167,37 @@ struct Message {
     }
 
     #[test]
+    fn test_bare_annotation_marker_freezes_with_no_expression() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+protocol P {
+    @idempotent
+    @timeout_ms = 100
+    function f();
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        let FrozenUnit::Protocol { functions, .. } = &ir_units[0] else {
+            panic!("expected Protocol, got {:?}", ir_units[0]);
+        };
+        let FrozenUnit::Function { parameters, .. } = &functions[0] else {
+            panic!("expected Function, got {:?}", functions[0]);
+        };
+
+        assert!(matches!(
+            &parameters[0],
+            FrozenUnit::Property { name, expression }
+                if name == "idempotent" && expression.is_none()
+        ));
+        assert!(matches!(
+            &parameters[1],
+            FrozenUnit::Property { name, expression }
+                if name == "timeout_ms" && expression.as_deref() == Some("100")
+        ));
+    }
+
+    #[test]
     fn test_validator_declaration_ir() {
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
