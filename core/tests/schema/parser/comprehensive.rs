@@ -101,6 +101,20 @@ struct AllTypes {
     }
 
     #[test]
+    fn test_bare_annotation_marker_has_no_value() {
+        // `@key` with no `=value` at all — a presence-only marker, e.g.
+        // `@idempotent` on a protocol function.
+        let code = "protocol P {\n    @idempotent\n    function f();\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_bare_annotation_marker_composes_with_a_valued_one() {
+        let code = "protocol P {\n    @idempotent\n    @timeout_ms = 100\n    function f();\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
     fn test_field_with_annotation() {
         let code = "struct Foo {\n    @deprecated=true\n    old: str\n}";
         assert!(grammar::parse(code).is_ok());

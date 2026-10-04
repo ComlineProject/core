@@ -480,17 +480,22 @@ fn frozen_error(
 
 /// Turn a declaration's annotations into frozen units, in source order.
 ///
-/// A scalar `@key = value` becomes one `FrozenUnit::Property { name, expression }`.
-/// A list `@key = [Name(k = v, ...), ...]` (only `@validators` today) becomes one
-/// `FrozenUnit::ValidatorRef { name, args }` per call, keeping the applied name
-/// and its keyword arguments structured.
+/// A bare marker `@key` (no `=value`) becomes one `FrozenUnit::Property { name,
+/// expression: None }`. A scalar `@key = value` becomes the same with
+/// `expression: Some(..)`. A list `@key = [Name(k = v, ...), ...]` (only
+/// `@validators` today) becomes one `FrozenUnit::ValidatorRef { name, args }`
+/// per call, keeping the applied name and its keyword arguments structured.
 fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
     let mut units = Vec::new();
     for a in annotations {
-        match &a.value {
+        let Some(assignment) = &a.assignment else {
+            units.push(FrozenUnit::Property { name: a.key(), expression: None });
+            continue;
+        };
+        match &assignment.value {
             AnnotationValue::Scalar(_) => units.push(FrozenUnit::Property {
                 name: a.key(),
-                expression: Some(a.value()),
+                expression: a.value(),
             }),
             AnnotationValue::List(list) => {
                 for call in &list.items {
