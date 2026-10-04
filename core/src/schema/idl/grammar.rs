@@ -74,7 +74,18 @@ pub mod grammar {
         Multi(MultiPath),
     }
 
-    /// Relative path: self::path or parent::path
+    /// Relative path: self::path or parent::path or package::path.
+    ///
+    /// Currently unreachable through real parsing: `self`/`parent`/
+    /// `package` text always lexes as part of `UsePath::Absolute`'s
+    /// `ScopedIdentifier` instead (that leaf's regex greedily matches the
+    /// whole `self::Profile`, always winning the lexer's longest-match
+    /// tie-break over `RelativePrefix`'s short keyword leaves). The actual
+    /// resolution for these three words happens in
+    /// `schema::ir::compiler::import_resolver::try_resolve_relative_prefix`,
+    /// which detects them inside an already-parsed `Absolute` path instead
+    /// - see that function's doc for why fixing this at the grammar level
+    /// was attempted and reverted.
     #[derive(Debug, Clone)]
     pub struct RelativePath {
         pub prefix: RelativePrefix,
@@ -83,15 +94,15 @@ pub mod grammar {
         pub path: ScopedIdentifier,
     }
 
-    /// Relative prefix: self, parent, crate
+    /// Relative prefix: self, parent, package
     #[derive(Debug, Clone)]
     pub enum RelativePrefix {
         #[rust_sitter::leaf(text = "self")]
         Self_,
         #[rust_sitter::leaf(text = "parent")]
         Parent,
-        #[rust_sitter::leaf(text = "crate")]
-        Crate,
+        #[rust_sitter::leaf(text = "package")]
+        Package,
     }
 
     /// Glob path: mypackage::types::*
