@@ -19,7 +19,7 @@ use std::path::{Path, PathBuf};
 // Crate Uses
 use crate::package::build::cas::storage::Hash;
 use crate::package::build::compile_package;
-use crate::package::config::dependency::{DependencyConfig, DependencySource};
+use crate::package::config::dependency::{git_checkout_dir, DependencyConfig, DependencySource, DEPS_CACHE_DIR};
 use crate::package::config::ir::context::ProjectContext;
 
 // External Uses
@@ -125,7 +125,7 @@ pub(crate) fn resolve_all(
         return Ok(Vec::new());
     }
 
-    let cache_dir = project_root.join(".comline/deps-cache");
+    let cache_dir = project_root.join(DEPS_CACHE_DIR);
 
     let mut names: Vec<&String> = deps.keys().collect();
     names.sort();
@@ -211,8 +211,7 @@ fn hash_frozen_content(context: &ProjectContext) -> Result<Hash> {
 /// and CI image, and the same assumption the rest of this toolchain already
 /// makes (`comline new --git` runs `git init` the same way).
 fn resolve_git(uri: &str, commit: &str, cache_dir: &Path) -> Result<PathBuf> {
-    let cache_key = Hash::from_bytes(format!("{uri}#{commit}").as_bytes()).to_hex();
-    let checkout_path = cache_dir.join(&cache_key);
+    let checkout_path = git_checkout_dir(cache_dir, uri, commit);
 
     if checkout_path.join(".git").exists() {
         // Already fetched for this exact uri+commit pin — reuse it. The pin
@@ -401,6 +400,11 @@ mod tests {
         )
         .expect("resolves a pinned commit from a local remote");
         assert_eq!(resolved.context.schema_contexts.len(), 1);
+        assert_eq!(
+            Some(resolved.resolved_path),
+            dep.package_dir(consumer.path()),
+            "fetched exactly where `package_dir` says, so an editor finds it there"
+        );
     }
 
     #[test]
