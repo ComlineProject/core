@@ -172,12 +172,17 @@ pub(crate) fn glob_schema_sources(package_path: &Path) -> Result<Vec<(Vec<String
             )
         }
 
-        let relative = schema_path.strip_prefix(&schemas_path)?;
-        let namespace = relative
-            .with_extension("")
-            .components()
-            .map(|c| c.as_os_str().to_string_lossy().into_owned())
-            .collect::<Vec<_>>();
+        let namespace = crate::package::layout::namespace_for_schema_path(
+            &schemas_path,
+            &schema_path,
+        )
+        .ok_or_else(|| {
+            eyre!(
+                "schema path '{}' is not under schemas root '{}'",
+                schema_path.display(),
+                schemas_path.display()
+            )
+        })?;
 
         let source = std::fs::read_to_string(&schema_path)?;
         sources.push((namespace, source));
