@@ -254,18 +254,16 @@ mod tests {
 
     #[test]
     fn primitive_widths() {
-        let cases = [
-            ("s8", 1), ("u8", 1), ("bool", 1),
-            ("s16", 2), ("u16", 2),
-            ("s32", 4), ("u32", 4), ("f32", 4),
-            ("s64", 8), ("u64", 8), ("f64", 8),
-        ];
-        for (ty, bytes) in cases {
-            let doc = parse(&format!("struct S {{ field: {ty} }}"));
+        // Sourced from `vocabulary::PRIMITIVES` rather than its own table —
+        // `str`/`string` (bits: None) are covered separately below.
+        for p in super::super::vocabulary::PRIMITIVES {
+            let Some(bits) = p.bits else { continue };
+            let doc = parse(&format!("struct S {{ field: {} }}", p.name));
             assert_eq!(
                 size_of_type(only_type(&doc), &empty_lookup()),
-                WireSize::Fixed(bytes),
-                "type {ty}"
+                WireSize::Fixed((bits / 8) as u32),
+                "type {}",
+                p.name
             );
         }
     }
