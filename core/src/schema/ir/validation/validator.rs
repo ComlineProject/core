@@ -505,7 +505,7 @@ fn type_category(kind: &KindValue) -> Option<&'static str> {
 
 /// Closest candidate to `target` within a "plausibly a typo" edit distance
 /// (half the target's length, min 1) — `None` if nothing is close.
-fn closest<'a>(target: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
+pub(crate) fn closest<'a>(target: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
     let len = target.chars().count();
     let max_distance = ((len + 1) / 2).max(1);
     candidates

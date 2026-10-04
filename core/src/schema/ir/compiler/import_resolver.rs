@@ -2,14 +2,17 @@
 // Handles resolving imports from same package, stdlib, and external dependencies
 
 use std::cell::RefCell;
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
 
+use crate::package::config::dependency::DependencyConfig;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
+use crate::schema::ir::validation::validator::closest;
+use crate::schema::ir::validation::ValidationError;
 
 /// Resolved import information
 #[derive(Debug, Clone)]
@@ -484,6 +487,139 @@ pub fn find_schema_bringing_into_scope(
     }
 
     None
+}
+
+/// The first segment of a `use` path as written (`std` in `use std::x::Y`).
+fn use_path_root(path: &UsePath) -> Option<&str> {
+    let text = match path {
+        UsePath::Absolute(scoped) => &scoped.text,
+        UsePath::Glob(glob) => &glob.path.text,
+        UsePath::Multi(multi) => &multi.path.text,
+        UsePath::Relative(_) => return None,
+    };
+    text.split("::").next()
+}
+
+/// Every name a `use` can import from a schema: the type-level symbols
+/// ([`declared_symbol_names`]) plus errors (`! Name` throws), validators and
+/// settings.
+fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
+    let mut names = declared_symbol_names(schema_context);
+    names.extend(schema_context.declarations.iter().filter_map(|decl| match &decl.value {
+        Declaration::Error(e) => Some(e.name.text.clone()),
+        Declaration::Validator(v) => Some(v.name.text.clone()),
+        Declaration::Settings(s) => Some(s.name.text.clone()),
+        _ => None,
+    }));
+    names
+}
+
+/// Every `use` in `declarations` that doesn't resolve, as validation
+/// errors: a path no schema of the project matches (its own, or a
+/// dependency's, merged under the dependency's name), or a named item the
+/// matched schema doesn't declare. Run by the real build (`interpret_context`)
+/// before a schema is compiled, so `comline build` / `check` reject the import
+/// instead of trusting it.
+///
+/// Passes, because there is nothing to check it against:
+/// - a `std::` path: std schemas aren't part of a build yet (and with no
+///   stdlib configured, the resolver rejects the path outright);
+/// - a declared dependency with no schemas in this project: a build without
+///   the `deps` feature never merges them;
+/// - every `use` in a dependency's own schemas (`current_namespace` under a
+///   dependency's name). Those resolve against the dependency itself, and were
+///   checked when it was compiled on its own during resolution.
+pub fn check_imports(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    current_namespace: &[String],
+    project_context: &ProjectContext,
+) -> Result<(), Vec<ValidationError>> {
+    let dependencies: HashSet<String> =
+        DependencyConfig::parse_dependencies(&project_context.config.assignments)
+            .map(|deps| deps.into_keys().collect())
+            .unwrap_or_default();
+
+    if current_namespace.first().is_some_and(|first| dependencies.contains(first)) {
+        return Ok(());
+    }
+
+    // The first namespace segment of every schema in the project.
+    let top_level: BTreeSet<String> = project_context
+        .schema_contexts
+        .iter()
+        .filter_map(|schema| schema.borrow().namespace.first().cloned())
+        .collect();
+
+    let resolver = ImportResolver::new(vec![], Default::default(), None);
+    let mut errors = Vec::new();
+
+    for decl in declarations {
+        let Declaration::Use(use_stmt) = &decl.value else {
+            continue;
+        };
+        if use_path_root(&use_stmt.path) == Some("std") {
+            continue;
+        }
+        let unresolved = |context: String| ValidationError {
+            message: "Unresolved import".to_string(),
+            context,
+            span: Some(decl.span),
+        };
+
+        let target = match resolve_use_to_schema(project_context, &resolver, current_namespace, &use_stmt.path) {
+            Ok(target) => target,
+            Err(message) => {
+                errors.push(unresolved(message));
+                continue;
+            }
+        };
+        let first = target.resolved.absolute_namespace.first().map(String::as_str).unwrap_or_default();
+
+        let Some(schema) = &target.schema else {
+            if dependencies.contains(first) && !top_level.contains(first) {
+                continue;
+            }
+
+            let mut context = format!(
+                "no schema in this package or its dependencies matches '{}'",
+                target.resolved.absolute_namespace.join("::")
+            );
+            if !top_level.contains(first) && !dependencies.contains(first) {
+                let known = top_level.iter().chain(&dependencies).map(String::as_str);
+                if let Some(suggestion) = closest(first, known) {
+                    context.push_str(&format!(" - did you mean '{suggestion}'?"));
+                }
+            }
+            errors.push(unresolved(context));
+            continue;
+        };
+
+        let schema = schema.borrow();
+        let named: Vec<String> = if target.resolved.symbols == ["*"] {
+            vec![]
+        } else if !target.resolved.symbols.is_empty() {
+            target.resolved.symbols.clone()
+        } else if target.remaining.is_empty() {
+            vec![]
+        } else {
+            vec![target.remaining.join("::")]
+        };
+
+        let declared = importable_names(&schema);
+        for name in named.iter().filter(|name| !declared.contains(name)) {
+            let mut context = format!("schema '{}' doesn't declare '{name}'", schema.namespace_joined());
+            if let Some(suggestion) = closest(name, declared.iter().map(String::as_str)) {
+                context.push_str(&format!(" - did you mean '{suggestion}'?"));
+            }
+            errors.push(unresolved(context));
+        }
+    }
+
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(errors)
+    }
 }
 
 #[cfg(test)]

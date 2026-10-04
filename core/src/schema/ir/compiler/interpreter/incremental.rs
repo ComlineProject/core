@@ -8,7 +8,7 @@ use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{
-    declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
+    check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     schema_declares_symbol, ImportResolver,
 };
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
@@ -34,18 +34,22 @@ impl IncrementalInterpreter {
         Self::compile_declarations(declarations, Some((current_namespace, project_context)))
     }
 
-    /// Like `compile_declarations`, but checks `type` aliases first
-    /// (duplicate names, cycles, unresolvable targets) and reports those as
-    /// a dedicated `Result` instead of silently falling back to a per-use-
-    /// site "Unknown type" diagnostic. The real `cli check`/`cli build` path
-    /// (`interpret_context`) always does this check itself before calling
-    /// `from_declarations_with_context`; this is for callers (tests, or any
-    /// future caller) that want the same guarantee without building a full
-    /// `ProjectContext`-driven project.
+    /// Like `compile_declarations`, but checks `use` statements (with
+    /// `use_context`: each must resolve, see `check_imports`) and `type`
+    /// aliases (duplicate names, cycles, unresolvable targets) first, and
+    /// reports those as a dedicated `Result` instead of silently falling
+    /// back to a per-use-site "Unknown type" diagnostic. The real `cli
+    /// check`/`cli build` path (`interpret_context`) always does these checks
+    /// itself before calling `from_declarations_with_context`; this is for
+    /// callers (tests, or any future caller) that want the same guarantee
+    /// without building a full `ProjectContext`-driven project.
     pub fn check_and_from_declarations(
         declarations: Vec<rust_sitter::Spanned<Declaration>>,
         use_context: Option<(&[String], &ProjectContext)>,
     ) -> Result<Vec<FrozenUnit>, Vec<ValidationError>> {
+        if let Some((current_namespace, project_context)) = use_context {
+            check_imports(&declarations, current_namespace, project_context)?;
+        }
         check_aliases(&declarations, use_context)?;
         Ok(Self::compile_declarations(declarations, use_context))
     }
