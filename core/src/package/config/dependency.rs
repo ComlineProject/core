@@ -2,7 +2,19 @@
 // Parsed from congregation config dependencies block
 
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+use crate::package::build::cas::storage::Hash;
+
+/// Where a package's `Git` dependencies get checked out, relative to the
+/// package's own directory.
+pub const DEPS_CACHE_DIR: &str = ".comline/deps-cache";
+
+/// A git pin's checkout directory inside `cache_dir`, keyed by `uri` +
+/// `commit` so distinct pins never collide.
+pub fn git_checkout_dir(cache_dir: &Path, uri: &str, commit: &str) -> PathBuf {
+    cache_dir.join(Hash::from_bytes(format!("{uri}#{commit}").as_bytes()).to_hex())
+}
 
 /// Dependency configuration from config.idp
 #[derive(Debug, Clone)]
@@ -33,6 +45,25 @@ pub enum DependencySource {
 }
 
 impl DependencyConfig {
+    /// Where this dependency's package lives once resolved, for a consuming
+    /// package at `package_root`: a `Path` dependency's own directory, or a
+    /// `Git` pin's checkout in the deps cache
+    /// (`<package_root>/.comline/deps-cache/<key>`), fetched yet or not.
+    /// `None` for a `Registry` source, which nothing resolves yet.
+    ///
+    /// Pure: it only says where, `package::deps` does the fetching. Not behind
+    /// the `deps` feature, so the language server finds a fetched pin exactly
+    /// where `comline check` put it.
+    pub fn package_dir(&self, package_root: &Path) -> Option<PathBuf> {
+        match &self.source {
+            DependencySource::Path { path, .. } => Some(package_root.join(path)),
+            DependencySource::Git { uri, commit, .. } => {
+                Some(git_checkout_dir(&package_root.join(DEPS_CACHE_DIR), uri, commit))
+            }
+            DependencySource::Registry { .. } => None,
+        }
+    }
+
     /// The version declared in `config.idp`, when the source carries one.
     /// `Path` dependencies have no declared version — their effective version
     /// is whatever their own last build produced, known only after resolving
@@ -293,4 +324,40 @@ mod tests {
             "missing version+commit should error, not warn-and-drop"
         );
     }
+
+    #[test]
+    fn package_dir_for_each_source() {
+        let root = Path::new("/work/consumer");
+        let deps = parse_deps(
+            r#"congregation consumer
+            specification_version = 1
+            dependencies = {
+                local = {
+                    path = "../shared-types"
+                }
+                pinned = {
+                    version = "1.0.0"
+                    uri = "https://example.test/acme/net"
+                    commit = "4f2c9e1"
+                }
+                hosted = {
+                    version = "1.0.0"
+                    uri = "comline://registry.example.test/std"
+                }
+            }"#,
+        );
+
+        assert_eq!(deps["local"].package_dir(root), Some(root.join("../shared-types")));
+
+        let pinned = deps["pinned"].package_dir(root).expect("a git pin has a checkout dir");
+        assert_eq!(pinned.parent(), Some(root.join(DEPS_CACHE_DIR).as_path()));
+        assert_eq!(
+            pinned,
+            git_checkout_dir(&root.join(DEPS_CACHE_DIR), "https://example.test/acme/net", "4f2c9e1")
+        );
+        assert_eq!(pinned.file_name().unwrap().len(), 64, "a blake3 hex key");
+
+        assert_eq!(deps["hosted"].package_dir(root), None);
+    }
 }
+
