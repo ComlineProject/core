@@ -112,8 +112,9 @@ pub fn print_parse_error(
     
     // Add context-specific notes
     if message.contains("string") || message.contains("int") || message.contains("float") {
+        let names: Vec<&str> = super::vocabulary::PRIMITIVES.iter().map(|p| p.name).collect();
         diagnostic = diagnostic.with_notes(vec![
-            "note: valid primitive types: u8, u16, u32, u64, s8, s16, s32, s64, f32, f64, bool, str".to_string()
+            format!("note: valid primitive types: {}", names.join(", "))
         ]);
     }
     

@@ -425,16 +425,17 @@ fn validate_type(
     }
 }
 
-pub(crate) const PRIMITIVE_NAMES: &[&str] = &[
-    "bool",
-    "u8", "u16", "u32", "u64", "u128",
-    "s8", "s16", "s32", "s64", "s128",
-    "f32", "f64",
-    "str", "string",
-];
+/// Every name treated as a primitive here: the grammar's own 13 (see
+/// `schema::idl::vocabulary::PRIMITIVES`), plus `u128`/`s128` — the IR's
+/// `Primitive` enum has variants for these, reachable via a frozen
+/// dependency schema built by a different generator, even though no
+/// `.ids` source parsed by *this* grammar can spell them.
+fn primitive_names() -> impl Iterator<Item = &'static str> + Clone {
+    crate::schema::idl::vocabulary::PRIMITIVES.iter().map(|p| p.name).chain(["u128", "s128"])
+}
 
 pub(crate) fn is_primitive(name: &str) -> bool {
-    PRIMITIVE_NAMES.contains(&name)
+    primitive_names().any(|n| n == name)
 }
 
 /// A validator's declared property names.
@@ -552,11 +553,17 @@ fn suggest_similar_name(target: &str, symbols: &SymbolTable) -> Option<String> {
     let len = target.chars().count();
     let max_distance = ((len + 1) / 2).max(1);
 
+    // Collected (not chained directly): `primitive_names()`'s `impl
+    // Iterator<Item = &'static str>` won't unify with `symbols`'s shorter-
+    // lived `&str` under `chain`'s exact-type-match bound without this
+    // intermediate step, even though `'static` trivially satisfies it.
+    let primitives: Vec<&str> = primitive_names().collect();
+
     symbols
         .symbols
         .keys()
         .copied()
-        .chain(PRIMITIVE_NAMES.iter().copied())
+        .chain(primitives)
         .filter(|&name| name != target)
         .map(|name| (name, levenshtein_distance(target, name)))
         .filter(|&(_, distance)| distance <= max_distance)
