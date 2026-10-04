@@ -117,7 +117,7 @@ pub const KEYWORDS: &[KeywordInfo] = &[
     KeywordInfo { text: "optional", kind: KeywordKind::Modifier, description: "Marks a struct/error field as not required.", example: "struct S {\n    optional f: str\n}", contextual: false },
     KeywordInfo { text: "self", kind: KeywordKind::PathPrefix, description: "In a `use` path, the current schema.", example: "use self::Type", contextual: false },
     KeywordInfo { text: "parent", kind: KeywordKind::PathPrefix, description: "In a `use` path, one namespace level up.", example: "use parent::Type", contextual: false },
-    KeywordInfo { text: "crate", kind: KeywordKind::PathPrefix, description: "In a `use` path, the package root.", example: "use crate::Type", contextual: false },
+    KeywordInfo { text: "package", kind: KeywordKind::PathPrefix, description: "In a `use` path, the package root.", example: "use package::Type", contextual: false },
     KeywordInfo { text: "and", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V {\n    validate {\n        assert(1 == 1 and 2 == 2, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "or", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V {\n    validate {\n        assert(1 == 1 or 2 == 3, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "True", kind: KeywordKind::Literal, description: "A boolean literal, valid only as a `settings` value.", example: "settings S {\n    k = True\n}", contextual: false },
