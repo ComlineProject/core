@@ -78,6 +78,13 @@ impl ImportResolver {
                 let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
                 self.resolve_multi(&multi.path.to_string(), &items, current_namespace)
             }
+            UsePath::RelativeGlob(glob) => {
+                self.resolve_relative_glob(&glob.prefix, current_namespace)
+            }
+            UsePath::RelativeMulti(multi) => {
+                let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
+                self.resolve_relative_multi(&multi.prefix, &items, current_namespace)
+            }
         }
     }
 
@@ -122,6 +129,13 @@ impl ImportResolver {
             UsePath::Multi(multi) => {
                 let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
                 self.resolve_multi(&multi.path.to_string(), &items, current_namespace)
+            }
+            UsePath::RelativeGlob(glob) => {
+                self.resolve_relative_glob(&glob.prefix, current_namespace)
+            }
+            UsePath::RelativeMulti(multi) => {
+                let items: Vec<String> = multi.items.iter().map(|i| i.text.clone()).collect();
+                self.resolve_relative_multi(&multi.prefix, &items, current_namespace)
             }
         }
     }
@@ -267,6 +281,32 @@ impl ImportResolver {
             schema_path: None,
             symbols: vec![],
             alias: None,
+        })
+    }
+
+    /// Resolve a glob straight after a prefix (`parent::*`): every name in the
+    /// namespace the prefix points at.
+    fn resolve_relative_glob(
+        &self,
+        prefix: &RelativePrefix,
+        current_namespace: &[String],
+    ) -> Result<ResolvedImport, String> {
+        Ok(ResolvedImport {
+            symbols: vec!["*".to_string()], // Glob marker
+            ..self.resolve_relative_prefix(prefix, &[], current_namespace)?
+        })
+    }
+
+    /// Resolve a multi-import straight after a prefix (`parent::{A, B}`).
+    fn resolve_relative_multi(
+        &self,
+        prefix: &RelativePrefix,
+        items: &[String],
+        current_namespace: &[String],
+    ) -> Result<ResolvedImport, String> {
+        Ok(ResolvedImport {
+            symbols: items.to_vec(),
+            ..self.resolve_relative_prefix(prefix, &[], current_namespace)?
         })
     }
 
@@ -767,9 +807,8 @@ mod tests {
             }
         }
 
-        // A bare `self::{...}` / `parent::*` doesn't parse (the prefix lexes
-        // as its keyword there, see `try_resolve_relative_prefix`); with a
-        // segment after the prefix it's one `ScopedIdentifier` like any path.
+        // With a segment after the prefix it's one `ScopedIdentifier` like any
+        // path (a bare prefix has its own productions, see below).
         let path = parse_use_path("use self::nested::{Profile, Avatar}");
         let resolved = resolver.resolve(&path, &current_ns).unwrap();
         let mut nested = current_ns.clone();
@@ -781,6 +820,54 @@ mod tests {
         let resolved = resolver.resolve(&path, &current_ns).unwrap();
         assert_eq!(resolved.absolute_namespace, vec!["mypackage".to_string(), "types".to_string()]);
         assert_eq!(resolved.symbols, vec!["*".to_string()]);
+    }
+
+    #[test]
+    fn a_bare_prefix_before_a_glob_or_multi_import_resolves() {
+        let resolver = ImportResolver::new(vec!["mypackage".to_string()], HashMap::new(), None);
+        let current_ns =
+            vec!["mypackage".to_string(), "users".to_string(), "models".to_string()];
+        let strings = |parts: &[&str]| parts.iter().map(|part| part.to_string()).collect::<Vec<_>>();
+
+        let cases = [
+            ("use self::*", strings(&["mypackage", "users", "models"]), strings(&["*"])),
+            ("use parent::*", strings(&["mypackage", "users"]), strings(&["*"])),
+            ("use package::*", strings(&["mypackage"]), strings(&["*"])),
+            ("use self::{A}", strings(&["mypackage", "users", "models"]), strings(&["A"])),
+            ("use parent::{Error, Page}", strings(&["mypackage", "users"]), strings(&["Error", "Page"])),
+            ("use package::{A, B, C}", strings(&["mypackage"]), strings(&["A", "B", "C"])),
+        ];
+        for (source, namespace, symbols) in cases {
+            let path = parse_use_path(source);
+            for resolved in [
+                resolver.resolve(&path, &current_ns).unwrap(),
+                resolver.resolve_namespace(&path, &current_ns).unwrap(),
+            ] {
+                assert_eq!(resolved.absolute_namespace, namespace, "{source}");
+                assert_eq!(resolved.symbols, symbols, "{source}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_bare_parent_from_the_root_namespace_cannot_go_up() {
+        let resolver = ImportResolver::new(vec![], HashMap::new(), None);
+        for source in ["use parent::*", "use parent::{Error}"] {
+            let path = parse_use_path(source);
+            assert!(resolver.resolve(&path, &[]).is_err(), "{source}");
+            assert!(resolver.resolve_namespace(&path, &[]).is_err(), "{source}");
+        }
+    }
+
+    /// A prefix with a segment after it is still one path: `parent::Error`
+    /// imports an item, only `parent::*` / `parent::{..}` use the new forms.
+    #[test]
+    fn a_prefix_followed_by_a_segment_still_parses_as_before() {
+        assert!(matches!(parse_use_path("use parent::Error"), UsePath::Absolute(_)));
+        assert!(matches!(parse_use_path("use parent::common::*"), UsePath::Glob(_)));
+        assert!(matches!(parse_use_path("use parent::common::{Error}"), UsePath::Multi(_)));
+        assert!(matches!(parse_use_path("use parent::*"), UsePath::RelativeGlob(_)));
+        assert!(matches!(parse_use_path("use parent::{Error}"), UsePath::RelativeMulti(_)));
     }
 
     #[test]

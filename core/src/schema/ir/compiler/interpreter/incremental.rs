@@ -612,7 +612,7 @@ fn extract_use_path(use_path: &crate::schema::idl::grammar::UsePath) -> String {
         UsePath::Absolute(scoped) => scoped.to_string(),
         UsePath::Relative(rel) => {
             // Convert parent::path to absolute later in resolver
-            format!("{:?}::{}", rel.prefix, rel.path.to_string())
+            format!("{}::{}", rel.prefix.keyword(), rel.path.to_string())
         }
         UsePath::Glob(glob) => {
             format!("{}::*", glob.path.to_string())
@@ -622,6 +622,8 @@ fn extract_use_path(use_path: &crate::schema::idl::grammar::UsePath) -> String {
             // TODO: Handle multi-imports properly
             multi.path.to_string()
         }
+        UsePath::RelativeGlob(glob) => format!("{}::*", glob.prefix.keyword()),
+        UsePath::RelativeMulti(multi) => multi.prefix.keyword().to_string(),
     }
 }
 
