@@ -13,7 +13,7 @@ type SpanId = (String, Range<usize>);
 /// optional short label for its span (`"unexpected here"`, `"Struct
 /// 'User'"`), an optional byte range into the source, and an optional
 /// suggestion (`"did you mean `str`?"`).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Diagnostic {
     pub message: String,
     pub context: String,

@@ -1,7 +1,6 @@
 // Relative Modules
 pub mod interpreter;
 pub mod interpreted;
-pub mod report;
 pub mod import_resolver;
 pub mod alias_resolution;
 
@@ -32,7 +31,8 @@ pub trait Compile {
                 Self::from_declarations(declarations)
             }
             Err(e) => {
-                panic!("Parse error: {:?}", e);
+                let diagnostic = crate::diagnostics::from_parse_errors(&e);
+                panic!("{}", crate::diagnostics::render(&diagnostic, "<source>", source));
             }
         }
     }

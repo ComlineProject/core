@@ -13,7 +13,7 @@ use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::validation::validator::closest;
-use crate::schema::ir::validation::ValidationError;
+use crate::diagnostics::Diagnostic;
 
 /// Resolved import information
 #[derive(Debug, Clone)]
@@ -383,16 +383,8 @@ impl ImportResolver {
             match crate::schema::idl::grammar::parse(&source) {
                 Ok(doc) => Ok(doc),
                 Err(errors) => {
-                    // Print beautiful diagnostics for each error
-                    eprintln!("\n{} Errors parsing schema {}:", errors.len(), path.display());
-                    for error in &errors {
-                        crate::schema::idl::diagnostics::print_parse_error(
-                            error,
-                            &source,
-                            &path.to_string_lossy(),
-                        );
-                    }
-                    Err(format!("Parse failed with {} error(s)", errors.len()))
+                    let diagnostic = crate::diagnostics::from_parse_errors(&errors);
+                    Err(crate::diagnostics::render(&diagnostic, &path.to_string_lossy(), &source))
                 }
             }
         } else {
@@ -596,7 +588,7 @@ pub fn check_imports(
     declarations: &[rust_sitter::Spanned<Declaration>],
     current_namespace: &[String],
     project_context: &ProjectContext,
-) -> Result<(), Vec<ValidationError>> {
+) -> Result<(), Vec<Diagnostic>> {
     let dependencies: HashSet<String> =
         DependencyConfig::parse_dependencies(&project_context.config.assignments)
             .map(|deps| deps.into_keys().collect())
@@ -623,7 +615,7 @@ pub fn check_imports(
         let Declaration::Use(use_stmt) = &decl.value else {
             continue;
         };
-        let unresolved = |context: String| ValidationError {
+        let unresolved = |context: String| Diagnostic { help: None,
             message: "Unresolved import".to_string(),
             context,
             span: Some(decl.span),

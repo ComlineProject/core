@@ -1,5 +1,4 @@
 // Relative Modules
-pub mod report;
 pub mod interpret;
 pub mod freezing;
 
@@ -44,8 +43,8 @@ impl Compile for ProjectInterpreter {
         // interpret_context(&context)?; // This was in from_config_source
         
         crate::package::config::ir::interpreter::interpret::interpret_context(&context)
-            .map_err(|e| eyre::eyre!("{:?}", e))?;
-        
+            .map_err(|e| eyre::eyre!("{}", e))?;
+
         Ok(context)
     }
 
@@ -82,7 +81,7 @@ impl ProjectInterpreter {
         context.origin = crate::package::config::ir::context::Origin::Disk(origin.to_path_buf());
         
         context.config_frozen = Some(interpret::interpret_context(&context)
-             .map_err(|e| eyre::eyre!("{:?}", e))?);
+             .map_err(|e| eyre::eyre!("{}", e))?);
         
         Ok(context)
     }

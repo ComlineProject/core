@@ -1,6 +1,5 @@
 // Relative Modules
 pub mod interpret;
-pub mod report;
 
 // Standard Uses
 use std::path::Path;
