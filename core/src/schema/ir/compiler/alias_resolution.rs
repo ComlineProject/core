@@ -31,7 +31,7 @@ use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, Type};
 use crate::schema::ir::compiler::import_resolver::{find_schema_bringing_into_scope, schema_declares_symbol};
 use crate::schema::ir::validation::validator::is_primitive;
-use crate::schema::ir::validation::ValidationError;
+use crate::diagnostics::Diagnostic;
 
 /// Validate every local `type` alias in `declarations`: no name collision
 /// with another declaration (local), no cycle among local aliases, and
@@ -42,7 +42,7 @@ use crate::schema::ir::validation::ValidationError;
 pub fn check_aliases(
     declarations: &[rust_sitter::Spanned<Declaration>],
     use_context: Option<(&[String], &ProjectContext)>,
-) -> Result<(), Vec<ValidationError>> {
+) -> Result<(), Vec<Diagnostic>> {
     let mut errors = Vec::new();
 
     // Every other top-level name a `type` alias could collide with.
@@ -72,7 +72,7 @@ pub fn check_aliases(
         let name = alias.name();
 
         if let Some(kind) = other_names.get(&name) {
-            errors.push(ValidationError {
+            errors.push(Diagnostic { help: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of TypeAlias '{}' (already a {})", name, kind),
                 span: Some(decl.span),
@@ -80,7 +80,7 @@ pub fn check_aliases(
             continue;
         }
         if alias_map.contains_key(&name) {
-            errors.push(ValidationError {
+            errors.push(Diagnostic { help: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of TypeAlias '{}'", name),
                 span: Some(decl.span),
@@ -100,7 +100,7 @@ pub fn check_aliases(
 
     for (name, (ty, span)) in &alias_map {
         if let Some(bad) = first_unresolvable_name(ty, declarations, &alias_map, use_context) {
-            errors.push(ValidationError {
+            errors.push(Diagnostic { help: None,
                 message: format!("Type alias '{}' targets unknown type '{}'", name, bad),
                 context: format!("Type alias '{}'", name),
                 span: Some(*span),
@@ -144,7 +144,7 @@ fn direct_alias_refs(ty: &Type, alias_map: &HashMap<String, (Type, (usize, usize
 /// `package::config::ir::compiler::interpret::detect_import_cycle`'s own
 /// `visit_for_cycle` and `validation::validator::detect_cycle`. Returns at
 /// most one error - the first cycle found - naming the full cycle.
-fn detect_alias_cycle(alias_map: &HashMap<String, (Type, (usize, usize))>) -> Option<ValidationError> {
+fn detect_alias_cycle(alias_map: &HashMap<String, (Type, (usize, usize))>) -> Option<Diagnostic> {
     let mut visited: HashSet<String> = HashSet::new();
 
     for start_name in alias_map.keys() {
@@ -154,7 +154,7 @@ fn detect_alias_cycle(alias_map: &HashMap<String, (Type, (usize, usize))>) -> Op
         let mut visiting: HashSet<String> = HashSet::new();
         let mut path: Vec<String> = Vec::new();
         if let Some(cycle) = visit_alias(start_name, alias_map, &mut visited, &mut visiting, &mut path) {
-            return Some(ValidationError {
+            return Some(Diagnostic { help: None,
                 message: format!("Cycle detected among type aliases: {}", cycle.join(" -> ")),
                 context: format!("Type alias '{}'", start_name),
                 span: alias_map.get(start_name.as_str()).map(|(_, span)| *span),

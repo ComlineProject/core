@@ -105,7 +105,7 @@ impl PackageSources {
         let mut context = ProjectInterpreter::from_config_source(&config)?;
         context.config_frozen = Some(
             crate::package::config::ir::interpreter::interpret::interpret_context(&context)
-                .map_err(|e| eyre!("{:?}", e))?,
+                .map_err(|e| eyre!("{}", e))?,
         );
 
         interpret_schema_sources(&mut context, &with_std(self.schemas))?;

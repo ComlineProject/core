@@ -14,7 +14,7 @@ use crate::schema::ir::compiler::import_resolver::{
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::validation::ValidationError;
+use crate::diagnostics::Diagnostic;
 
 // External Uses
 
@@ -46,7 +46,7 @@ impl IncrementalInterpreter {
     pub fn check_and_from_declarations(
         declarations: Vec<rust_sitter::Spanned<Declaration>>,
         use_context: Option<(&[String], &ProjectContext)>,
-    ) -> Result<Vec<FrozenUnit>, Vec<ValidationError>> {
+    ) -> Result<Vec<FrozenUnit>, Vec<Diagnostic>> {
         if let Some((current_namespace, project_context)) = use_context {
             check_imports(&declarations, current_namespace, project_context)?;
         }

@@ -2,13 +2,14 @@
 use std::collections::{HashMap, HashSet};
 
 // Crate Uses
-use super::{ValidationError, symbols::{SymbolTable, SymbolType}};
+use crate::diagnostics::Diagnostic;
+use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 
 
 
-pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
+pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
     let mut errors = vec![];
     let mut symbols = SymbolTable::new();
 
@@ -42,7 +43,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
         };
 
         if let Err(_existing_kind) = symbols.insert(name, kind) {
-            errors.push(ValidationError {
+            errors.push(Diagnostic { help: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),
                 span,
@@ -86,7 +87,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
             FrozenUnit::Constant { name, kind_value, span, .. } => {
                 // Constants usually primitive, but check if namespaced
                 if let KindValue::Namespaced(type_name, _) = kind_value {
-                     errors.push(ValidationError {
+                     errors.push(Diagnostic { help: None,
                         message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
                         context: format!("Constant '{}'", name),
                         span: Some(*span),
@@ -159,7 +160,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                                         &format!(" - did you mean 'params.{}'?", s),
                                     );
                                 }
-                                errors.push(ValidationError {
+                                errors.push(Diagnostic { help: None,
                                     message,
                                     context: vctx.clone(),
                                     span: None,
@@ -167,7 +168,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                             }
                         }
                     }
-                    other => errors.push(ValidationError {
+                    other => errors.push(Diagnostic { help: None,
                         message: format!(
                             "validator '{}': `{}` is not a valid reference in `validate` \
                              (use `value.*` or `params.*`)",
@@ -219,7 +220,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                                     continue;
                                 };
                                 if seen.contains(&kw.as_str()) {
-                                    errors.push(ValidationError {
+                                    errors.push(Diagnostic { help: None,
                                         message: format!(
                                             "duplicate argument '{}' to validator '{}'",
                                             kw, vname
@@ -240,7 +241,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                                             &format!(" - did you mean '{}'?", s),
                                         );
                                     }
-                                    errors.push(ValidationError {
+                                    errors.push(Diagnostic { help: None,
                                         message,
                                         context: field_ctx.clone(),
                                         span: Some(*span),
@@ -269,7 +270,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                                     (want, value_category(val))
                                 {
                                     if want != got {
-                                        errors.push(ValidationError {
+                                        errors.push(Diagnostic { help: None,
                                             message: format!(
                                                 "validator '{}': argument '{}' expects {}, got {}",
                                                 vname, kw, want, got
@@ -283,7 +284,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                         }
                     }
                     Some(other) if *other != SymbolType::Import => {
-                        errors.push(ValidationError {
+                        errors.push(Diagnostic { help: None,
                             message: format!("'{}' is not a validator", vname),
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -298,7 +299,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<ValidationError>> {
                         if let Some(s) = suggest_similar_name(vname, &symbols) {
                             message.push_str(&format!(" - did you mean '{}'?", s));
                         }
-                        errors.push(ValidationError {
+                        errors.push(Diagnostic { help: None,
                             message,
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -339,7 +340,7 @@ fn detect_cycle<'a>(
     unit_map: &HashMap<&'a str, &'a FrozenUnit>, 
     visited: &mut HashSet<&'a str>, 
     visiting: &mut HashSet<&'a str>,
-    errors: &mut Vec<ValidationError>
+    errors: &mut Vec<Diagnostic>
 ) {
     visiting.insert(current);
     
@@ -357,7 +358,7 @@ fn detect_cycle<'a>(
 
                     if unit_map.contains_key(base_type) {
                         if visiting.contains(base_type) {
-                            errors.push(ValidationError {
+                            errors.push(Diagnostic { help: None,
                                 message: format!("Cycle detected involving struct '{}'", base_type),
                                 context: format!("Struct '{}' depends on '{}'", current, base_type),
                                 span: Some(*span),
@@ -376,7 +377,7 @@ fn detect_cycle<'a>(
 }
 
 fn validate_type(
-    kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<ValidationError>,
+    kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<Diagnostic>,
     context: &str, span: (usize, usize),
 ) {
     match kind {
@@ -397,7 +398,7 @@ fn validate_type(
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));
                 }
-                errors.push(ValidationError {
+                errors.push(Diagnostic { help: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),

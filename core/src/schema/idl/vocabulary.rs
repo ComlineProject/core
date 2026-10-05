@@ -5,9 +5,9 @@
 //! and not enforcement: same spirit as [`size`](super::size), which
 //! already hosts consumer-facing metadata core itself doesn't act on.
 //!
-//! This is the canonical copy. `validator.rs`'s own primitive-name list,
-//! `diagnostics.rs`'s "valid primitive types" hint, and `size.rs`'s test
-//! table all converge onto [`PRIMITIVES`] rather than keeping their own.
+//! This is the canonical copy. `validator.rs`'s own primitive-name list and
+//! `size.rs`'s test table both converge onto [`PRIMITIVES`] rather than
+//! keeping their own.
 //! One deliberate exception: [`crate::schema::ir::compiler::interpreter::incremental::type_to_string`]
 //! keeps its own `f32`/`f64` → `"float"` collapse — that string feeds
 //! `schema_ir_hash`, so canonicalizing it would change every frozen
