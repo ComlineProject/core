@@ -38,3 +38,23 @@ fn a_malformed_config_idp_reports_a_human_readable_error_not_a_debug_dump() {
     assert!(!message.contains("FailedNode("), "{message}");
     assert!(message.contains("config.idp"), "{message}");
 }
+
+#[test]
+fn a_truncated_config_idp_still_reports_a_line_even_with_no_named_token() {
+    // A block value opened but never closed: the parse error tree bottoms
+    // out in an empty `FailedNode` that names no token at all, so this used
+    // to fall all the way back to a bare "unrecognized or incomplete
+    // syntax" with no location whatsoever - the exact shape of the
+    // reported regression.
+    let source = "congregation test\ndeps = {\n";
+
+    let err = ProjectInterpreter::from_config_source(source)
+        .expect_err("an unclosed `{` must not parse");
+
+    let message = format!("{err:#}");
+    assert!(!message.contains("ParseError {"), "{message}");
+    assert!(!message.contains("FailedNode("), "{message}");
+    assert!(message.contains("config.idp"), "{message}");
+    // A line:column-shaped location, e.g. "config.idp:2:1".
+    assert!(message.contains(":2:"), "{message}");
+}

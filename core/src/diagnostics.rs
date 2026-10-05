@@ -60,7 +60,27 @@ pub fn from_parse_errors(errors: &[rust_sitter::errors::ParseError]) -> Diagnost
             }
             d
         }
-        None => Diagnostic::new("syntax error: unrecognized or incomplete syntax"),
+        None => {
+            let mut d = Diagnostic::new("syntax error: unrecognized or incomplete syntax");
+            if let Some(span) = errors.first().map(deepest_span) {
+                d = d.with_span(span);
+            }
+            d
+        }
+    }
+}
+
+/// Follow a `FailedNode` chain down to its innermost node's own span - the
+/// last-resort location when no leaf names an actual token (an empty
+/// `FailedNode(vec![])`, emitted for an error node with no children and no
+/// text - the shape of a file cut off mid-construct, hitting EOF before
+/// completing it).
+fn deepest_span(err: &rust_sitter::errors::ParseError) -> (usize, usize) {
+    match &err.reason {
+        rust_sitter::errors::ParseErrorReason::FailedNode(nested) => {
+            nested.first().map(deepest_span).unwrap_or((err.start, err.end))
+        }
+        _ => (err.start, err.end),
     }
 }
 
@@ -202,6 +222,29 @@ mod tests {
         let d = from_parse_errors(&[]);
         assert_eq!(d.message, "syntax error: unrecognized or incomplete syntax");
         assert_eq!(d.span, None);
+    }
+
+    #[test]
+    fn an_empty_failed_node_still_gets_a_span_from_its_innermost_node() {
+        // The shape `rust_sitter::errors::collect_parsing_errors` produces
+        // for a file cut off mid-construct (e.g. a dangling `=` with no
+        // value): a `FailedNode` nested a couple levels deep, bottoming out
+        // in an empty vec at the point parsing actually gave up. No leaf
+        // names a token, so `most_informative` finds nothing - but the
+        // innermost node's own span must still survive into the
+        // `Diagnostic`, not get discarded.
+        let errors = vec![ParseError {
+            reason: ParseErrorReason::FailedNode(vec![ParseError {
+                reason: ParseErrorReason::FailedNode(vec![]),
+                start: 30,
+                end: 30,
+            }]),
+            start: 18,
+            end: 30,
+        }];
+        let d = from_parse_errors(&errors);
+        assert_eq!(d.message, "syntax error: unrecognized or incomplete syntax");
+        assert_eq!(d.span, Some((30, 30)));
     }
 
     #[test]
