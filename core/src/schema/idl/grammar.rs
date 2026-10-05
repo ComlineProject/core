@@ -24,6 +24,18 @@ pub mod grammar {
         (),
     );
 
+    // A `/* ... */` block comment, possibly spanning multiple lines. Not
+    // nestable (same as C, Java, Rust's non-doc block comments) - the first
+    // `*/` closes it, full stop. The pattern is built from character
+    // classes rather than `.`, so it needs no dot-matches-newline flag to
+    // cross line boundaries, same trick `\s+` above already relies on.
+    #[rust_sitter::extra]
+    #[derive(Debug)]
+    pub struct BlockComment(
+        #[rust_sitter::leaf(pattern = r"/\*([^*]|\*+[^*/])*\*+/")]
+        (),
+    );
+
     /// Document root - supports multiple declarations
     #[derive(Debug)]
     #[rust_sitter::language]

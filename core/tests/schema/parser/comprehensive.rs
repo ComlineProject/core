@@ -228,6 +228,41 @@ struct AllTypes {
         assert!(grammar::parse("struct Foo { id: u64 // trailing\n}").is_ok());
     }
 
+    #[test]
+    fn test_block_comment_on_one_line_is_discarded() {
+        assert!(grammar::parse("/* a note */ struct Foo { id: u64 }").is_ok());
+    }
+
+    #[test]
+    fn test_block_comment_spans_multiple_lines() {
+        let code = "/*\nerror Test {\n    message = \"\"\n}\n*/\nstruct Foo { id: u64 }";
+        let doc = grammar::parse(code).expect("a multi-line block comment must parse");
+        // The commented-out `error Test` must not surface as a real
+        // declaration - only `Foo` should exist.
+        assert_eq!(doc.0.len(), 1);
+    }
+
+    #[test]
+    fn test_block_comment_can_sit_between_struct_fields() {
+        let code = "struct Foo {\n    id: u64\n    /* skip this one for now */\n    name: string\n}";
+        assert!(grammar::parse(code).is_ok());
+    }
+
+    #[test]
+    fn test_block_comment_without_a_closing_delimiter_is_a_parse_error() {
+        assert!(grammar::parse("/* never closed\nstruct Foo { id: u64 }").is_err());
+    }
+
+    #[test]
+    fn test_empty_block_comment_is_discarded() {
+        assert!(grammar::parse("/**/ struct Foo { id: u64 }").is_ok());
+    }
+
+    #[test]
+    fn test_block_comment_containing_stray_asterisks_still_closes() {
+        assert!(grammar::parse("/* a * b * c */ struct Foo { id: u64 }").is_ok());
+    }
+
     // ===== ERROR TESTS =====
 
     #[test]
