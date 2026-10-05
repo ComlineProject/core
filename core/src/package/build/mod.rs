@@ -239,7 +239,14 @@ fn interpret_schema_sources(
                     SchemaContext::with_declarations(document.0, namespace.clone(), codemap);
                 context.add_schema_context(Rc::new(RefCell::new(schema_ctx)));
             }
-            Err(e) => bail!("Failed to parse schema '{}': {:?}", name, e),
+            Err(e) => {
+                let diagnostic = crate::diagnostics::from_parse_errors(&e);
+                bail!(
+                    "Failed to parse schema '{}':\n\n{}",
+                    name,
+                    crate::diagnostics::render(&diagnostic, &name, source)
+                )
+            }
         }
     }
 
