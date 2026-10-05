@@ -62,9 +62,14 @@ impl Compile for ProjectInterpreter {
 // Non-trait method
 impl ProjectInterpreter {
     pub fn from_config_source(source: &str) -> Result<ProjectContext> {
-        let congregation = crate::package::config::idl::grammar::parse(source)
-            .map_err(|e| eyre::eyre!("Parse error: {:?}", e))?;
-            
+        let congregation = crate::package::config::idl::grammar::parse(source).map_err(|e| {
+            let diagnostic = crate::diagnostics::from_parse_errors(&e);
+            eyre::eyre!(
+                "Failed to parse config.idp:\n\n{}",
+                crate::diagnostics::render(&diagnostic, "config.idp", source)
+            )
+        })?;
+
         Ok(ProjectContext::with_config(congregation))
     }
 
