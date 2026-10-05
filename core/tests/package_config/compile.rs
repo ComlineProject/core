@@ -32,7 +32,7 @@ dependencies = {
     shared_types = {
         path = "../shared-types"
     }
-    std = {
+    acme_lib = {
         version = "1.0.0"
         uri = "https://github.com/acme/std"
         commit = "abc123"
@@ -62,9 +62,9 @@ dependencies = {
         "a Path dependency has no declared version until resolved"
     );
 
-    let std_dep = deps.iter().find(|d| d.project == "std").expect("std dependency");
-    assert_eq!(std_dep.author, "acme");
-    assert_eq!(std_dep.version, "1.0.0");
+    let acme_dep = deps.iter().find(|d| d.project == "acme_lib").expect("acme_lib dependency");
+    assert_eq!(acme_dep.author, "acme");
+    assert_eq!(acme_dep.version, "1.0.0");
 
     // sanity: make sure we didn't just get an empty freeze
     assert!(frozen.iter().any(|u| matches!(u, FrozenUnit::SpecificationVersion(1))));

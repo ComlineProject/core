@@ -44,6 +44,27 @@ pub enum DependencySource {
     Path { path: PathBuf, hash: Option<String> },
 }
 
+/// Why `name` can't be used as a dependency's local alias - the name a
+/// consuming package's own `use` statements address it by - or `None` if
+/// it's fine. Two reasons: it's `self`/`parent`/`package`, a `use`-path
+/// prefix keyword (`use self::...` means "this schema," never "the
+/// dependency named self"), or it's `std`, the embedded standard library's
+/// own reserved name (every package can already `use std::...` with no
+/// `dependencies` entry at all - see `package::stdlib` - so a real
+/// dependency aliased to `std` would silently shadow it instead of adding
+/// a second meaning).
+fn reserved_dependency_name(name: &str) -> Option<&'static str> {
+    if name == crate::package::stdlib::NAMESPACE {
+        return Some("it's the embedded standard library's own name (every package can already `use std::...`)");
+    }
+    if crate::schema::idl::vocabulary::keyword(name)
+        .is_some_and(|k| k.kind == crate::schema::idl::vocabulary::KeywordKind::PathPrefix)
+    {
+        return Some("it's a `use`-path prefix keyword (self/parent/package)");
+    }
+    None
+}
+
 impl DependencyConfig {
     /// Where this dependency's package lives once resolved, for a consuming
     /// package at `package_root`: a `Path` dependency's own directory, or a
@@ -114,6 +135,10 @@ impl DependencyConfig {
         dict: &crate::package::config::idl::grammar::Dictionary,
     ) -> Result<Self, String> {
         use crate::package::config::idl::grammar::{Key, Value};
+
+        if let Some(reason) = reserved_dependency_name(&name) {
+            return Err(format!("dependency name '{name}' is reserved: {reason}"));
+        }
 
         let mut version = None;
         let mut uri = None;
@@ -290,7 +315,7 @@ mod tests {
             r#"congregation my_api
             specification_version = 1
             dependencies = {
-                std = {
+                acme_lib = {
                     version = "1.0.0"
                     uri = "https://github.com/acme/std"
                     commit = "abc123"
@@ -299,7 +324,7 @@ mod tests {
             }
             "#,
         );
-        let dep = deps.get("std").expect("present");
+        let dep = deps.get("acme_lib").expect("present");
         assert_eq!(dep.declared_version(), Some("1.0.0"));
         assert_eq!(dep.declared_hash(), Some("blake3:deadbeef"));
         assert_eq!(dep.author(), "acme");
@@ -311,7 +336,7 @@ mod tests {
             r#"congregation my_api
             specification_version = 1
             dependencies = {
-                std = {
+                acme_lib = {
                     uri = "https://github.com/acme/std"
                 }
             }
@@ -323,6 +348,33 @@ mod tests {
             result.is_err(),
             "missing version+commit should error, not warn-and-drop"
         );
+    }
+
+    #[test]
+    fn rejects_self_parent_package_and_std_as_a_dependency_name() {
+        for reserved in ["self", "parent", "package", "std"] {
+            let congregation = grammar::parse(&format!(
+                r#"congregation my_api
+                specification_version = 1
+                dependencies = {{
+                    {reserved} = {{
+                        path = "../whatever"
+                    }}
+                }}
+                "#,
+            ))
+            .expect("parses");
+            let result = DependencyConfig::parse_dependencies(&congregation.assignments);
+            let error = result.unwrap_err();
+            assert!(error.contains(reserved), "{reserved}: {error}");
+            assert!(error.contains("reserved"), "{reserved}: {error}");
+        }
+    }
+
+    #[test]
+    fn an_ordinary_name_is_not_reserved() {
+        assert!(reserved_dependency_name("shared_types").is_none());
+        assert!(reserved_dependency_name("standard").is_none(), "only the exact word std is reserved");
     }
 
     #[test]
