@@ -240,7 +240,8 @@ fn interpret_schema_sources(
                 context.add_schema_context(Rc::new(RefCell::new(schema_ctx)));
             }
             Err(e) => {
-                let diagnostic = crate::diagnostics::from_parse_errors(&e);
+                let diagnostic = crate::diagnostics::find_unclosed_bracket(source)
+                    .unwrap_or_else(|| crate::diagnostics::from_parse_errors(&e));
                 bail!(
                     "Failed to parse schema '{}':\n\n{}",
                     name,

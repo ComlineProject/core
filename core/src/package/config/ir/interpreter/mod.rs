@@ -62,7 +62,8 @@ impl Compile for ProjectInterpreter {
 impl ProjectInterpreter {
     pub fn from_config_source(source: &str) -> Result<ProjectContext> {
         let congregation = crate::package::config::idl::grammar::parse(source).map_err(|e| {
-            let diagnostic = crate::diagnostics::from_parse_errors(&e);
+            let diagnostic = crate::diagnostics::find_unclosed_bracket(source)
+                .unwrap_or_else(|| crate::diagnostics::from_parse_errors(&e));
             eyre::eyre!(
                 "Failed to parse config.idp:\n\n{}",
                 crate::diagnostics::render(&diagnostic, "config.idp", source)
