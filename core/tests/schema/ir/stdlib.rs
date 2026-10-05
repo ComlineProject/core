@@ -58,9 +58,23 @@ fn a_typo_in_a_std_path_is_rejected_with_a_suggestion() {
 
 #[test]
 fn every_std_schema_compiles() {
-    let mut sources = PackageSources::new().config("congregation std\nspecification_version = 1\n");
+    let mut sources = PackageSources::new().config(stdlib::manifest());
     for (namespace, source) in stdlib::schemas() {
         sources = sources.schema(namespace[1..].to_vec(), source);
     }
     sources.compile().expect("the std package should compile on its own");
+}
+
+#[test]
+fn std_and_each_of_its_modules_document_themselves() {
+    use comline_core::schema::idl::module_docs::module_docs;
+
+    assert!(module_docs(stdlib::manifest()).is_some(), "std's config.idp needs a `//!` header");
+    for (namespace, source) in stdlib::schemas() {
+        assert!(
+            module_docs(source).is_some(),
+            "std::{} needs a `//!` module docstring",
+            namespace[1..].join("::")
+        );
+    }
 }

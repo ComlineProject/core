@@ -4,6 +4,7 @@ pub mod diagnostics;  // Beautiful error reporting
 pub mod size;  // Static wire-size estimate (hover)
 pub mod vocabulary;  // Primitive types & keywords, for editors/highlighters/docs
 pub mod annotations;  // Known @key=value metadata, for editors/hover
+pub mod module_docs;  // `//!` module/package docstrings, for editors and docs
 
 
 

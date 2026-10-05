@@ -1,3 +1,9 @@
+//! Validators to attach to fields with `@validators`.
+//!
+//! Each takes its parameters by name:
+//!
+//!     @validators = [StringBounds(min_chars = 3, max_chars = 32)]
+
 /// Checks a string's length is within a minimum and a maximum.
 /// @min_chars: minimum length of the string
 /// @max_chars: maximum length of the string

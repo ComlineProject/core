@@ -17,6 +17,11 @@ use crate::schema::ir::compiler::import_resolver::ImportResolver;
 /// The namespace every std schema lives under.
 pub const NAMESPACE: &str = "std";
 
+/// std's `config.idp`: its `//!` header documents the package itself.
+pub fn manifest() -> &'static str {
+    comline_core_stdlib::MANIFEST
+}
+
 /// Every std schema: its namespace (`std` first) and its source.
 pub fn schemas() -> impl Iterator<Item = (Vec<String>, &'static str)> {
     comline_core_stdlib::SCHEMAS.iter().map(|(path, source)| {
