@@ -84,6 +84,60 @@ fn deepest_span(err: &rust_sitter::errors::ParseError) -> (usize, usize) {
     }
 }
 
+/// Scan `source` for a `{` or `[` with no matching close by EOF, skipping
+/// string literals and `//`/`/* */` comments the same way both grammars'
+/// lexers do. An unclosed bracket makes every downstream rust-sitter parse
+/// error unreliable noise - once the parser can't find a matching close, it
+/// often gives up and wraps the *entire remaining document* in one
+/// `FailedNode` with no finer-grained position to offer
+/// ([`from_parse_errors`] has nothing to drill into in that case). This is
+/// usually the actual, fixable mistake, found independently of whatever
+/// (often whole-file-spanning) error the parser's own recovery produced.
+pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
+    let bytes = source.as_bytes();
+    let mut stack: Vec<(usize, u8)> = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'"' => {
+                i += 1;
+                while i < bytes.len() && bytes[i] != b'"' {
+                    i += if bytes[i] == b'\\' { 2 } else { 1 };
+                }
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'/') => {
+                while i < bytes.len() && bytes[i] != b'\n' {
+                    i += 1;
+                }
+                continue;
+            }
+            b'/' if bytes.get(i + 1) == Some(&b'*') => {
+                i += 2;
+                while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                    i += 1;
+                }
+                i += 2;
+                continue;
+            }
+            b'{' | b'[' => stack.push((i, bytes[i])),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    // The outermost unclosed bracket - the one to fix first.
+    let (pos, ch) = *stack.first()?;
+    let close = if ch == b'{' { '}' } else { ']' };
+    Some(
+        Diagnostic::new(format!("unclosed `{}`", ch as char))
+            .with_context("opened here")
+            .with_span((pos, pos + 1))
+            .with_help(format!("add a matching `{close}` to close this block")),
+    )
+}
+
 #[allow(clippy::type_complexity)]
 fn most_informative(
     errors: &[rust_sitter::errors::ParseError],
@@ -300,5 +354,45 @@ mod tests {
     fn render_without_a_span_or_context_is_just_the_message() {
         let d = Diagnostic::new("something went wrong");
         assert_eq!(render(&d, "main.ids", "irrelevant"), "something went wrong");
+    }
+
+    #[test]
+    fn balanced_source_has_no_unclosed_bracket() {
+        assert_eq!(find_unclosed_bracket("congregation test\nx = {\n  y = 1\n}\n"), None);
+    }
+
+    #[test]
+    fn an_unclosed_brace_is_found_at_its_own_position() {
+        let source = "congregation test\ndeps = {\n";
+        let d = find_unclosed_bracket(source).expect("the `{` on line 2 never closes");
+        assert_eq!(d.message, "unclosed `{`");
+        let (start, end) = d.span.expect("a span pointing at the `{`");
+        assert_eq!(&source[start..end], "{");
+        assert_eq!(d.help.as_deref(), Some("add a matching `}` to close this block"));
+    }
+
+    #[test]
+    fn a_brace_inside_a_string_literal_is_not_a_real_bracket() {
+        assert_eq!(find_unclosed_bracket(r#"congregation test\nx = "foo { bar"\n"#), None);
+    }
+
+    #[test]
+    fn a_brace_inside_a_line_comment_is_not_a_real_bracket() {
+        assert_eq!(find_unclosed_bracket("congregation test\n// { oops\nx = 1\n"), None);
+    }
+
+    #[test]
+    fn a_brace_inside_a_block_comment_is_not_a_real_bracket() {
+        let source = "congregation test\n/* unfinished {\n   still going\n*/\nx = 1\n";
+        assert_eq!(find_unclosed_bracket(source), None);
+    }
+
+    #[test]
+    fn nested_unclosed_brackets_report_the_outermost_one() {
+        let source = "congregation test\na = {\n  b = [\n";
+        let d = find_unclosed_bracket(source).expect("both `{` and `[` are unclosed");
+        assert_eq!(d.message, "unclosed `{`");
+        let (start, _) = d.span.unwrap();
+        assert_eq!(&source[start..start + 1], "{");
     }
 }
