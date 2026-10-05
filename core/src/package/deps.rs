@@ -210,35 +210,88 @@ fn hash_frozen_content(context: &ProjectContext) -> Result<Hash> {
 /// itself already being on `PATH` — true of essentially every dev machine
 /// and CI image, and the same assumption the rest of this toolchain already
 /// makes (`comline new --git` runs `git init` the same way).
+///
+/// The checkout is made next to its final place and renamed into it only once
+/// `git checkout` succeeded, so a fetch that dies partway (remote unreachable,
+/// dropped connection, a commit that doesn't exist) leaves nothing behind for
+/// the next attempt to mistake for a finished checkout. A checkout in the
+/// cache that is *not* at the pinned commit (one an earlier version left
+/// half-made) is thrown away and fetched again rather than reused.
 fn resolve_git(uri: &str, commit: &str, cache_dir: &Path) -> Result<PathBuf> {
     let checkout_path = git_checkout_dir(cache_dir, uri, commit);
 
     if checkout_path.join(".git").exists() {
         // Already fetched for this exact uri+commit pin — reuse it. The pin
         // is the commit, which is immutable, so there is nothing to update.
-        return Ok(checkout_path);
+        if is_checked_out_at(&checkout_path, commit) {
+            return Ok(checkout_path);
+        }
+        remove_dir(&checkout_path)?;
     }
 
-    std::fs::create_dir_all(&checkout_path).map_err(|e| {
+    let mut staging_name = checkout_path.file_name().unwrap_or_default().to_os_string();
+    staging_name.push(".partial");
+    let staging_path = checkout_path.with_file_name(staging_name);
+
+    // A staging dir left by an interrupted run (killed mid-fetch) starts over.
+    remove_dir(&staging_path)?;
+    std::fs::create_dir_all(&staging_path).map_err(|e| {
         eyre!(
             "failed to create dependency checkout dir '{}': {e}",
+            staging_path.display()
+        )
+    })?;
+
+    if let Err(error) = fetch_commit(&staging_path, uri, commit) {
+        let _ = std::fs::remove_dir_all(&staging_path);
+        return Err(error);
+    }
+
+    // `rename` won't replace an existing directory on every platform.
+    remove_dir(&checkout_path)?;
+    std::fs::rename(&staging_path, &checkout_path).map_err(|e| {
+        eyre!(
+            "failed to move dependency checkout '{}' into place at '{}': {e}",
+            staging_path.display(),
             checkout_path.display()
         )
     })?;
 
-    run_git(&checkout_path, &["init", "--quiet"])?;
-    run_git(&checkout_path, &["remote", "add", "origin", uri])?;
+    Ok(checkout_path)
+}
+
+/// Fetch `commit` from `uri` into a new repository at `dir` and check it out.
+fn fetch_commit(dir: &Path, uri: &str, commit: &str) -> Result<()> {
+    run_git(dir, &["init", "--quiet"])?;
+    run_git(dir, &["remote", "add", "origin", uri])?;
     // `--depth 1` works for a branch/tag ref on most forges; a bare commit
     // SHA needs the full history on servers that don't support fetching an
     // arbitrary commit directly (classic `git`/`smart HTTP` does; some do
     // not) — fall back to a full fetch if the shallow one fails.
-    if run_git_allow_failure(&checkout_path, &["fetch", "--depth", "1", "origin", commit]).is_err()
-    {
-        run_git(&checkout_path, &["fetch", "origin"])?;
+    if run_git_allow_failure(dir, &["fetch", "--depth", "1", "origin", commit]).is_err() {
+        run_git(dir, &["fetch", "origin"])?;
     }
-    run_git(&checkout_path, &["checkout", "--quiet", commit])?;
+    run_git(dir, &["checkout", "--quiet", commit])
+}
 
-    Ok(checkout_path)
+/// Whether the repository at `dir` has `commit` checked out: its `HEAD` is
+/// the commit `commit` names. A repository that was `init`ed but never
+/// checked out has an unborn `HEAD` and answers no.
+fn is_checked_out_at(dir: &Path, commit: &str) -> bool {
+    let rev_parse = |rev: &str| git_output(dir, &["rev-parse", "--verify", "--quiet", rev]);
+    match (rev_parse("HEAD"), rev_parse(&format!("{commit}^{{commit}}"))) {
+        (Ok(head), Ok(pinned)) => head == pinned,
+        _ => false,
+    }
+}
+
+/// Remove `dir` and everything in it; a directory that isn't there is fine.
+fn remove_dir(dir: &Path) -> Result<()> {
+    match std::fs::remove_dir_all(dir) {
+        Ok(()) => Ok(()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
+        Err(e) => Err(eyre!("failed to remove '{}': {e}", dir.display())),
+    }
 }
 
 fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
@@ -247,6 +300,12 @@ fn run_git(dir: &Path, args: &[&str]) -> Result<()> {
 }
 
 fn run_git_allow_failure(dir: &Path, args: &[&str]) -> Result<()> {
+    git_output(dir, args).map(|_| ())
+}
+
+/// Run `git` with `args` in `dir`: its trimmed stdout, or an error carrying
+/// its stderr.
+fn git_output(dir: &Path, args: &[&str]) -> Result<String> {
     let output = std::process::Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -265,7 +324,7 @@ fn run_git_allow_failure(dir: &Path, args: &[&str]) -> Result<()> {
             String::from_utf8_lossy(&output.stderr).trim()
         );
     }
-    Ok(())
+    Ok(String::from_utf8_lossy(&output.stdout).trim().to_string())
 }
 
 #[cfg(test)]
@@ -405,6 +464,73 @@ mod tests {
             dep.package_dir(consumer.path()),
             "fetched exactly where `package_dir` says, so an editor finds it there"
         );
+    }
+
+    fn git_dep(repo: &Path, sha: &str) -> DependencyConfig {
+        DependencyConfig {
+            name: "shared_types".to_string(),
+            source: DependencySource::Git {
+                version: "1.0.0".to_string(),
+                uri: repo.to_string_lossy().to_string(),
+                commit: sha.to_string(),
+                hash: None,
+            },
+        }
+    }
+
+    /// A fetch that fails partway (remote unreachable, flaky network) must
+    /// not leave a checkout the next attempt mistakes for a finished one.
+    #[test]
+    fn a_failed_fetch_is_retried_instead_of_reusing_a_half_made_checkout() {
+        let (repo, sha) = local_git_fixture();
+        let consumer = tempfile::tempdir().unwrap();
+        let cache = consumer.path().join(".comline/deps-cache");
+        let dep = git_dep(repo.path(), &sha);
+
+        // Take the remote away: `git init` and `remote add` succeed, the fetch fails.
+        let away = repo.path().with_extension("away");
+        std::fs::rename(repo.path(), &away).unwrap();
+        let Err(error) = resolve(&dep, consumer.path(), &cache) else { panic!("the remote is gone") };
+        assert!(error.to_string().contains("git fetch"), "names the failing git step: {error}");
+
+        // Bring it back: the same pin now resolves, with nothing left over.
+        std::fs::rename(&away, repo.path()).unwrap();
+        resolve(&dep, consumer.path(), &cache).expect("the retry fetches again");
+        let leftovers: Vec<_> = std::fs::read_dir(&cache)
+            .unwrap()
+            .map(|entry| entry.unwrap().file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(leftovers.len(), 1, "only the finished checkout remains: {leftovers:?}");
+    }
+
+    /// Checkouts an older version left half-made are repaired, not trusted.
+    #[test]
+    fn a_checkout_that_never_reached_the_commit_is_fetched_again() {
+        let (repo, sha) = local_git_fixture();
+        let consumer = tempfile::tempdir().unwrap();
+        let cache = consumer.path().join(".comline/deps-cache");
+        let dep = git_dep(repo.path(), &sha);
+
+        let checkout = git_checkout_dir(&cache, &repo.path().to_string_lossy(), &sha);
+        std::fs::create_dir_all(&checkout).unwrap();
+        run_git(&checkout, &["init", "--quiet"]).unwrap();
+        run_git(&checkout, &["remote", "add", "origin", &repo.path().to_string_lossy()]).unwrap();
+
+        let resolved = resolve(&dep, consumer.path(), &cache).expect("repairs the half-made checkout");
+        assert_eq!(resolved.context.schema_contexts.len(), 1);
+    }
+
+    #[test]
+    fn a_wrong_commit_reports_the_git_error_every_time() {
+        let (repo, _) = local_git_fixture();
+        let consumer = tempfile::tempdir().unwrap();
+        let cache = consumer.path().join(".comline/deps-cache");
+        let dep = git_dep(repo.path(), &"0".repeat(40));
+
+        for _ in 0..2 {
+            let Err(error) = resolve(&dep, consumer.path(), &cache) else { panic!("no such commit") };
+            assert!(error.to_string().contains("git "), "a git error, not a compile error: {error}");
+        }
     }
 
     #[test]
