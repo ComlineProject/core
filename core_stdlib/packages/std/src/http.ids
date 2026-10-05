@@ -1,3 +1,7 @@
+//! Types for talking HTTP: request methods, requests and responses.
+//!
+//! Plain data types: use them as fields and arguments in your own schemas.
+
 /// An HTTP request method.
 enum HttpMethod {
     GET

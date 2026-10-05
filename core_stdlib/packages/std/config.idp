@@ -1,2 +1,7 @@
+//! The Comline standard library.
+//!
+//! Built into the toolchain: every package can `use std::…` with no entry in
+//! `config.idp`, and a build includes only the std schemas a package imports.
+//! Its version is the toolchain's.
 congregation std
 specification_version = 1
