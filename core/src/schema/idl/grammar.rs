@@ -72,6 +72,8 @@ pub mod grammar {
         Relative(RelativePath),
         Glob(GlobPath),
         Multi(MultiPath),
+        RelativeGlob(RelativeGlobPath),
+        RelativeMulti(RelativeMultiPath),
     }
 
     /// Relative path: self::path or parent::path or package::path.
@@ -85,13 +87,51 @@ pub mod grammar {
     /// `schema::ir::compiler::import_resolver::try_resolve_relative_prefix`,
     /// which detects them inside an already-parsed `Absolute` path instead
     /// - see that function's doc for why fixing this at the grammar level
-    /// was attempted and reverted.
+    /// was attempted and reverted. The one place the keyword does win is a
+    /// prefix with nothing but `::*` or `::{...}` after it, which has its own
+    /// productions: [`RelativeGlobPath`] and [`RelativeMultiPath`].
     #[derive(Debug, Clone)]
     pub struct RelativePath {
         pub prefix: RelativePrefix,
         #[rust_sitter::leaf(text = "::")]
         _sep: (),
         pub path: ScopedIdentifier,
+    }
+
+    /// Relative glob: `self::*`, `parent::*` or `package::*`.
+    ///
+    /// Unlike [`RelativePath`] this one *is* reached by real parsing. The
+    /// lexer's tie-break only favors `ScopedIdentifier` when its regex
+    /// matches more than the keyword (`parent::common`); with nothing after
+    /// the prefix but `::*` the regex matches just `parent`, the same length
+    /// as the keyword, and the keyword leaf wins. A prefix followed by a
+    /// further segment still parses as `Absolute`/`Glob`/`Multi` and is
+    /// resolved by `try_resolve_relative_prefix`.
+    #[derive(Debug, Clone)]
+    pub struct RelativeGlobPath {
+        pub prefix: RelativePrefix,
+        #[rust_sitter::leaf(text = "::")]
+        _sep: (),
+        #[rust_sitter::leaf(text = "*")]
+        _star: (),
+    }
+
+    /// Relative multi-import: `parent::{Error, Page}`. Reached by real
+    /// parsing for the same reason as [`RelativeGlobPath`].
+    #[derive(Debug, Clone)]
+    pub struct RelativeMultiPath {
+        pub prefix: RelativePrefix,
+        #[rust_sitter::leaf(text = "::")]
+        _sep: (),
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::delimited(
+            #[rust_sitter::leaf(text = ",")]
+            ()
+        )]
+        pub items: Vec<Identifier>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
     }
 
     /// Relative prefix: self, parent, package
@@ -103,6 +143,17 @@ pub mod grammar {
         Parent,
         #[rust_sitter::leaf(text = "package")]
         Package,
+    }
+
+    impl RelativePrefix {
+        /// The keyword as written in a `use` path.
+        pub fn keyword(&self) -> &'static str {
+            match self {
+                RelativePrefix::Self_ => "self",
+                RelativePrefix::Parent => "parent",
+                RelativePrefix::Package => "package",
+            }
+        }
     }
 
     /// Glob path: mypackage::types::*

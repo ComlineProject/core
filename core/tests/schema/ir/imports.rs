@@ -255,6 +255,54 @@ fn test_relative_multi_import_rejects_an_undeclared_item_by_its_resolved_schema(
     assert!(!error.contains("doesn't declare 'Error'"), "{error}");
 }
 
+/// `parent::*` and `parent::{...}` - the prefix straight before the glob or
+/// the braces - have their own grammar productions: the keyword is all the
+/// lexer can match there.
+#[test]
+fn test_bare_prefix_glob_and_multi_imports_resolve() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api"], "struct Shared {\n    id: u64\n}\n\nstruct Extra {\n    id: u64\n}\n");
+    add_schema(&mut project, &["api", "glob"], "use parent::*\n\nstruct G {\n    s: Shared\n    e: Extra\n}\n");
+    add_schema(&mut project, &["api", "multi"], "use parent::{Shared, Extra}\n\nstruct M {\n    s: Shared\n    e: Extra\n}\n");
+
+    interpret_context(&project).expect("bare-prefix glob and multi imports should resolve");
+
+    let imports = |namespace| -> Vec<String> {
+        frozen_units_for(&project, namespace)
+            .into_iter()
+            .filter_map(|unit| match unit {
+                FrozenUnit::Import(path, _, _) => Some(path),
+                _ => None,
+            })
+            .collect()
+    };
+    assert!(imports("api::glob").iter().any(|path| path == "api::*"), "{:?}", imports("api::glob"));
+    for expected in ["api::Shared", "api::Extra"] {
+        assert!(imports("api::multi").iter().any(|path| path == expected), "{:?}", imports("api::multi"));
+    }
+}
+
+#[test]
+fn test_bare_prefix_multi_import_rejects_an_undeclared_item() {
+    let mut project = build_project();
+    add_schema(&mut project, &["api"], "struct Shared {\n    id: u64\n}\n");
+    add_schema(&mut project, &["api", "multi"], "use parent::{Shared, Nope}\n\nstruct M {\n    s: Shared\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("schema 'api' doesn't declare 'Nope'"), "{error}");
+    assert!(!error.contains("doesn't declare 'Shared'"), "{error}");
+}
+
+#[test]
+fn test_bare_prefix_glob_of_a_missing_schema_is_rejected() {
+    let mut project = build_project();
+    // Nothing is declared at `api`, so `parent::*` from `api::child` names no schema.
+    add_schema(&mut project, &["api", "child"], "use parent::*\n\nstruct C {\n    id: u64\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("Unresolved import"), "{error}");
+}
+
 #[test]
 fn test_importing_an_error_resolves() {
     let mut project = build_project();
