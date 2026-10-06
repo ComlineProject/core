@@ -2,11 +2,16 @@
 //! `schema::ir::compiler::settings::enforcement` actually interprets. That
 //! module is the authority on the resolution logic (candidate-key order,
 //! decl-path scoping) - this module mirrors its candidate shapes for
-//! editor hover, nothing more. If `enforcement`'s candidate lists ever
-//! change, this catalog needs to change with them.
+//! editor hover and completion, nothing more. If `enforcement`'s candidate
+//! lists ever change, this catalog needs to change with them.
 
-/// One recognized settings-key shape, for display.
+/// One recognized settings-key shape, for display and completion.
+/// `key_pattern` is the canonical dotted form (`<name>` standing in for a
+/// user-chosen annotation/validator name) — completion inserts it
+/// directly (as a snippet where `<name>` is a tab-stop); hover shows it
+/// alongside `summary`/`description`.
 pub struct FieldDoc {
+    pub key_pattern: &'static str,
     pub summary: &'static str,
     pub description: &'static str,
 }
@@ -61,12 +66,14 @@ pub fn match_path<'a>(segments: &[&'a str]) -> Option<Match<'a>> {
 pub fn doc_for(m: &Match) -> FieldDoc {
     match m {
         Match::Mode => FieldDoc {
+            key_pattern: "mode",
             summary: "merge behavior for this subtree",
             description: "Reserved key. Its value must be the bare keyword `replace` - \
                 when present, this subtree replaces the corresponding subtree from the \
                 layer below instead of merging into it. Absent (the default) means merge.",
         },
         Match::AnnotationAllowed { .. } => FieldDoc {
+            key_pattern: "annotations.<name>.allowed",
             summary: "whether this annotation is permitted here",
             description: "Whether the named annotation is permitted on declarations this \
                 key's scope covers. `true` allows it, `false` forbids it (a hard build \
@@ -74,6 +81,7 @@ pub fn doc_for(m: &Match) -> FieldDoc {
                 allowed by default.",
         },
         Match::ValidatorAllowed { .. } => FieldDoc {
+            key_pattern: "validators.<name>.allowed",
             summary: "whether this validator is permitted here",
             description: "Whether the named validator is permitted on declarations this \
                 key's scope covers. `true` allows it, `false` forbids it (a hard build \
@@ -81,6 +89,7 @@ pub fn doc_for(m: &Match) -> FieldDoc {
                 allowed by default.",
         },
         Match::ValidatorAllowedCoarse => FieldDoc {
+            key_pattern: "validators.allowed",
             summary: "whether any validator is permitted here",
             description: "Whether validators in general are permitted on declarations \
                 this key's scope covers, when no more specific `validators.<name>.allowed` \
@@ -96,25 +105,29 @@ pub fn doc_for(m: &Match) -> FieldDoc {
 pub fn block_summary() -> &'static [FieldDoc] {
     &[
         FieldDoc {
-            summary: "mode - merge behavior for this subtree",
+            key_pattern: "mode",
+            summary: "merge behavior for this subtree",
             description: "Reserved key. Its value must be the bare keyword `replace` - \
                 when present, this subtree replaces the corresponding subtree from the \
                 layer below instead of merging into it. Absent (the default) means merge.",
         },
         FieldDoc {
-            summary: "annotations.<name>.allowed - whether an annotation is permitted",
+            key_pattern: "annotations.<name>.allowed",
+            summary: "whether an annotation is permitted",
             description: "Whether the named annotation is permitted on declarations this \
                 scope covers. `true` allows it, `false` forbids it. No key means allowed \
                 by default.",
         },
         FieldDoc {
-            summary: "validators.<name>.allowed - whether a specific validator is permitted",
+            key_pattern: "validators.<name>.allowed",
+            summary: "whether a specific validator is permitted",
             description: "Whether the named validator is permitted on declarations this \
                 scope covers. `true` allows it, `false` forbids it. No key means allowed \
                 by default.",
         },
         FieldDoc {
-            summary: "validators.allowed - whether validators in general are permitted",
+            key_pattern: "validators.allowed",
+            summary: "whether validators in general are permitted",
             description: "Whether validators in general are permitted on declarations \
                 this scope covers, when no more specific `validators.<name>.allowed` key \
                 matches first. `true` allows, `false` forbids.",
