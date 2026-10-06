@@ -74,14 +74,14 @@ pub fn interpret_assignment(
                 panic!("Expected dictionary for code_generation")
             };
 
-            interpret_assignment_code_generation(items.assignments.as_ref())?
+            interpret_assignment_code_generation(&items.assignments)?
         }
         "publish_registries" => {
             let Value::Dictionary(items) = &node.value else {
                 panic!("Expected dictionary for publish_registries")
             };
 
-            interpret_assigment_publish_registries(items.assignments.as_ref())?
+            interpret_assigment_publish_registries(&items.assignments)?
         }
         "dependencies" => {
             let Value::Dictionary(items) = &node.value else {
@@ -123,11 +123,12 @@ pub fn interpret_assignment(
 }
 
 fn interpret_assignment_code_generation(
-    items: &Vec<Assignment>,
+    items: &[rust_sitter::Spanned<Assignment>],
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
     let mut languages = vec![];
 
     for assignment in items {
+        let assignment = &assignment.value;
         let key_str = match &assignment.key {
             Key::Identifier(id) => id.value.clone(),
             Key::Namespaced(ns) => ns.value.clone(),
@@ -143,6 +144,7 @@ fn interpret_assignment_code_generation(
                 };
 
                 for lang_assign in &lang_dict.assignments {
+                    let lang_assign = &lang_assign.value;
                     let lang_name = match &lang_assign.key {
                         Key::Identifier(id) => id.value.clone(),
                         Key::Namespaced(ns) => ns.value.clone(),
@@ -184,11 +186,12 @@ fn interpret_assignment_code_generation(
 }
 
 fn interpret_assigment_publish_registries(
-    items: &Vec<Assignment>,
+    items: &[rust_sitter::Spanned<Assignment>],
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
     let mut targets = vec![];
 
     for assignment in items {
+        let assignment = &assignment.value;
         let key_str = match &assignment.key {
             Key::Identifier(id) => id.value.clone(),
             Key::Namespaced(ns) => ns.value.clone(),
@@ -227,6 +230,7 @@ fn interpret_assigment_publish_registries(
                 let mut registry_kind = None;
 
                 for item in &dict.assignments {
+                    let item = &item.value;
                     let item_key = match &item.key {
                         Key::Identifier(id) => id.value.clone(),
                         Key::Namespaced(ns) => ns.value.clone(),
@@ -310,6 +314,7 @@ fn interpret_settings_dict(
 
     let mut out = SettingsDict::new();
     for assignment in &dict.assignments {
+        let assignment = &assignment.value;
         let key_str = match &assignment.key {
             Key::Identifier(id) => id.value.clone(),
             Key::Namespaced(ns) => ns.value.clone(),

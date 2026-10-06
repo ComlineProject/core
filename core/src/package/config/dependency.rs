@@ -149,6 +149,7 @@ impl DependencyConfig {
 
         // Parse assignments in the dictionary
         for assignment in &dict.assignments {
+            let assignment = &assignment.value;
             let key_str = match &assignment.key {
                 Key::Identifier(id) => id.value.clone(),
                 _ => continue,
@@ -231,6 +232,7 @@ impl DependencyConfig {
         let mut deps = HashMap::new();
 
         for dep_assignment in &dict.assignments {
+            let dep_assignment = &dep_assignment.value;
             let Key::Identifier(dep_name) = &dep_assignment.key else {
                 return Err("dependency names must be plain identifiers".to_string());
             };
@@ -251,11 +253,12 @@ impl DependencyConfig {
     /// Find the top-level `dependencies = {...}` assignment in a
     /// congregation's assignments (if any) and parse it via [`parse_dict`].
     pub fn parse_dependencies(
-        assignments: &[crate::package::config::idl::grammar::Assignment],
+        assignments: &[rust_sitter::Spanned<crate::package::config::idl::grammar::Assignment>],
     ) -> Result<HashMap<String, DependencyConfig>, String> {
         use crate::package::config::idl::grammar::{Key, Value};
 
         for assignment in assignments {
+            let assignment = &assignment.value;
             if let Key::Identifier(id) = &assignment.key {
                 if id.value == "dependencies" {
                     let Value::Dictionary(dict) = &assignment.value else {

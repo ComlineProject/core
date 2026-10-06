@@ -7,7 +7,7 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "congregation")]
         _keyword: (),
         pub name: Identifier,
-        pub assignments: Vec<Assignment>,
+        pub assignments: Vec<rust_sitter::Spanned<Assignment>>,
     }
 
     #[derive(Debug, Clone)]
@@ -73,7 +73,7 @@ pub mod grammar {
     pub struct Dictionary {
         #[rust_sitter::leaf(text = "{")]
         _lbrace: (),
-        pub assignments: Vec<Assignment>,
+        pub assignments: Vec<rust_sitter::Spanned<Assignment>>,
         #[rust_sitter::leaf(text = "}")]
         _rbrace: (),
     }
