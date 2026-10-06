@@ -5,7 +5,7 @@
 
 use comline_core::package::build::PackageSources;
 use comline_core::schema::ir::frozen::unit::FrozenUnit as SchemaFrozenUnit;
-use comline_core::settings::effective::effective_settings;
+use comline_core::settings::effective::{effective_settings, package_settings};
 use comline_core::settings::value::SettingsValue;
 
 fn b(v: bool) -> SettingsValue {
@@ -60,8 +60,10 @@ struct Message { body: str }
         .clone()
         .expect("the schema should be frozen");
 
+    let package = package_settings(&context);
+
     // Layer 1: package default alone (no schema units in view).
-    let package_only = effective_settings(&context, &[], None);
+    let package_only = effective_settings(&package, &[], None);
     let SettingsValue::Dict(validators) = package_only.get("validators").unwrap() else {
         panic!("expected a dict");
     };
@@ -72,7 +74,7 @@ struct Message { body: str }
     // block). The schema's dotted-key override flips `validators.allowed`
     // to false; `untouched` still comes through from the package default
     // since the schema never mentions it.
-    let schema_effective = effective_settings(&context, &schema_units, None);
+    let schema_effective = effective_settings(&package, &schema_units, None);
     let SettingsValue::Dict(validators) = schema_effective.get("validators").unwrap() else {
         panic!("expected a dict");
     };
@@ -96,7 +98,7 @@ struct Message { body: str }
         .expect("Message struct should be frozen");
 
     let declaration_effective =
-        effective_settings(&context, &schema_units, Some(&message_parameters));
+        effective_settings(&package, &schema_units, Some(&message_parameters));
     let SettingsValue::Dict(validators) = declaration_effective.get("validators").unwrap() else {
         panic!("expected a dict");
     };

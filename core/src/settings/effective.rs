@@ -90,19 +90,22 @@ pub fn effective_declaration_settings(
 }
 
 /// The single public entry point: every layer, composed.
-/// `declaration_parameters` is `None` for "just the schema's effective
-/// settings" (no particular declaration in view), `Some(params)` for one
-/// declaration's frozen `parameters` list (checked for `@settings =
-/// Name`). Nothing calls this yet - it's a tested, working library
-/// capability a future enforcement pass will call into.
+/// `package_settings` is the already-extracted package-level dict (see
+/// [`package_settings`] for a caller with a real `ProjectContext` - this
+/// function takes the dict directly rather than `ProjectContext` itself,
+/// since that's the only thing it was ever used for, and `ProjectContext`
+/// can't be constructed/cached everywhere a caller might want this - e.g.
+/// the language server, which only ever has the dict). `declaration_parameters`
+/// is `None` for "just the schema's effective settings" (no particular
+/// declaration in view), `Some(params)` for one declaration's frozen
+/// `parameters` list (checked for `@settings = Name`).
 pub fn effective_settings(
-    project_context: &ProjectContext,
+    package_settings: &SettingsDict,
     schema_frozen_units: &[SchemaFrozenUnit],
     declaration_parameters: Option<&[SchemaFrozenUnit]>,
 ) -> SettingsDict {
-    let package = package_settings(project_context);
     let schema = schema_settings(schema_frozen_units);
-    let schema_effective = effective_schema_settings(&package, &schema);
+    let schema_effective = effective_schema_settings(package_settings, &schema);
 
     match declaration_parameters {
         None => schema_effective,
