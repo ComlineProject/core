@@ -155,3 +155,31 @@ key without equals
     let result = grammar::parse(code);
     assert!(result.is_err());
 }
+
+#[test]
+fn assignments_carry_real_spans_at_every_nesting_depth() {
+    // Needed for position-based hover: every `Assignment`, top-level and
+    // nested inside a `Dictionary`, must carry a byte span that actually
+    // covers its own `key = value` text and nests correctly inside its
+    // parent's.
+    let code = "congregation Spans\nsettings = {\n    validators = {\n        allowed = false\n    }\n}\n";
+    let congregation = grammar::parse(code).expect("should parse");
+
+    let settings = &congregation.assignments[0];
+    assert_eq!(&code[settings.span.0..settings.span.1], "settings = {\n    validators = {\n        allowed = false\n    }\n}");
+
+    let grammar::Value::Dictionary(settings_dict) = &settings.value.value else {
+        panic!("settings should be a dictionary");
+    };
+    let validators = &settings_dict.assignments[0];
+    assert_eq!(&code[validators.span.0..validators.span.1], "validators = {\n        allowed = false\n    }");
+    assert!(validators.span.0 > settings.span.0, "nested span should start after its parent's");
+    assert!(validators.span.1 < settings.span.1, "nested span should end before its parent's");
+
+    let grammar::Value::Dictionary(validators_dict) = &validators.value.value else {
+        panic!("validators should be a dictionary");
+    };
+    let allowed = &validators_dict.assignments[0];
+    assert_eq!(&code[allowed.span.0..allowed.span.1], "allowed = false");
+    assert!(allowed.span.0 > validators.span.0 && allowed.span.1 < validators.span.1);
+}

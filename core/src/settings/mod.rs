@@ -11,6 +11,7 @@
 //! library capability with no live caller yet - mirrors how today's
 //! `.ids` settings block is already parsed and frozen but inert.
 
+pub mod catalog;
 pub mod desugar;
 pub mod effective;
 pub mod merge;
