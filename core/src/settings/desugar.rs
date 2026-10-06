@@ -35,7 +35,7 @@ pub fn desugar(
 /// Same algorithm, but a conflict silently keeps whichever value got there
 /// first and drops the later entry, rather than erroring. For callers that
 /// run without the dedicated conflict-checking pre-pass
-/// (`schema::ir::compiler::settings_resolution::check_settings_conflicts`)
+/// (`schema::ir::compiler::settings::resolution::check_settings_conflicts`)
 /// and so can't surface a real diagnostic - e.g. a one-off in-memory
 /// interpretation that skips that pre-pass entirely.
 pub fn desugar_lenient(entries: &[(Vec<String>, SettingsValue)]) -> SettingsDict {
