@@ -27,19 +27,23 @@
 //! are implemented, not [`AnnotationInfo`]'s shape.
 
 /// Which declaration an `@key=value` annotation attaches to. The grammar
-/// permits annotations on a `struct`, a `Field`, a `protocol`, and a
-/// `Function` (`grammar.rs`); `Leading` covers the first two — a struct's
-/// and a protocol's own annotation sit in the same "top level, right
-/// before the keyword" position, indistinguishable without looking past
-/// the cursor at text that doesn't exist yet.
+/// permits annotations on a `struct`, an `error`, a `Field`, a `protocol`,
+/// and a `Function` (`grammar.rs`); `Leading` covers the first three — a
+/// struct's, an error's, and a protocol's own annotation sit in the same
+/// "top level, right before the keyword" position, indistinguishable
+/// without looking past the cursor at text that doesn't exist yet.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AnnotationScope {
-    /// Top level, before `struct` or `protocol`.
+    /// Top level, before `struct`, `error`, or `protocol`.
     Leading,
     /// Inside a `struct`/`error` body, before a field.
     Field,
     /// Inside a `protocol` body, before a function.
     Function,
+    /// Valid everywhere the grammar permits an annotation at all - matches
+    /// every [`for_scope`] query regardless of which specific scope is
+    /// asked for (`@settings` is the only entry using this today).
+    Universal,
 }
 
 /// Who actually reads an annotation. Distinct from `consumed_by` (the
@@ -117,6 +121,16 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                 to opt a single protocol back out of a package-wide default",
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
+    AnnotationInfo {
+        key: "settings",
+        scope: AnnotationScope::Universal,
+        authority: AnnotationAuthority::Core,
+        description: "Opts a declaration into a named `settings NAME { ... }` preset declared \
+                       in this schema, merged onto whatever settings already apply to it.",
+        default: "no preset applied — only the package/schema-level settings apply",
+        value: "a bare name, e.g. `Strict` for a `settings Strict { ... }` block",
+        consumed_by: &[],
+    },
 ];
 
 /// Look up a known annotation by its key (the part right after `@`, no
@@ -127,9 +141,13 @@ pub fn lookup(key: &str) -> Option<&'static AnnotationInfo> {
     KNOWN_ANNOTATIONS.iter().find(|a| a.key == key)
 }
 
-/// Every known annotation valid in `scope`, in table order.
+/// Every known annotation valid in `scope`, in table order. A
+/// [`AnnotationScope::Universal`] entry (e.g. `@settings`) matches every
+/// scope, not just a literal equal one.
 pub fn for_scope(scope: AnnotationScope) -> impl Iterator<Item = &'static AnnotationInfo> {
-    KNOWN_ANNOTATIONS.iter().filter(move |a| a.scope == scope)
+    KNOWN_ANNOTATIONS
+        .iter()
+        .filter(move |a| a.scope == scope || a.scope == AnnotationScope::Universal)
 }
 
 #[cfg(test)]
@@ -148,6 +166,18 @@ mod tests {
     fn lookup_and_for_scope_agree_with_the_table() {
         assert!(lookup("validators").is_some());
         assert!(lookup("nope").is_none());
-        assert_eq!(for_scope(AnnotationScope::Function).count(), 2);
+        // timeout_ms, idempotent (both Function), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
+    }
+
+    #[test]
+    fn universal_scope_matches_every_scope() {
+        for scope in [
+            AnnotationScope::Leading,
+            AnnotationScope::Field,
+            AnnotationScope::Function,
+        ] {
+            assert!(for_scope(scope).any(|a| a.key == "settings"));
+        }
     }
 }

@@ -560,7 +560,10 @@ pub(crate) fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
     names.extend(schema_context.declarations.iter().filter_map(|decl| match &decl.value {
         Declaration::Error(e) => Some(e.name.text.clone()),
         Declaration::Validator(v) => Some(v.name.text.clone()),
-        Declaration::Settings(s) => Some(s.name.text.clone()),
+        // An unnamed settings block (`name: None`) applies implicitly to
+        // its own file and isn't importable by name - `filter_map` drops
+        // it naturally.
+        Declaration::Settings(s) => s.name.as_ref().map(|n| n.text.clone()),
         _ => None,
     }));
     names

@@ -288,6 +288,8 @@ pub mod grammar {
     pub struct Error {
         #[rust_sitter::repeat(non_empty = false)]
         pub docstring: Option<Docstring>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "error")]
         _error: (),
         pub name: Identifier,
@@ -421,18 +423,22 @@ pub mod grammar {
 
     // ===== Settings Definition =====
 
-    /// Settings: settings NAME { key = value ... }
+    /// Settings: settings [NAME] { key = value ... }
     ///
-    /// Schema-wide switches. Each value is a boolean, integer or string - there
-    /// is no expression language here. Parsed and frozen today; not yet
-    /// enforced.
+    /// Schema-wide switches. Each value is a boolean, integer, string or bare
+    /// keyword (only `mode = replace` uses the last one today) - there is no
+    /// expression language here. Parsed and frozen today; not yet enforced.
+    ///
+    /// A block with no `NAME` applies implicitly to the whole schema file; a
+    /// named block is a reusable preset, opted into per-declaration via
+    /// `@settings = NAME`.
     #[derive(Debug, Clone)]
     pub struct Settings {
         #[rust_sitter::repeat(non_empty = false)]
         pub docstring: Option<Docstring>,
         #[rust_sitter::leaf(text = "settings")]
         _settings: (),
-        pub name: Identifier,
+        pub name: Option<Identifier>,
         #[rust_sitter::leaf(text = "{")]
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
@@ -441,22 +447,27 @@ pub mod grammar {
         _close: (),
     }
 
-    /// One `key = value` line inside a `settings` block.
+    /// One `key = value` line inside a `settings` block. `key` is a dotted
+    /// path (`struct.field.validators.allowed`) - sugar for a nested
+    /// dictionary, desugared at freeze time (`crate::settings::desugar`).
     #[derive(Debug, Clone)]
     pub struct Setting {
-        pub key: Identifier,
+        pub key: DottedPath,
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: SettingValue,
     }
 
-    /// A `settings` value. No identifier alternative, so `True` / `False` lex
-    /// unambiguously here (unlike in a general `Expression`).
+    /// A `settings` value. No general identifier alternative, so `True` /
+    /// `False` lex unambiguously here (unlike in a general `Expression`) -
+    /// `Identifier` is only for a handful of reserved bare keywords (e.g.
+    /// `mode`'s `replace`), checked at freeze time, not a general value kind.
     #[derive(Debug, Clone)]
     pub enum SettingValue {
         Bool(BoolLiteral),
         Integer(IntegerLiteral),
         Str(StringLiteral),
+        Identifier(Identifier),
     }
 
     #[derive(Debug, Clone)]
@@ -1058,6 +1069,12 @@ pub mod grammar {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
         }
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
+        }
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
@@ -1130,8 +1147,8 @@ pub mod grammar {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
         }
-        pub fn name(&self) -> String {
-            self.name.text.clone()
+        pub fn name(&self) -> Option<String> {
+            self.name.as_ref().map(|n| n.text.clone())
         }
         pub fn entries(&self) -> &Vec<rust_sitter::Spanned<Setting>> {
             &self.entries
@@ -1139,17 +1156,41 @@ pub mod grammar {
     }
 
     impl Setting {
+        /// The full dotted path, joined (`"a.b.c"` - same as a bare
+        /// identifier when there's no dot).
         pub fn key(&self) -> String {
-            self.key.text.clone()
+            self.key.joined()
         }
-        /// The value rendered as a plain string (`"True"`, `"8"`, `"core"`).
+        /// The dotted path's segments, for desugaring into a nested
+        /// dictionary (`crate::settings::desugar`).
+        pub fn key_path(&self) -> Vec<String> {
+            let mut path = vec![self.key.first.text.clone()];
+            path.extend(self.key.rest.iter().map(|s| s.segment.text.clone()));
+            path
+        }
+        /// The value rendered as a plain string (`"True"`, `"8"`, `"core"`,
+        /// `"replace"`).
         pub fn value_string(&self) -> String {
             match &self.value {
                 SettingValue::Bool(BoolLiteral::True) => "True".to_string(),
                 SettingValue::Bool(BoolLiteral::False) => "False".to_string(),
                 SettingValue::Integer(i) => i.value.to_string(),
                 SettingValue::Str(s) => s.value.clone(),
+                SettingValue::Identifier(id) => id.text.clone(),
             }
+        }
+        /// `(path, value)` as `crate::settings` wants them - the one place
+        /// the grammar's `SettingValue` maps onto the frozen `SettingsValue`.
+        pub fn to_path_value(&self) -> (Vec<String>, crate::settings::value::SettingsValue) {
+            use crate::settings::value::SettingsValue;
+            let value = match &self.value {
+                SettingValue::Bool(BoolLiteral::True) => SettingsValue::Bool(true),
+                SettingValue::Bool(BoolLiteral::False) => SettingsValue::Bool(false),
+                SettingValue::Integer(i) => SettingsValue::Integer(i.value),
+                SettingValue::Str(s) => SettingsValue::Str(s.value.clone()),
+                SettingValue::Identifier(id) => SettingsValue::Identifier(id.text.clone()),
+            };
+            (self.key_path(), value)
         }
     }
 

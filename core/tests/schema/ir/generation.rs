@@ -79,28 +79,15 @@ settings Project {
         assert_eq!(ir_units.len(), 1);
 
         match &ir_units[0] {
-            FrozenUnit::Settings { docstring, name, parameters } => {
-                assert_eq!(name, "Project");
+            FrozenUnit::Settings { docstring, name, values } => {
+                use comline_core::settings::value::SettingsValue;
+
+                assert_eq!(name.as_deref(), Some("Project"));
                 assert_eq!(docstring.as_deref(), Some("Project-wide switches."));
 
-                let pairs: Vec<(&str, &str)> = parameters
-                    .iter()
-                    .map(|p| match p {
-                        FrozenUnit::Parameter { name, default_value } => {
-                            (name.as_str(), default_value.as_str())
-                        }
-                        other => panic!("Expected Parameter, got {other:?}"),
-                    })
-                    .collect();
-
-                assert_eq!(
-                    pairs,
-                    vec![
-                        ("forbid_indexing", "True"),
-                        ("max_depth", "8"),
-                        ("label", "core"),
-                    ]
-                );
+                assert_eq!(values.get("forbid_indexing"), Some(&SettingsValue::Bool(true)));
+                assert_eq!(values.get("max_depth"), Some(&SettingsValue::Integer(8)));
+                assert_eq!(values.get("label"), Some(&SettingsValue::Str("core".to_string())));
             }
             other => panic!("Expected Settings unit, got {other:?}"),
         }

@@ -25,7 +25,10 @@ pub enum FrozenUnit {
     SchemaPath(String),
     Dependency(Dependency),
     CodeGeneration(LanguageDetails),
-    PublishRegistry((String, PublishRegistry))
+    PublishRegistry((String, PublishRegistry)),
+    // Appended, not inserted - these variants are bincode-encoded by
+    // declaration order in CAS blobs, so a new one must always go last.
+    Settings(crate::settings::SettingsDict),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -117,6 +120,17 @@ pub fn publish_registries(
             FrozenUnit::PublishRegistry(reg) => Some(reg),
             _ => None
         }
+    })
+}
+
+/// The package-level `settings` dictionary. Always present once config is
+/// frozen - `interpret_context` synthesises an empty one when the user
+/// writes no `settings` key at all - so `None` here only ever means
+/// `units` hasn't been through that freezing pass yet.
+pub fn settings(units: &[FrozenUnit]) -> Option<&crate::settings::SettingsDict> {
+    units.iter().find_map(|unit| match unit {
+        FrozenUnit::Settings(dict) => Some(dict),
+        _ => None
     })
 }
 

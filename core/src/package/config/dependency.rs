@@ -271,7 +271,7 @@ impl DependencyConfig {
 }
 
 /// Strip leading and trailing quotes from a string
-fn strip_quotes(s: &str) -> String {
+pub(crate) fn strip_quotes(s: &str) -> String {
     s.trim_matches('"').to_string()
 }
 

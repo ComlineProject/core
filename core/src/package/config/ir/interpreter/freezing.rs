@@ -90,6 +90,27 @@ pub fn interpret_assignment(
 
             interpret_assignment_dependencies(items)?
         }
+        "settings" => {
+            let Value::Dictionary(items) = &node.value else {
+                panic!("'settings' should be a dictionary")
+            };
+
+            let dict = interpret_settings_dict(items)?;
+            if let Err(errors) = crate::settings::merge::validate_mode_keys(&dict) {
+                panic!(
+                    "invalid 'settings': {}",
+                    errors
+                        .iter()
+                        .map(|e| format!(
+                            "'mode' at '{}' is {:?}, not the bare keyword `replace`",
+                            e.path, e.found
+                        ))
+                        .collect::<Vec<_>>()
+                        .join("; ")
+                );
+            }
+            vec![FrozenUnit::Settings(dict)]
+        }
         any => {
             // panic!("Assignment '{}' is not a valid assignment", any)
             // Allow unknown assignments for now or warn?
@@ -275,6 +296,61 @@ fn interpret_assignment_dependencies(
             })
         })
         .collect())
+}
+
+/// `settings = { ... }` - package-wide authoring policy, applying to
+/// every schema by default. Unlike `code_generation`/`publish_registries`,
+/// this dictionary's own nesting is meaningful content (not just grammar
+/// structure) - converted recursively into `crate::settings::SettingsDict`,
+/// the same shared tree `.ids`'s dotted-key settings desugar into.
+fn interpret_settings_dict(
+    dict: &crate::package::config::idl::grammar::Dictionary,
+) -> Result<crate::settings::SettingsDict, Box<dyn snafu::Error>> {
+    use crate::settings::value::SettingsDict;
+
+    let mut out = SettingsDict::new();
+    for assignment in &dict.assignments {
+        let key_str = match &assignment.key {
+            Key::Identifier(id) => id.value.clone(),
+            Key::Namespaced(ns) => ns.value.clone(),
+            Key::VersionMeta(vm) => vm.value.clone(),
+            Key::DependencyAddress(da) => da.value.clone(),
+        };
+        out.0.insert(key_str, interpret_settings_value(&assignment.value)?);
+    }
+    Ok(out)
+}
+
+fn interpret_settings_value(
+    value: &Value,
+) -> Result<crate::settings::SettingsValue, Box<dyn snafu::Error>> {
+    use crate::package::config::dependency::strip_quotes;
+    use crate::settings::value::SettingsValue;
+
+    Ok(match value {
+        Value::Boolean(b) => SettingsValue::Bool(b.value == "true"),
+        Value::Number(n) => SettingsValue::Integer(
+            n.value
+                .parse()
+                .unwrap_or_else(|_| panic!("'{}' is not a valid settings integer", n.value)),
+        ),
+        Value::String(s) => SettingsValue::Str(strip_quotes(&s.value)),
+        // `true`/`false` and a reserved bare keyword (`replace`) are both
+        // lexically `[a-zA-Z_][a-zA-Z0-9_]*` - `Identifier`'s pattern,
+        // not `Boolean`'s, is what actually matches them here (confirmed:
+        // `grep`ping this grammar's own tests, nothing ever asserts which
+        // `Value` variant bare `true`/`false` produces). So both cases are
+        // handled on this one arm, not two.
+        Value::Identifier(id) if id.value == "true" => SettingsValue::Bool(true),
+        Value::Identifier(id) if id.value == "false" => SettingsValue::Bool(false),
+        Value::Identifier(id) => SettingsValue::Identifier(id.value.clone()),
+        Value::Dictionary(d) => SettingsValue::Dict(interpret_settings_dict(d)?),
+        other => panic!(
+            "a settings value must be a boolean, number, string, bare keyword, or nested \
+             dictionary; got {:?}",
+            other
+        ),
+    })
 }
 
 #[allow(unused)]

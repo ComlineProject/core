@@ -23,6 +23,15 @@ pub fn interpret_context(mut context: &ProjectContext)
         );
     }
 
+    // `settings` is optional - a package that writes none still gets a
+    // (currently empty) Comline-provided default, the same "sensible
+    // default, override when you need to" shape `specification_version`
+    // and `publish_registries` are heading toward. No other `.idp` field
+    // has this absent-key-gets-a-default behavior yet; this is the first.
+    if !interpreted.iter().any(|u| matches!(u, FrozenUnit::Settings(_))) {
+        interpreted.push(FrozenUnit::Settings(crate::settings::SettingsDict::default()));
+    }
+
     Ok(interpreted)
     // freezing::into_frozen_whole(&context, interpreted)
 }

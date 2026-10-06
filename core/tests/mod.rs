@@ -4,3 +4,4 @@ mod package;  // Contains schema_loading test
 mod autodoc;
 mod utils;
 mod cas;
+mod settings;

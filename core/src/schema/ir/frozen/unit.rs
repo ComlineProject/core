@@ -38,6 +38,13 @@ pub enum FrozenUnit {
         name: String,
         expression: Option<String>
     },
+    /// No longer constructed (settings entries now freeze into
+    /// `Settings.values` instead - see below). Kept, unused, because
+    /// `bincode` encodes enum variants by declaration order: removing a
+    /// mid-enum variant would shift every later variant's index and
+    /// silently corrupt any existing CAS blob that contains one of them
+    /// (checked - real fixtures under `tests/fixtures/packages/test/.frozen`
+    /// do contain later variants like `Struct`/`Protocol`).
     Parameter {
         name: String,
         default_value: String
@@ -64,10 +71,16 @@ pub enum FrozenUnit {
         span: (usize, usize),
     },
     EnumVariant(KindValue, (usize, usize)),
+    /// `name: None` = an unnamed block, applying implicitly to the whole
+    /// schema file; `Some(name)` = a reusable preset, opted into
+    /// per-declaration via `@settings = name`. `values` is the dotted-key
+    /// desugared tree (`crate::settings::desugar`) - not yet validated or
+    /// enforced against anything, same "parsed and frozen, not yet
+    /// enforced" status this block has always had.
     Settings {
         docstring: Option<String>,
-        name: String,
-        parameters: Vec<FrozenUnit>,
+        name: Option<String>,
+        values: crate::settings::SettingsDict,
     },
     Struct {
         docstring: Option<String>,

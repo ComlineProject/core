@@ -7,6 +7,7 @@ use std::collections::HashMap;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
+use crate::schema::ir::compiler::settings_resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::import_resolver::{
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     importable_names, ImportResolver,
@@ -51,6 +52,7 @@ impl IncrementalInterpreter {
             check_imports(&declarations, current_namespace, project_context)?;
         }
         check_aliases(&declarations, use_context)?;
+        check_settings_conflicts(&declarations)?;
         Ok(Self::compile_declarations(declarations, use_context))
     }
 }
@@ -258,19 +260,25 @@ impl IncrementalInterpreter {
                     frozen_units.push(frozen_error(&error_decl, ordinal, None));
                 }
                 Declaration::Settings(settings_def) => {
-                    let parameters: Vec<FrozenUnit> = settings_def
+                    let entries: Vec<_> = settings_def
                         .entries()
                         .iter()
-                        .map(|entry| FrozenUnit::Parameter {
-                            name: entry.key(),
-                            default_value: entry.value_string(),
-                        })
+                        .map(|entry| entry.value.to_path_value())
                         .collect();
+
+                    // `check_settings_conflicts` (run earlier by
+                    // `check_and_from_declarations`) already rejects a
+                    // conflicting block on the real `comline build`/`check`
+                    // path - this lenient fallback only matters for a
+                    // caller that skips that pre-pass entirely (e.g.
+                    // `from_declarations`/`from_source`).
+                    let values = crate::settings::desugar::desugar(&entries)
+                        .unwrap_or_else(|_conflicts| crate::settings::desugar::desugar_lenient(&entries));
 
                     frozen_units.push(FrozenUnit::Settings {
                         docstring: settings_def.docstring(),
                         name: settings_def.name(),
-                        parameters,
+                        values,
                     });
                 }
                 Declaration::Validator(validator_def) => {
@@ -473,7 +481,7 @@ fn frozen_error(
 
     FrozenUnit::Error {
         docstring: error_decl.docstring(),
-        parameters: vec![],
+        parameters: annotation_units(&error_decl.annotations()),
         ordinal,
         imported_from,
         name: error_decl.name(),

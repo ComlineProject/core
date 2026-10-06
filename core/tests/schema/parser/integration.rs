@@ -244,6 +244,43 @@ struct Message { body: str }
     }
 
     #[test]
+    fn test_unnamed_settings_block() {
+        // No name after `settings` - applies implicitly to the whole file.
+        assert!(grammar::parse("settings { a = True }").is_ok());
+        assert!(grammar::parse("settings {}").is_ok());
+    }
+
+    #[test]
+    fn test_dotted_settings_key() {
+        assert!(
+            grammar::parse("settings Foo { struct.field.validators.allowed = True }").is_ok()
+        );
+    }
+
+    #[test]
+    fn test_mode_bare_keyword() {
+        // No quotes - a bare keyword, like any other `Identifier` value.
+        assert!(grammar::parse("settings Foo { mode = replace }").is_ok());
+    }
+
+    #[test]
+    fn test_settings_annotation_on_every_scope() {
+        assert!(grammar::parse("settings {}\n@settings = Foo\nstruct S { x: str }").is_ok());
+        assert!(grammar::parse("settings {}\nstruct S { @settings = Foo x: str }").is_ok());
+        assert!(
+            grammar::parse("settings {}\n@settings = Foo\nprotocol P { function f() -> str; }")
+                .is_ok()
+        );
+        assert!(
+            grammar::parse("settings {}\nprotocol P { @settings = Foo function f() -> str; }")
+                .is_ok()
+        );
+        assert!(
+            grammar::parse("settings {}\n@settings = Foo\nerror E { message = \"e\" }").is_ok()
+        );
+    }
+
+    #[test]
     fn test_validator_declaration() {
         assert!(grammar::parse("validator V {}").is_ok());
         assert!(grammar::parse("validator V { a: u32 b: str = \"x\" }").is_ok());
