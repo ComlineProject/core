@@ -3,7 +3,7 @@ pub mod interpreter;
 pub mod interpreted;
 pub mod import_resolver;
 pub mod alias_resolution;
-pub mod settings_resolution;
+pub mod settings;
 
 // Standard Uses
 

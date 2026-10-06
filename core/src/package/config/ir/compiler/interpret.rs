@@ -7,9 +7,12 @@ use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{check_imports, resolve_use_to_schema, ImportResolver};
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
+use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
+use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
+use crate::settings::effective::package_settings;
 
 // External Uses
 use eyre::{bail, Result};
@@ -33,6 +36,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     }
 
     let mut schema_errors: Vec<String> = vec![];
+    let package_settings_dict = package_settings(project_context);
 
     for schema_context in project_context.schema_contexts.iter() {
         let declarations = { schema_context.borrow().declarations.clone() };
@@ -64,6 +68,19 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             continue;
         }
 
+        if let Err(errors) = check_settings_conflicts(&declarations) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| render_in(error, &schema_context.borrow()))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' has invalid settings:\n{}",
+                namespace.join("::"),
+                rendered.join("\n\n")
+            ));
+            continue;
+        }
+
         let mut frozen_units = IncrementalInterpreter::from_declarations_with_context(
             declarations,
             &namespace,
@@ -81,6 +98,18 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
                 .collect();
             schema_errors.push(format!(
                 "Schema '{}' failed validation:\n{}",
+                namespace_joined,
+                rendered.join("\n\n")
+            ));
+        }
+
+        if let Err(errors) = check_settings_enforcement(&frozen_units, &package_settings_dict) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| render_in(error, &schema_context.borrow()))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' failed settings enforcement:\n{}",
                 namespace_joined,
                 rendered.join("\n\n")
             ));

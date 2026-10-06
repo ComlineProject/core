@@ -36,6 +36,17 @@ impl Diagnostic {
         self
     }
 
+    /// Like [`with_span`](Self::with_span), but for a caller that only
+    /// sometimes has one (e.g. a declaration kind whose `FrozenUnit`
+    /// carries no span) - `None` leaves the diagnostic spanless rather
+    /// than forcing every call site to branch.
+    pub fn maybe_span(self, span: Option<(usize, usize)>) -> Self {
+        match span {
+            Some(span) => self.with_span(span),
+            None => self,
+        }
+    }
+
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
         self

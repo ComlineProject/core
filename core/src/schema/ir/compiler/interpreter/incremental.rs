@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
-use crate::schema::ir::compiler::settings_resolution::check_settings_conflicts;
+use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::import_resolver::{
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     importable_names, ImportResolver,
