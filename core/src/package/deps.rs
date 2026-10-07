@@ -14,11 +14,12 @@
 // the feature and is unaffected.
 
 // Standard Uses
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // Crate Uses
 use crate::package::build::cas::storage::Hash;
-use crate::package::build::compile_package;
+use crate::package::build::compile_package_with;
 use crate::package::config::dependency::{git_checkout_dir, DependencyConfig, DependencySource, DEPS_CACHE_DIR};
 use crate::package::config::ir::context::ProjectContext;
 
@@ -56,6 +57,22 @@ pub fn resolve(
     project_root: &Path,
     cache_dir: &Path,
 ) -> Result<ResolvedDependency> {
+    resolve_with(dep, project_root, cache_dir, &mut HashSet::new())
+}
+
+/// [`resolve`], threading a set of package roots currently being compiled
+/// somewhere up this same call stack — every recursive dependency compile
+/// (this package's own dependencies, and theirs, ...) shares one set, so a
+/// cycle anywhere in the graph (A depends on B depends on A, directly or
+/// transitively) is a clean error instead of a stack overflow. Canonical
+/// paths, so a symlink or a relative-vs-absolute spelling difference can't
+/// hide a real cycle from this check.
+pub(crate) fn resolve_with(
+    dep: &DependencyConfig,
+    project_root: &Path,
+    cache_dir: &Path,
+    in_progress: &mut HashSet<PathBuf>,
+) -> Result<ResolvedDependency> {
     let resolved_path = match &dep.source {
         DependencySource::Path { path, .. } => project_root.join(path),
         DependencySource::Git { uri, commit, .. } => resolve_git(uri, commit, cache_dir)?,
@@ -66,13 +83,25 @@ pub fn resolve(
         ),
     };
 
-    let context = compile_package(&resolved_path).map_err(|e| {
+    let canonical = resolved_path.canonicalize().unwrap_or_else(|_| resolved_path.clone());
+    if !in_progress.insert(canonical.clone()) {
+        bail!(
+            "dependency cycle detected: '{}' (at '{}') depends on a package that's already \
+             being resolved higher up this same dependency chain",
+            dep.name,
+            canonical.display()
+        );
+    }
+
+    let context = compile_package_with(&resolved_path, in_progress).map_err(|e| {
         eyre!(
             "dependency '{}': failed to compile at '{}': {e}",
             dep.name,
             resolved_path.display()
         )
-    })?;
+    });
+    in_progress.remove(&canonical);
+    let context = context?;
 
     let content_hash = hash_frozen_content(&context)?;
 
@@ -118,6 +147,7 @@ pub fn resolve(
 pub(crate) fn resolve_all(
     context: &ProjectContext,
     project_root: &Path,
+    in_progress: &mut HashSet<PathBuf>,
 ) -> Result<Vec<ResolvedDependency>> {
     let deps = DependencyConfig::parse_dependencies(&context.config.assignments)
         .map_err(|e| eyre!("{e}"))?;
@@ -132,7 +162,7 @@ pub(crate) fn resolve_all(
 
     names
         .into_iter()
-        .map(|name| resolve(&deps[name], project_root, &cache_dir))
+        .map(|name| resolve_with(&deps[name], project_root, &cache_dir, in_progress))
         .collect()
 }
 
@@ -144,9 +174,10 @@ pub(crate) fn resolve_all(
 pub(crate) fn resolve_dependency_sources(
     context: &ProjectContext,
     project_root: &Path,
+    in_progress: &mut HashSet<PathBuf>,
 ) -> Result<Vec<(Vec<String>, String)>> {
     let mut sources = Vec::new();
-    for resolved in resolve_all(context, project_root)? {
+    for resolved in resolve_all(context, project_root, in_progress)? {
         for (namespace, source) in
             crate::package::build::glob_schema_sources(&resolved.resolved_path)?
         {
@@ -383,6 +414,199 @@ mod tests {
             2,
             "the consumer's own schema plus the dependency's, merged into one pass"
         );
+    }
+
+    /// A dependency with a named `settings Strict { ... }` block in one of
+    /// its schemas, plus a consumer whose `.idp` adopts it via
+    /// `settings = shared_types::settings::Strict` — end to end, the
+    /// consumer's own frozen settings should be exactly that block's
+    /// content, not merged against anything, not the empty default.
+    #[test]
+    fn a_cross_package_settings_reference_resolves_to_the_named_blocks_content() {
+        use crate::package::config::ir::frozen::settings;
+        use crate::settings::value::SettingsValue;
+
+        let tmp = tempfile::tempdir().unwrap();
+
+        let dep_dir = tmp.path().join("shared-types");
+        std::fs::create_dir_all(dep_dir.join("src")).unwrap();
+        std::fs::write(
+            dep_dir.join("config.idp"),
+            "congregation shared_types\nspecification_version = 1\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dep_dir.join("src/policy.ids"),
+            "settings Strict {\n    max_depth = 4\n}\n",
+        )
+        .unwrap();
+
+        let consumer_dir = tmp.path().join("consumer");
+        std::fs::create_dir_all(consumer_dir.join("src")).unwrap();
+        std::fs::write(
+            consumer_dir.join("config.idp"),
+            "congregation consumer\n\
+             specification_version = 1\n\
+             \n\
+             dependencies = {\n    \
+                 shared_types = {\n        \
+                     path = \"../shared-types\"\n    \
+                 }\n\
+             }\n\
+             \n\
+             settings = shared_types::settings::Strict\n",
+        )
+        .unwrap();
+        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+            .unwrap();
+
+        let context = crate::package::build::compile_package(&consumer_dir)
+            .expect("a resolvable cross-package settings reference should compile");
+        let frozen = context.config_frozen.as_deref().expect("config_frozen should be set");
+        let dict = settings(frozen).expect("a Settings unit should be frozen");
+        assert_eq!(
+            dict.get("max_depth"),
+            Some(&SettingsValue::Integer(4)),
+            "the consumer's settings should be exactly the referenced block's content: {dict:?}"
+        );
+    }
+
+    #[test]
+    fn a_cross_package_settings_reference_to_an_undeclared_dependency_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+        let consumer_dir = tmp.path().join("consumer");
+        std::fs::create_dir_all(consumer_dir.join("src")).unwrap();
+        std::fs::write(
+            consumer_dir.join("config.idp"),
+            "congregation consumer\n\
+             specification_version = 1\n\
+             \n\
+             settings = nonexistent::settings::Strict\n",
+        )
+        .unwrap();
+        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+            .unwrap();
+
+        let err = crate::package::build::compile_package(&consumer_dir)
+            .expect_err("no `nonexistent` dependency is declared");
+        assert!(err.to_string().contains("no dependency named `nonexistent`"), "got: {err}");
+    }
+
+    #[test]
+    fn a_cross_package_settings_reference_to_a_missing_block_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let dep_dir = tmp.path().join("shared-types");
+        write_minimal_package(&dep_dir, "shared_types");
+
+        let consumer_dir = tmp.path().join("consumer");
+        std::fs::create_dir_all(consumer_dir.join("src")).unwrap();
+        std::fs::write(
+            consumer_dir.join("config.idp"),
+            "congregation consumer\n\
+             specification_version = 1\n\
+             \n\
+             dependencies = {\n    \
+                 shared_types = {\n        \
+                     path = \"../shared-types\"\n    \
+                 }\n\
+             }\n\
+             \n\
+             settings = shared_types::settings::Strict\n",
+        )
+        .unwrap();
+        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+            .unwrap();
+
+        let err = crate::package::build::compile_package(&consumer_dir)
+            .expect_err("shared_types has no settings block named Strict");
+        assert!(
+            err.to_string().contains("no settings block named `Strict`"),
+            "got: {err}"
+        );
+    }
+
+    #[test]
+    fn an_ambiguous_cross_package_settings_block_errors() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let dep_dir = tmp.path().join("shared-types");
+        std::fs::create_dir_all(dep_dir.join("src")).unwrap();
+        std::fs::write(
+            dep_dir.join("config.idp"),
+            "congregation shared_types\nspecification_version = 1\n",
+        )
+        .unwrap();
+        std::fs::write(dep_dir.join("src/a.ids"), "settings Strict {\n    max_depth = 4\n}\n")
+            .unwrap();
+        std::fs::write(dep_dir.join("src/b.ids"), "settings Strict {\n    max_depth = 8\n}\n")
+            .unwrap();
+
+        let consumer_dir = tmp.path().join("consumer");
+        std::fs::create_dir_all(consumer_dir.join("src")).unwrap();
+        std::fs::write(
+            consumer_dir.join("config.idp"),
+            "congregation consumer\n\
+             specification_version = 1\n\
+             \n\
+             dependencies = {\n    \
+                 shared_types = {\n        \
+                     path = \"../shared-types\"\n    \
+                 }\n\
+             }\n\
+             \n\
+             settings = shared_types::settings::Strict\n",
+        )
+        .unwrap();
+        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+            .unwrap();
+
+        let err = crate::package::build::compile_package(&consumer_dir)
+            .expect_err("two schemas both define settings Strict - ambiguous");
+        assert!(err.to_string().contains("ambiguous"), "got: {err}");
+    }
+
+    /// A ↔ B, each the other's `Path` dependency: a direct cycle. Without
+    /// the guard, this recurses forever (stack overflow); with it, a clean
+    /// error naming the cycle.
+    #[test]
+    fn a_dependency_cycle_is_a_clean_error_not_a_stack_overflow() {
+        let tmp = tempfile::tempdir().unwrap();
+
+        let a_dir = tmp.path().join("a");
+        let b_dir = tmp.path().join("b");
+        std::fs::create_dir_all(a_dir.join("src")).unwrap();
+        std::fs::create_dir_all(b_dir.join("src")).unwrap();
+        std::fs::write(
+            a_dir.join("config.idp"),
+            "congregation a\n\
+             specification_version = 1\n\
+             \n\
+             dependencies = {\n    \
+                 b = {\n        \
+                     path = \"../b\"\n    \
+                 }\n\
+             }\n",
+        )
+        .unwrap();
+        std::fs::write(a_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+        std::fs::write(
+            b_dir.join("config.idp"),
+            "congregation b\n\
+             specification_version = 1\n\
+             \n\
+             dependencies = {\n    \
+                 a = {\n        \
+                     path = \"../a\"\n    \
+                 }\n\
+             }\n",
+        )
+        .unwrap();
+        std::fs::write(b_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+
+        let err = crate::package::build::compile_package(&a_dir)
+            .expect_err("A depends on B depends on A should be a clean error");
+        assert!(err.to_string().contains("cycle"), "got: {err}");
     }
 
     fn write_minimal_package(dir: &Path, congregation_name: &str) {

@@ -45,7 +45,7 @@ dependencies = {
         .expect("a well-formed dependencies block must not panic the interpreter");
 
     let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
-        &context,
+        &context, None,
     )
     .expect("interpretation should succeed");
 
@@ -89,7 +89,7 @@ settings = {
     let context = ProjectInterpreter::from_config_source(source)
         .expect("a well-formed settings block must not panic the interpreter");
     let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
-        &context,
+        &context, None,
     )
     .expect("interpretation should succeed");
 
@@ -112,7 +112,7 @@ specification_version = 1
     let context = ProjectInterpreter::from_config_source(source)
         .expect("a minimal config must not panic the interpreter");
     let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
-        &context,
+        &context, None,
     )
     .expect("interpretation should succeed");
 
@@ -139,7 +139,7 @@ settings = {
     let context = ProjectInterpreter::from_config_source(source)
         .expect("must not panic the interpreter");
     let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
-        &context,
+        &context, None,
     )
     .expect("a valid bare-keyword mode value should freeze fine");
 
@@ -166,7 +166,7 @@ settings = {
 
     let context = ProjectInterpreter::from_config_source(source)
         .expect("must not panic the interpreter");
-    comline_core::package::config::ir::interpreter::interpret::interpret_context(&context)
+    comline_core::package::config::ir::interpreter::interpret::interpret_context(&context, None)
         .expect("should have panicked before returning");
 }
 

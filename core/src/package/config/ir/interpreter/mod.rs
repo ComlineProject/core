@@ -3,7 +3,11 @@ pub mod interpret;
 pub mod freezing;
 
 // Standard Uses
+#[cfg(feature = "deps")]
+use std::collections::HashSet;
 use std::path::Path;
+#[cfg(feature = "deps")]
+use std::path::PathBuf;
 
 // Crate Uses
 
@@ -42,7 +46,7 @@ impl Compile for ProjectInterpreter {
         // TODO: Is there more interpretation needed here? 
         // interpret_context(&context)?; // This was in from_config_source
         
-        crate::package::config::ir::interpreter::interpret::interpret_context(&context)
+        crate::package::config::ir::interpreter::interpret::interpret_context(&context, None)
             .map_err(|e| eyre::eyre!("{}", e))?;
 
         Ok(context)
@@ -74,16 +78,59 @@ impl ProjectInterpreter {
     }
 
     pub fn from_origin(origin: &Path) -> Result<ProjectContext> {
+        #[cfg(feature = "deps")]
+        {
+            Self::from_origin_with(origin, &mut HashSet::new())
+        }
+        #[cfg(not(feature = "deps"))]
+        {
+            Self::from_origin_inner(origin)
+        }
+    }
+
+    /// [`from_origin`], threading the dependency-cycle-guard set a
+    /// cross-package `settings = <dep>::settings::<name>` reference's
+    /// resolution needs — see
+    /// `crate::package::config::ir::interpreter::interpret::resolve_cross_package_settings`.
+    #[cfg(feature = "deps")]
+    pub(crate) fn from_origin_with(
+        origin: &Path,
+        in_progress: &mut HashSet<PathBuf>,
+    ) -> Result<ProjectContext> {
+        let project_root = origin.parent().unwrap_or_else(|| Path::new("."));
+        let mut context = Self::read_and_parse(origin)?;
+
+        let cross_package_override =
+            interpret::resolve_cross_package_settings(&context, project_root, in_progress)
+                .map_err(|e| eyre::eyre!("{}", e))?;
+
+        context.config_frozen = Some(
+            interpret::interpret_context(&context, cross_package_override.as_ref())
+                .map_err(|e| eyre::eyre!("{}", e))?,
+        );
+
+        Ok(context)
+    }
+
+    #[cfg(not(feature = "deps"))]
+    fn from_origin_inner(origin: &Path) -> Result<ProjectContext> {
+        let mut context = Self::read_and_parse(origin)?;
+        context.config_frozen = Some(
+            interpret::interpret_context(&context, None).map_err(|e| eyre::eyre!("{}", e))?,
+        );
+        Ok(context)
+    }
+
+    /// Read `origin` and parse it into a [`ProjectContext`] with its
+    /// `origin`/`config` set — not yet interpreted (`config_frozen` is
+    /// still `None`).
+    fn read_and_parse(origin: &Path) -> Result<ProjectContext> {
         let source = std::fs::read_to_string(origin)
             .map_err(|e| eyre::eyre!("Failed to read file {:?}: {}", origin, e))?;
-            
+
         let mut context = Self::from_config_source(&source)?;
         // Update origin since from_config_source sets generic Virtual origin
         context.origin = crate::package::config::ir::context::Origin::Disk(origin.to_path_buf());
-        
-        context.config_frozen = Some(interpret::interpret_context(&context)
-             .map_err(|e| eyre::eyre!("{}", e))?);
-        
         Ok(context)
     }
 }
