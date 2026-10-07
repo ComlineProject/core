@@ -3,7 +3,11 @@ pub mod cas; // CAS module (public for tests)
 
 // Standard Uses
 use std::cell::RefCell;
+#[cfg(feature = "deps")]
+use std::collections::HashSet;
 use std::path::Path;
+#[cfg(feature = "deps")]
+use std::path::PathBuf;
 use std::rc::Rc;
 
 // Crate Uses
@@ -31,6 +35,47 @@ use eyre::{bail, eyre, Result};
 /// embedders (the playground) that never touch the filesystem. Both share the
 /// same interpretation + validation pass.
 pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
+    #[cfg(feature = "deps")]
+    {
+        let mut in_progress = HashSet::new();
+        in_progress.insert(canonical(package_path));
+        compile_package_with(package_path, &mut in_progress)
+    }
+    #[cfg(not(feature = "deps"))]
+    {
+        compile_package_inner(package_path)
+    }
+}
+
+/// [`compile_package`], threading the dependency-cycle-guard set — shared
+/// across every recursive dependency compile in one traversal (a cross-
+/// package `settings` reference's resolution, and ordinary schema-level
+/// dependency merging, both go through this same set). Callers are
+/// responsible for having already inserted their own canonical path before
+/// calling this (see [`crate::package::deps::resolve_with`], which does so
+/// for every dependency it recurses into) — [`compile_package`] itself does
+/// that for the top-level package being built.
+#[cfg(feature = "deps")]
+pub(crate) fn compile_package_with(
+    package_path: &Path,
+    in_progress: &mut HashSet<PathBuf>,
+) -> Result<ProjectContext> {
+    let config_path = require_config_path(package_path)?;
+    let mut latest_project =
+        ProjectInterpreter::from_origin_with(&config_path, in_progress)?;
+    interpret_schemas(&mut latest_project, package_path, in_progress)?;
+    Ok(latest_project)
+}
+
+#[cfg(not(feature = "deps"))]
+fn compile_package_inner(package_path: &Path) -> Result<ProjectContext> {
+    let config_path = require_config_path(package_path)?;
+    let mut latest_project = ProjectInterpreter::from_origin(&config_path)?;
+    interpret_schemas(&mut latest_project, package_path)?;
+    Ok(latest_project)
+}
+
+fn require_config_path(package_path: &Path) -> Result<std::path::PathBuf> {
     let config_path = package_path.join(format!("config.{}", CONGREGATION_EXTENSION));
     let config_name = config_path.file_name().unwrap().to_str().unwrap();
 
@@ -42,10 +87,12 @@ pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
         )
     }
 
-    let mut latest_project = ProjectInterpreter::from_origin(&config_path)?;
-    interpret_schemas(&mut latest_project, package_path)?;
+    Ok(config_path)
+}
 
-    Ok(latest_project)
+#[cfg(feature = "deps")]
+fn canonical(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
 /// Compile and validate a package from **in-memory sources** — no filesystem
@@ -104,7 +151,7 @@ impl PackageSources {
 
         let mut context = ProjectInterpreter::from_config_source(&config)?;
         context.config_frozen = Some(
-            crate::package::config::ir::interpreter::interpret::interpret_context(&context)
+            crate::package::config::ir::interpreter::interpret::interpret_context(&context, None)
                 .map_err(|e| eyre!("{}", e))?,
         );
 
@@ -197,17 +244,24 @@ pub(crate) fn glob_schema_sources(package_path: &Path) -> Result<Vec<(Vec<String
 /// `shared_types::foo` here), plus the std schemas any of them import
 /// (see [`with_std`]), merged into one [`interpret_schema_sources`] pass so
 /// cross-package `use` resolves normally.
-fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
+#[cfg(feature = "deps")]
+fn interpret_schemas(
+    context: &mut ProjectContext,
+    package_path: &Path,
+    in_progress: &mut HashSet<PathBuf>,
+) -> Result<()> {
     let mut sources = glob_schema_sources(package_path)?;
+    sources.extend(crate::package::deps::resolve_dependency_sources(
+        context,
+        package_path,
+        in_progress,
+    )?);
+    interpret_schema_sources(context, &with_std(sources))
+}
 
-    #[cfg(feature = "deps")]
-    {
-        sources.extend(crate::package::deps::resolve_dependency_sources(
-            context,
-            package_path,
-        )?);
-    }
-
+#[cfg(not(feature = "deps"))]
+fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
+    let sources = glob_schema_sources(package_path)?;
     interpret_schema_sources(context, &with_std(sources))
 }
 

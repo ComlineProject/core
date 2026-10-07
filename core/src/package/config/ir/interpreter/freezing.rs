@@ -14,13 +14,15 @@ use crate::package::config::ir::frozen::{
 pub fn interpret_node_into_frozen(
     context: &ProjectContext,
     node: &Assignment,
+    cross_package_settings: Option<&crate::settings::SettingsDict>,
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
-    interpret_assignment(context, node)
+    interpret_assignment(context, node, cross_package_settings)
 }
 
 pub fn interpret_assignment(
     _context: &ProjectContext,
     node: &Assignment,
+    cross_package_settings: Option<&crate::settings::SettingsDict>,
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
     let key_str = match &node.key {
         Key::Identifier(id) => id.value.clone(),
@@ -91,25 +93,35 @@ pub fn interpret_assignment(
             interpret_assignment_dependencies(items)?
         }
         "settings" => {
-            let Value::Dictionary(items) = &node.value else {
-                panic!("'settings' should be a dictionary")
-            };
-
-            let dict = interpret_settings_dict(items)?;
-            if let Err(errors) = crate::settings::merge::validate_mode_keys(&dict) {
-                panic!(
-                    "invalid 'settings': {}",
-                    errors
-                        .iter()
-                        .map(|e| format!(
-                            "'mode' at '{}' is {:?}, not the bare keyword `replace`",
-                            e.path, e.found
-                        ))
-                        .collect::<Vec<_>>()
-                        .join("; ")
-                );
+            if let Some(resolved) = cross_package_settings {
+                vec![FrozenUnit::Settings(resolved.clone())]
+            } else {
+                match &node.value {
+                    Value::Dictionary(items) => {
+                        let dict = interpret_settings_dict(items)?;
+                        if let Err(errors) = crate::settings::merge::validate_mode_keys(&dict) {
+                            panic!(
+                                "invalid 'settings': {}",
+                                errors
+                                    .iter()
+                                    .map(|e| format!(
+                                        "'mode' at '{}' is {:?}, not the bare keyword `replace`",
+                                        e.path, e.found
+                                    ))
+                                    .collect::<Vec<_>>()
+                                    .join("; ")
+                            );
+                        }
+                        vec![FrozenUnit::Settings(dict)]
+                    }
+                    Value::Namespaced(ns) => panic!(
+                        "settings = {} is a cross-package reference, which needs a filesystem \
+                         build with dependency resolution — not available in this context",
+                        ns.value
+                    ),
+                    _ => panic!("'settings' should be a dictionary"),
+                }
             }
-            vec![FrozenUnit::Settings(dict)]
         }
         any => {
             // panic!("Assignment '{}' is not a valid assignment", any)

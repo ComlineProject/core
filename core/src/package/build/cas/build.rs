@@ -78,7 +78,10 @@ fn vendor_dependencies(
     store: &ObjectStore,
     root_tree: &mut Tree,
 ) -> Result<Vec<crate::package::deps::ResolvedDependency>> {
-    let resolved_deps = crate::package::deps::resolve_all(latest_project, project_path)?;
+    let mut in_progress = std::collections::HashSet::new();
+    in_progress.insert(project_path.canonicalize().unwrap_or_else(|_| project_path.to_path_buf()));
+    let resolved_deps =
+        crate::package::deps::resolve_all(latest_project, project_path, &mut in_progress)?;
     for resolved in &resolved_deps {
         let dep_tree = build_dependency_tree(resolved, store)?;
         let tree_hash = store.write(&dep_tree.to_bytes()?)?;
