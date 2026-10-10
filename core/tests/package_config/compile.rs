@@ -102,8 +102,9 @@ settings = {
 }
 
 #[test]
-fn an_absent_settings_key_still_freezes_an_empty_default() {
+fn an_absent_settings_key_still_freezes_the_built_in_default() {
     use comline_core::package::config::ir::frozen::settings;
+    use comline_core::settings::value::SettingsValue;
 
     let source = r#"congregation no_settings
 specification_version = 1
@@ -117,7 +118,11 @@ specification_version = 1
     .expect("interpretation should succeed");
 
     let dict = settings(&frozen).expect("a default Settings unit should still be synthesised");
-    assert!(dict.is_empty(), "no real default policy content ships yet");
+    assert_eq!(
+        dict.get_path("annotations.framing.allowed"),
+        Some(&SettingsValue::Bool(false)),
+        "framing is forbidden by Comline's built-in default"
+    );
 }
 
 #[test]

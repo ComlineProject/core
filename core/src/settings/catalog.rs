@@ -72,13 +72,21 @@ pub fn doc_for(m: &Match) -> FieldDoc {
                 when present, this subtree replaces the corresponding subtree from the \
                 layer below instead of merging into it. Absent (the default) means merge.",
         },
-        Match::AnnotationAllowed { .. } => FieldDoc {
+        Match::AnnotationAllowed { name } => FieldDoc {
             key_pattern: "annotations.<name>.allowed",
             summary: "whether this annotation is permitted here",
-            description: "Whether the named annotation is permitted on declarations this \
-                key's scope covers. `true` allows it, `false` forbids it (a hard build \
-                error naming the annotation and this key). No key at any level means \
-                allowed by default.",
+            description: if *name == "framing" {
+                "Whether the `framing` annotation is permitted on declarations this key's \
+                    scope covers. `true` allows it, `false` forbids it (a hard build error \
+                    naming the annotation and this key). Comline's built-in default already \
+                    forbids `framing` specifically - no key written anywhere means forbidden \
+                    for `framing` (allowed by default for everything else)."
+            } else {
+                "Whether the named annotation is permitted on declarations this key's scope \
+                    covers. `true` allows it, `false` forbids it (a hard build error naming \
+                    the annotation and this key). No key at any level means allowed by \
+                    default."
+            },
         },
         Match::ValidatorAllowed { .. } => FieldDoc {
             key_pattern: "validators.<name>.allowed",
@@ -216,5 +224,19 @@ mod tests {
     #[test]
     fn no_match_for_empty_path() {
         assert!(match_path(&[]).is_none());
+    }
+
+    #[test]
+    fn doc_for_framing_mentions_the_built_in_default() {
+        let doc = doc_for(&Match::AnnotationAllowed { name: "framing" });
+        assert!(doc.description.contains("built-in default"));
+        assert!(doc.description.contains("forbidden"));
+    }
+
+    #[test]
+    fn doc_for_other_annotation_stays_generic() {
+        let doc = doc_for(&Match::AnnotationAllowed { name: "idempotent" });
+        assert!(!doc.description.contains("built-in default"));
+        assert!(doc.description.contains("allowed by default"));
     }
 }

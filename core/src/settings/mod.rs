@@ -6,12 +6,14 @@
 //! natural place to share one value type and one merge algorithm rather
 //! than duplicating them per grammar.
 //!
-//! Single-package slice only: no cross-package references, no
-//! enforcement. This computes "effective settings" correctly as a tested
-//! library capability with no live caller yet - mirrors how today's
-//! `.ids` settings block is already parsed and frozen but inert.
+//! Fully wired up: layering/merge, enforcement
+//! (`schema::ir::compiler::settings::enforcement`), cross-package sharing,
+//! and editor hover/completion (`catalog`) all consume this module's
+//! types for real. `defaults` holds the one built-in policy a package
+//! gets when it writes no `settings` at all.
 
 pub mod catalog;
+pub mod defaults;
 pub mod desugar;
 pub mod effective;
 pub mod merge;
