@@ -39,13 +39,15 @@ pub fn interpret_context(
         );
     }
 
-    // `settings` is optional - a package that writes none still gets a
-    // (currently empty) Comline-provided default, the same "sensible
-    // default, override when you need to" shape `specification_version`
-    // and `publish_registries` are heading toward. No other `.idp` field
-    // has this absent-key-gets-a-default behavior yet; this is the first.
+    // `settings` is optional - a package that writes none still gets
+    // Comline's built-in default (`settings::defaults::built_in` -
+    // currently just "`@framing` is forbidden until explicitly allowed"),
+    // the same "sensible default, override when you need to" shape
+    // `specification_version` and `publish_registries` are heading
+    // toward. No other `.idp` field has this absent-key-gets-a-default
+    // behavior yet; this is the first.
     if !interpreted.iter().any(|u| matches!(u, FrozenUnit::Settings(_))) {
-        interpreted.push(FrozenUnit::Settings(crate::settings::SettingsDict::default()));
+        interpreted.push(FrozenUnit::Settings(crate::settings::defaults::built_in()));
     }
 
     Ok(interpreted)

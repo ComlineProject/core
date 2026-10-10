@@ -47,7 +47,44 @@ protocol Chat {
 }
 
 #[test]
-fn an_allowed_annotation_compiles_fine() {
+fn an_explicitly_allowed_annotation_compiles_fine() {
+    // `@framing` is forbidden by Comline's built-in default (see
+    // `framing_is_forbidden_by_default_with_no_settings_block` below) -
+    // an explicit `allowed = true` is what re-permits it.
+    let result = PackageSources::new()
+        .config(
+            r#"
+congregation acme
+specification_version = 1
+code_generation = { languages = { rust#1.70.0 = {} } }
+settings = {
+    annotations = {
+        framing = {
+            allowed = true
+        }
+    }
+}
+"#,
+        )
+        .schema(
+            ["chat"],
+            r#"
+@framing = "jsonrpc"
+protocol Chat {
+    function ping() -> str;
+}
+"#,
+        )
+        .compile();
+
+    assert!(result.is_ok(), "explicitly allowed should compile: {:?}", result.err());
+}
+
+#[test]
+fn framing_is_forbidden_by_default_with_no_settings_block() {
+    // Comline's one built-in default policy: `@framing` is forbidden
+    // until some level explicitly allows it, even with no `settings`
+    // block written at all.
     let result = PackageSources::new()
         .config(
             r#"
@@ -67,7 +104,13 @@ protocol Chat {
         )
         .compile();
 
-    assert!(result.is_ok(), "no package settings forbid anything here: {:?}", result.err());
+    let err = result.expect_err("framing should be forbidden by the built-in default");
+    let message = format!("{err}");
+    assert!(message.contains("framing"), "error should name the annotation: {message}");
+    assert!(
+        message.contains("forbidden") && message.contains("settings enforcement"),
+        "error should come from settings enforcement, not some other cause: {message}"
+    );
 }
 
 #[test]
