@@ -510,9 +510,16 @@ fn frozen_error(
 /// `expression: Some(..)`. A list `@key = [Name(k = v, ...), ...]` (only
 /// `@validators` today) becomes one `FrozenUnit::ValidatorRef { name, args }`
 /// per call, keeping the applied name and its keyword arguments structured.
+/// `@deprecated` is the one other special case: it freezes to
+/// `FrozenUnit::Deprecated` from the real `Expression`, not a generic
+/// `Property`'s flattened text - see `deprecated_value`.
 fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
     let mut units = Vec::new();
     for a in annotations {
+        if a.key() == "deprecated" {
+            units.push(FrozenUnit::Deprecated(deprecated_value(a)));
+            continue;
+        }
         let Some(assignment) = &a.assignment else {
             units.push(FrozenUnit::Property { name: a.key(), expression: None });
             continue;
@@ -540,6 +547,25 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
         }
     }
     units
+}
+
+/// `@deprecated`'s value, read from the real `Expression` before it would
+/// otherwise collapse to text - this is what lets `true`/`false` be told
+/// apart from a same-spelled free word, instead of `deprecation_of`
+/// string-comparing already-flattened text.
+fn deprecated_value(annotation: &Annotation) -> crate::schema::ir::frozen::unit::DeprecatedValue {
+    use crate::schema::idl::grammar::{BoolLiteral, Expression};
+    use crate::schema::ir::frozen::unit::DeprecatedValue;
+
+    let Some(assignment) = &annotation.assignment else {
+        return DeprecatedValue::True; // bare marker
+    };
+    match &assignment.value {
+        AnnotationValue::Scalar(Expression::Bool(BoolLiteral::True)) => DeprecatedValue::True,
+        AnnotationValue::Scalar(Expression::Bool(BoolLiteral::False)) => DeprecatedValue::False,
+        AnnotationValue::Scalar(Expression::String(s)) => DeprecatedValue::Message(s.value.clone()),
+        _ => DeprecatedValue::Malformed(annotation.value().unwrap_or_default()),
+    }
 }
 
 fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {

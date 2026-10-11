@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 // Crate Uses
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
-use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 
 const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
@@ -25,6 +25,8 @@ const STRUCT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::struct-c
 const UNKNOWN_TYPE: DiagnosticCode = DiagnosticCode::error("validation::unknown-type");
 const DEPRECATED_TYPE_USAGE: DiagnosticCode =
     DiagnosticCode::warning("validation::deprecated-type-usage");
+const DEPRECATED_MALFORMED_VALUE: DiagnosticCode =
+    DiagnosticCode::error("validation::deprecated-malformed-value");
 
 
 
@@ -82,8 +84,12 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
         // protocol, a field, or a function parses fine but has no usage
         // site this check can reach yet.
         if let FrozenUnit::Struct { parameters, .. } = unit {
-            if let Some(message) = deprecation_of(parameters) {
-                deprecated.insert(name, message);
+            match deprecation_of(parameters, span) {
+                Ok(Some(message)) => {
+                    deprecated.insert(name, message);
+                }
+                Ok(None) => {}
+                Err(diagnostic) => errors.push(diagnostic),
             }
         }
     }
@@ -415,25 +421,33 @@ fn detect_cycle<'a>(
 
 /// Look for a `deprecated` property among a struct/error's own annotation
 /// parameters. Outer `Option`: is it deprecated at all - `None` for absent
-/// or explicit `@deprecated = false`. Inner: an optional message, lenient
-/// about the value's shape (mirrors Rust's own `#[deprecated]`/
-/// `#[deprecated = "note"]`): a bare marker or `= true` means "deprecated,
-/// no message"; any value besides the literal text `false` carries its
-/// rendered text as the message.
-fn deprecation_of(parameters: &[FrozenUnit]) -> Option<Option<String>> {
+/// or explicit `@deprecated = false`. Inner: an optional message - a bare
+/// marker or `= true` means "deprecated, no message"; `= "message"` carries
+/// it. Anything else (a bare word, a `::`-path, an integer, an f-string, a
+/// list) is a real `Err`, not silently treated as a message - mirrors Rust's
+/// own `#[deprecated]`/`#[deprecated = "note"]`, which only ever accepts a
+/// bare marker or a quoted string, never an arbitrary bare identifier.
+fn deprecation_of(
+    parameters: &[FrozenUnit],
+    span: Option<(usize, usize)>,
+) -> Result<Option<Option<String>>, Diagnostic> {
     for p in parameters {
-        let FrozenUnit::Property { name, expression } = p else { continue };
-        if name != "deprecated" {
-            continue;
-        }
-        return match expression {
-            None => Some(None),
-            Some(v) if v == "false" => None,
-            Some(v) if v == "true" => Some(None),
-            Some(v) => Some(Some(v.clone())),
+        let FrozenUnit::Deprecated(value) = p else { continue };
+        return match value {
+            DeprecatedValue::False => Ok(None),
+            DeprecatedValue::True => Ok(Some(None)),
+            DeprecatedValue::Message(msg) => Ok(Some(Some(msg.clone()))),
+            DeprecatedValue::Malformed(text) => Err(Diagnostic::new(
+                DEPRECATED_MALFORMED_VALUE,
+                format!("'@deprecated' must be a boolean or a string message, got '{text}'"),
+            )
+            .with_help(
+                "accepted values: a bare `@deprecated` marker, `= true`, `= false`, or `= \"message\"`",
+            )
+            .maybe_span(span)),
         };
     }
-    None
+    Ok(None)
 }
 
 fn validate_type(

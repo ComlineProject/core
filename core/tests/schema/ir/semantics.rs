@@ -619,6 +619,53 @@ struct Post {
 }
 
 #[test]
+fn test_deprecated_capitalized_true_is_a_malformed_value_error() {
+    // `True` is a bare identifier, not the `true` bool literal - it must
+    // not be silently treated as a custom message (the old stringly-typed
+    // behavior this replaces).
+    let code = r#"
+@deprecated = True
+struct Author {
+    name: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).expect_err("a non-bool/non-string value must fail validation");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].code.id, "validation::deprecated-malformed-value");
+    assert!(errors[0].message.contains("'True'"), "{:?}", errors[0].message);
+}
+
+#[test]
+fn test_deprecated_bare_word_is_also_a_malformed_value_error() {
+    // Previously silently accepted as a free-text message - tightened
+    // along with the casing fix, since an unquoted word was never a
+    // sensible `@deprecated` value either.
+    let code = r#"
+@deprecated = coffee
+struct Author {
+    name: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).expect_err("a bare word must fail validation");
+    assert_eq!(errors[0].code.id, "validation::deprecated-malformed-value");
+}
+
+#[test]
+fn test_deprecated_integer_is_also_a_malformed_value_error() {
+    let code = r#"
+@deprecated = 42
+struct Author {
+    name: str
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).expect_err("an integer must fail validation");
+    assert_eq!(errors[0].code.id, "validation::deprecated-malformed-value");
+}
+
+#[test]
 fn test_deprecated_struct_referenced_from_a_protocol_function_warns() {
     let code = r#"
 @deprecated
