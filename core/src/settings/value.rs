@@ -45,6 +45,23 @@ impl SettingsSpans {
     }
 }
 
+impl SettingsValue {
+    /// This value's syntactic form, for [`crate::config_value::check`].
+    /// The bridge from this surface's own value enum onto the shared
+    /// vocabulary - `Identifier` is a bare word (`mode = replace`), `Str`
+    /// is a quoted one, and the two must stay distinguishable.
+    pub fn form(&self) -> crate::config_value::ValueForm<'_> {
+        use crate::config_value::ValueForm;
+        match self {
+            SettingsValue::Bool(b) => ValueForm::Bool(*b),
+            SettingsValue::Integer(i) => ValueForm::Integer(*i),
+            SettingsValue::Str(s) => ValueForm::Str(s),
+            SettingsValue::Identifier(id) => ValueForm::Name(id),
+            SettingsValue::Dict(_) => ValueForm::Dict,
+        }
+    }
+}
+
 impl SettingsDict {
     pub fn new() -> Self {
         Self(BTreeMap::new())

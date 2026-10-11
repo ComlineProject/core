@@ -3,6 +3,7 @@
 //#![deny(rust_2018_idioms)]
 
 // Relative Modules
+pub mod config_value;
 pub mod diagnostics;
 pub mod schema;
 pub mod package;
