@@ -27,6 +27,7 @@
 //! validation still enumerate it uniformly: one registry, one explicit arm.
 
 use crate::config_value::{StrVariant, ValueType};
+use crate::diagnostics::DiagnosticCode;
 use crate::schema::idl::annotations::AnnotationScope;
 
 /// The closed set of declaration sites a key may be scoped to - exactly
@@ -197,6 +198,13 @@ pub struct PathShape {
     pub coarse: bool,
     pub scoping: Scoping,
     pub value: ValueType,
+    /// The code to report a value of the wrong type under. Lives on the
+    /// shape rather than in whichever pass happens to notice, so every
+    /// reporter agrees - `conformance` catches these at freeze time and
+    /// `severity` catches the same key's value again when it resolves an
+    /// override, and the two must not invent different codes for one
+    /// mistake.
+    pub malformed: DiagnosticCode,
     pub doc: ShapeDoc,
 }
 
@@ -206,6 +214,7 @@ pub struct ReservedShape {
     pub id: &'static str,
     pub word: &'static str,
     pub value: ValueType,
+    pub malformed: DiagnosticCode,
     pub doc: ShapeDoc,
 }
 
@@ -227,6 +236,13 @@ impl Shape {
         match self {
             Shape::Path(p) => &p.value,
             Shape::Reserved(r) => &r.value,
+        }
+    }
+
+    pub fn malformed(&self) -> DiagnosticCode {
+        match self {
+            Shape::Path(p) => p.malformed,
+            Shape::Reserved(r) => r.malformed,
         }
     }
 }
@@ -262,6 +278,7 @@ pub const SHAPES: &[Shape] = &[
         id: MODE,
         word: "mode",
         value: ValueType::Keyword(&[MODE_REPLACE]),
+        malformed: DiagnosticCode::error("settings::invalid-mode"),
         doc: ShapeDoc {
             summary: "merge behavior for this subtree",
             description: "Reserved key. Its value must be the bare keyword `replace` - \
@@ -283,6 +300,7 @@ pub const SHAPES: &[Shape] = &[
         coarse: false,
         scoping: Scoping::DeclScopedThenGlobal,
         value: ValueType::Bool,
+        malformed: DiagnosticCode::error("settings::malformed-value"),
         doc: ShapeDoc {
             summary: "whether this annotation is permitted here",
             description: "Whether the named annotation is permitted on declarations this key's \
@@ -305,6 +323,7 @@ pub const SHAPES: &[Shape] = &[
         coarse: true,
         scoping: Scoping::DeclScopedThenGlobal,
         value: ValueType::Bool,
+        malformed: DiagnosticCode::error("settings::malformed-value"),
         doc: ShapeDoc {
             summary: "whether this validator is permitted here",
             description: "Whether the named validator is permitted on declarations this \
@@ -329,6 +348,7 @@ pub const SHAPES: &[Shape] = &[
         coarse: false,
         scoping: Scoping::GlobalOnly,
         value: ValueType::StrEnum(LEVELS),
+        malformed: DiagnosticCode::error("settings::invalid-diagnostic-level"),
         doc: ShapeDoc {
             summary: "overrides a diagnostic code's effective severity",
             description: "Overrides the severity of the named diagnostic code project-wide \
@@ -444,6 +464,11 @@ impl<'a> Match<'a> {
     /// Whether this matched the name-omitted form of its shape.
     pub fn is_coarse(&self) -> bool {
         matches!(self.shape, Shape::Path(_)) && self.name.is_none()
+    }
+
+    /// The code a wrongly-typed value here is reported under.
+    pub fn malformed_code(&self) -> DiagnosticCode {
+        self.shape.malformed()
     }
 
     /// What this key's value must be.

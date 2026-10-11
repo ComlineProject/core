@@ -165,6 +165,54 @@ fn settings_can_escalate_a_deprecation_warning_to_a_build_failure() {
 }
 
 #[test]
+fn a_misspelled_settings_key_fails_the_build_with_a_suggestion() {
+    // Used to compile clean and do nothing at all.
+    let err = PackageSources::new()
+        .schema(
+            ["chat"],
+            "struct Message {\n    body: str\n}\n\n\
+             settings {\n    annotations.framing.alowed = true\n}\n",
+        )
+        .compile()
+        .expect_err("an unrecognised settings key is a hard error");
+
+    let text = err.to_string();
+    assert!(text.contains("settings::unknown-key"), "got: {text}");
+    assert!(text.contains("annotations.framing.allowed"), "should suggest the fix: {text}");
+}
+
+#[test]
+fn an_unknown_top_level_settings_key_still_builds() {
+    // `settings` stays an open namespace outside the groups core owns.
+    PackageSources::new()
+        .schema(
+            ["chat"],
+            "struct Message {\n    body: str\n}\n\n\
+             settings {\n    forbid_indexing = true\n    max_depth = 8\n}\n",
+        )
+        .compile()
+        .expect("an open-namespace key must not fail the build");
+}
+
+#[test]
+fn a_wrongly_typed_settings_value_fails_even_when_nothing_uses_it() {
+    // No validator is referenced anywhere, so `enforcement` never looks at
+    // this key - it used to build clean.
+    let err = PackageSources::new()
+        .schema(
+            ["chat"],
+            "struct Message {\n    body: str\n}\n\n\
+             settings {\n    validators.allowed = Tru\n}\n",
+        )
+        .compile()
+        .expect_err("a wrongly-typed settings value is a hard error");
+
+    let text = err.to_string();
+    assert!(text.contains("must be a boolean"), "got: {text}");
+    assert!(!text.contains("Identifier("), "no Debug dump in user text: {text}");
+}
+
+#[test]
 fn a_malformed_diagnostic_level_is_its_own_build_failure() {
     let err = PackageSources::new()
         .schema(

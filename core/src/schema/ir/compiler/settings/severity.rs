@@ -15,9 +15,6 @@ use crate::config_value::{self, ValueForm};
 use crate::settings::keys;
 use crate::settings::value::{SettingsDict, SettingsSpans, SettingsValue};
 
-const INVALID_DIAGNOSTIC_LEVEL: DiagnosticCode =
-    DiagnosticCode::error("settings::invalid-diagnostic-level");
-
 /// Applies any `diagnostics."<code>".level` overrides to an
 /// already-produced list of non-fatal diagnostics (the `Ok(warnings)`
 /// `validation::validate` returns), splitting the result into what's
@@ -105,7 +102,7 @@ fn malformed(
     let shape = keys::diagnostics_level();
     let expected = config_value::describe(&shape.value);
     let d = Diagnostic::new(
-        INVALID_DIAGNOSTIC_LEVEL,
+        shape.malformed,
         format!("'{key}' must be {expected}, got {}", value.form()),
     )
     .with_help(format!("a diagnostics '{}' key only accepts {expected}", shape.leaf));

@@ -6,6 +6,7 @@
 //! share no code with `import_resolver`/`alias_resolution` beyond the
 //! calling convention.
 
+pub mod conformance;
 pub mod enforcement;
 pub mod resolution;
 pub mod severity;
