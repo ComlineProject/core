@@ -2,7 +2,7 @@ use std::collections::BTreeMap;
 
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigFrozenUnit;
-use crate::schema::ir::frozen::unit::FrozenUnit as SchemaFrozenUnit;
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit as SchemaFrozenUnit};
 
 use super::merge::{merge, merge_spans};
 use super::value::{SettingsDict, SettingsSpans};
@@ -88,9 +88,17 @@ pub fn effective_schema_settings_spans(
 /// there's no such annotation.
 pub fn settings_annotation_of(parameters: &[SchemaFrozenUnit]) -> Option<&str> {
     parameters.iter().find_map(|p| match p {
-        SchemaFrozenUnit::Property { name, expression } if name == "settings" => {
-            expression.as_deref()
-        }
+        SchemaFrozenUnit::Property { name, value } if name == "settings" => match value {
+            // A bare name is the correct form. A quoted one is accepted
+            // here because it used to resolve (the old flat text had
+            // already had its quotes stripped, so the two were
+            // indistinguishable) - silently ignoring it now would be a
+            // regression. The annotation registry reports the quoting
+            // itself, which is a better outcome than the preset quietly
+            // not applying.
+            ConfigValue::Name(n) | ConfigValue::Str(n) => Some(n.as_str()),
+            _ => None,
+        },
         _ => None,
     })
 }
@@ -258,11 +266,11 @@ mod tests {
         let params = vec![
             SchemaFrozenUnit::Property {
                 name: "timeout_ms".to_string(),
-                expression: Some("500".to_string()),
+                value: ConfigValue::Integer(500),
             },
             SchemaFrozenUnit::Property {
                 name: "settings".to_string(),
-                expression: Some("Strict".to_string()),
+                value: ConfigValue::Name("Strict".to_string()),
             },
         ];
         assert_eq!(settings_annotation_of(&params), Some("Strict"));
@@ -272,7 +280,7 @@ mod tests {
     fn settings_annotation_of_none_when_absent() {
         let params = vec![SchemaFrozenUnit::Property {
             name: "timeout_ms".to_string(),
-            expression: Some("500".to_string()),
+            value: ConfigValue::Integer(500),
         }];
         assert_eq!(settings_annotation_of(&params), None);
     }

@@ -11,7 +11,7 @@
 //! benefit.
 
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
-use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 use crate::settings::effective::{
     effective_declaration_settings, effective_declaration_settings_spans,
     effective_schema_settings, effective_schema_settings_spans, schema_settings,
@@ -283,7 +283,7 @@ mod tests {
     }
 
     fn property(name: &str) -> FrozenUnit {
-        FrozenUnit::Property { name: name.to_string(), expression: None }
+        FrozenUnit::Property { name: name.to_string(), value: ConfigValue::Marker }
     }
 
     fn validator_ref(name: &str) -> FrozenUnit {
@@ -524,7 +524,7 @@ mod tests {
     fn unresolved_settings_preset_is_its_own_error() {
         let package = SettingsDict::new();
         let units = vec![a_struct("S", vec![
-            FrozenUnit::Property { name: "settings".to_string(), expression: Some("Missing".to_string()) },
+            FrozenUnit::Property { name: "settings".to_string(), value: ConfigValue::Name("Missing".to_string()) },
         ], vec![])];
         let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
         assert_eq!(errors.len(), 1);
@@ -590,7 +590,7 @@ settings {
                 values: SettingsDict::new(), spans: SettingsSpans::new(),
             },
             a_struct("S", vec![
-                FrozenUnit::Property { name: "settings".to_string(), expression: Some("Strict".to_string()) },
+                FrozenUnit::Property { name: "settings".to_string(), value: ConfigValue::Name("Strict".to_string()) },
             ], vec![]),
         ];
         assert!(check_settings_enforcement(&units, &package, &SettingsSpans::new()).is_ok());

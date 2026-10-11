@@ -63,7 +63,7 @@ enum Status {
 
     #[test]
     fn test_settings_ir() {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = r#"
 /// Project-wide switches.
@@ -95,7 +95,7 @@ settings Project {
 
     #[test]
     fn test_annotations_are_captured() {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = r#"
 @internal=true
@@ -116,10 +116,11 @@ struct Message {
 
         // struct-level @internal=true
         assert_eq!(parameters.len(), 1);
+        // A real typed bool now, not the text "true".
         assert!(matches!(
             &parameters[0],
-            FrozenUnit::Property { name, expression }
-                if name == "internal" && expression.as_deref() == Some("true")
+            FrozenUnit::Property { name, value }
+                if name == "internal" && *value == ConfigValue::Bool(true)
         ));
 
         // field-level @min=3
@@ -128,8 +129,8 @@ struct Message {
         };
         assert!(matches!(
             &field_params[0],
-            FrozenUnit::Property { name, expression }
-                if name == "min" && expression.as_deref() == Some("3")
+            FrozenUnit::Property { name, value }
+                if name == "min" && *value == ConfigValue::Integer(3)
         ));
 
         // field-level @validators=[Call(kwargs)] — one ValidatorRef per call,
@@ -141,21 +142,61 @@ struct Message {
             panic!("expected ValidatorRef, got {:?}", rcpt_params[0]);
         };
         assert_eq!(name, "StringBounds");
-        let kwargs: Vec<(&str, &str)> = args
+        let kwargs: Vec<(&str, &ConfigValue)> = args
             .iter()
             .map(|p| match p {
-                FrozenUnit::Property { name, expression } => {
-                    (name.as_str(), expression.as_deref().unwrap())
-                }
+                FrozenUnit::Property { name, value } => (name.as_str(), value),
                 other => panic!("expected Property, got {other:?}"),
             })
             .collect();
-        assert_eq!(kwargs, vec![("min_chars", "3"), ("max_chars", "12")]);
+        // Validator arguments keep their types too, so argument checking
+        // no longer has to re-parse rendered text to guess one.
+        assert_eq!(
+            kwargs,
+            vec![
+                ("min_chars", &ConfigValue::Integer(3)),
+                ("max_chars", &ConfigValue::Integer(12)),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_quoted_annotation_value_is_distinguishable_from_a_bare_one() {
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
+
+        // The point of typing the IR: these two used to freeze
+        // identically, because the value was rendered to text with its
+        // quotes stripped.
+        let quoted = IncrementalInterpreter::from_source(
+            "@framing = \"datagram\"\nprotocol P {\n    function f();\n}\n",
+        );
+        let bare = IncrementalInterpreter::from_source(
+            "@framing = datagram\nprotocol P {\n    function f();\n}\n",
+        );
+
+        let value_of = |units: &[FrozenUnit]| -> ConfigValue {
+            let FrozenUnit::Protocol { parameters, .. } = &units[0] else {
+                panic!("expected Protocol, got {:?}", units[0]);
+            };
+            match &parameters[0] {
+                FrozenUnit::Property { value, .. } => value.clone(),
+                other => panic!("expected Property, got {other:?}"),
+            }
+        };
+
+        assert_eq!(value_of(&quoted), ConfigValue::Str("datagram".to_string()));
+        assert_eq!(value_of(&bare), ConfigValue::Name("datagram".to_string()));
+        assert_ne!(value_of(&quoted), value_of(&bare));
+
+        // Both still render to the same flat text, so a consumer that only
+        // wants the text is unaffected.
+        assert_eq!(value_of(&quoted).as_text().as_deref(), Some("datagram"));
+        assert_eq!(value_of(&bare).as_text().as_deref(), Some("datagram"));
     }
 
     #[test]
     fn test_bare_annotation_marker_freezes_with_no_expression() {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = r#"
 protocol P {
@@ -174,19 +215,19 @@ protocol P {
 
         assert!(matches!(
             &parameters[0],
-            FrozenUnit::Property { name, expression }
-                if name == "idempotent" && expression.is_none()
+            FrozenUnit::Property { name, value }
+                if name == "idempotent" && value.is_marker()
         ));
         assert!(matches!(
             &parameters[1],
-            FrozenUnit::Property { name, expression }
-                if name == "timeout_ms" && expression.as_deref() == Some("100")
+            FrozenUnit::Property { name, value }
+                if name == "timeout_ms" && *value == ConfigValue::Integer(100)
         ));
     }
 
     #[test]
     fn test_validator_declaration_ir() {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = r#"
 /// Bounds a string's length.
@@ -571,7 +612,7 @@ struct Company {
         ir_units: &'a [comline_core::schema::ir::frozen::unit::FrozenUnit],
         name: &str,
     ) -> &'a comline_core::schema::ir::compiler::interpreted::kind_search::KindValue {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
         ir_units
             .iter()
             .find_map(|u| match u {
@@ -584,7 +625,7 @@ struct Company {
     fn field_kind_value(
         ir_units: &[comline_core::schema::ir::frozen::unit::FrozenUnit],
     ) -> &comline_core::schema::ir::compiler::interpreted::kind_search::KindValue {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
         ir_units
             .iter()
             .find_map(|u| match u {
@@ -664,7 +705,7 @@ struct Company {
 
     #[test]
     fn test_type_alias_used_as_const_type_keeps_the_literal_default() {
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = "type UserId = u64\nconst ROOT_ID: UserId = 0\n";
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -688,7 +729,7 @@ struct Company {
     #[test]
     fn test_type_alias_used_as_fn_arg_and_return_keeps_the_name() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code =
             "type UserId = u64\nprotocol Store {\n    function get(UserId) -> UserId;\n}\n";
@@ -714,7 +755,7 @@ struct Company {
     #[test]
     fn test_type_alias_used_as_validator_property_keeps_the_name() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code = "type Count = u32\nvalidator Bounded {\n    max: Count\n}\n";
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -738,7 +779,7 @@ struct Company {
     #[test]
     fn test_type_alias_used_as_error_field_keeps_the_name() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
-        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+        use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
         let code =
             "type UserId = u64\nerror NotFound {\n    message = \"gone\"\n    id: UserId\n}\n";

@@ -149,7 +149,11 @@ pub fn check(expected: &ValueType, found: ValueForm<'_>) -> Result<(), TypeMisma
         (ValueType::Marker, ValueForm::Marker) => true,
         (ValueType::Bool, ValueForm::Bool(_)) => true,
         (ValueType::Integer, ValueForm::Integer(_)) => true,
-        (ValueType::Str, ValueForm::Str(_)) => true,
+        // An f-string evaluates to a string, so it satisfies `Str`
+        // wherever a string is wanted. Not folded into `ValueForm::Str`
+        // itself, because a closed `StrEnum` genuinely cannot accept one:
+        // its value isn't known until interpolation.
+        (ValueType::Str, ValueForm::Str(_) | ValueForm::FString(_)) => true,
         (ValueType::StrEnum(variants), ValueForm::Str(s)) => {
             variants.iter().any(|v| v.accepts(s))
         }
@@ -312,6 +316,14 @@ mod tests {
     fn marker_rejects_any_value() {
         assert!(check(&ValueType::Marker, ValueForm::Marker).is_ok());
         assert!(check(&ValueType::Marker, ValueForm::Bool(true)).is_err());
+    }
+
+    #[test]
+    fn an_fstring_satisfies_str_but_never_a_closed_set() {
+        assert!(check(&ValueType::Str, ValueForm::FString("\"{x}\"")).is_ok());
+        // A closed set can't accept one: the value isn't known until the
+        // placeholders are interpolated.
+        assert!(check(&ValueType::StrEnum(FRAMING), ValueForm::FString("\"{x}\"")).is_err());
     }
 
     #[test]

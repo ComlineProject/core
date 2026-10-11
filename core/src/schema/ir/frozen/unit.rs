@@ -43,9 +43,13 @@ pub enum FrozenUnit {
         kind_value: KindValue,
         span: (usize, usize),
     },
+    /// One `@key` / `@key = value` annotation. `value` keeps the shape the
+    /// author wrote (see [`ConfigValue`]); it used to be a flat
+    /// `Option<String>` of already-rendered text, which could not tell
+    /// `@framing = "datagram"` from `@framing = datagram`.
     Property {
         name: String,
-        expression: Option<String>
+        value: ConfigValue
     },
     /// A validator's `validate { ... }` block: the parsed asserts.
     ExpressionBlock {
@@ -171,10 +175,97 @@ pub enum FrozenUnit {
         target: KindValue,
         span: (usize, usize),
     },
-    /// `@deprecated`, frozen with real typed semantics instead of the
-    /// generic `Property`'s flat `Option<String>` text (which can't tell
-    /// a `true`/`false` literal apart from a same-spelled free word).
+    /// `@deprecated`, frozen with its *semantics* rather than its syntax -
+    /// is-deprecated plus an optional message, which is what
+    /// `deprecation_of`'s consumers want. [`ConfigValue`] now carries
+    /// every annotation's written shape faithfully, so this variant is no
+    /// longer the only typed one; it stays because the semantic view is a
+    /// different thing from the syntactic one.
     Deprecated(DeprecatedValue),
+}
+
+/// What an `@key = value` annotation was written as, preserved rather than
+/// rendered to text.
+///
+/// `Property` used to carry `Option<String>` produced by
+/// `AnnotationValue::render`, which strips quotes - so a frozen schema
+/// could not distinguish `@framing = "datagram"` from
+/// `@framing = datagram`. That is why validator-argument checking had to
+/// re-parse text to guess a type, and why it only ever recognised three
+/// categories.
+///
+/// Keeping the written form means typing is a *validation* question
+/// answered against a registry, not a representation question - which is
+/// what lets `@key` stay an open namespace (an unrecognised annotation
+/// freezes in whatever shape it was written, with no registry entry
+/// needed).
+///
+/// One variant per [`crate::schema::idl::grammar::Expression`] arm, plus
+/// [`ConfigValue::Marker`] for a bare `@key` with no `= value`. A list
+/// (`@validators = [...]`) is not here: it freezes as sibling
+/// [`FrozenUnit::ValidatorRef`] units, unchanged.
+#[derive(Deserialize, Serialize)]
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum ConfigValue {
+    /// A bare `@key`, no `= value`.
+    Marker,
+    Bool(bool),
+    Integer(i64),
+    /// A quoted string, quotes stripped.
+    Str(String),
+    /// A bare identifier - the distinction from [`ConfigValue::Str`] that
+    /// the old flat text could not represent.
+    Name(String),
+    /// A `::`-separated path.
+    Path(String),
+    /// An f-string, with its `{...}` placeholders intact.
+    FString(String),
+}
+
+impl ConfigValue {
+    /// This value's syntactic form, for [`crate::config_value::check`].
+    pub fn form(&self) -> crate::config_value::ValueForm<'_> {
+        use crate::config_value::ValueForm;
+        match self {
+            ConfigValue::Marker => ValueForm::Marker,
+            ConfigValue::Bool(b) => ValueForm::Bool(*b),
+            ConfigValue::Integer(i) => ValueForm::Integer(*i),
+            ConfigValue::Str(s) => ValueForm::Str(s),
+            ConfigValue::Name(n) => ValueForm::Name(n),
+            ConfigValue::Path(p) => ValueForm::Path(p),
+            ConfigValue::FString(s) => ValueForm::FString(s),
+        }
+    }
+
+    /// The flat text this value used to freeze as - `None` for a bare
+    /// marker, and quotes already stripped for a string, byte-for-byte
+    /// what `AnnotationValue::render` produced for a scalar.
+    ///
+    /// Kept so a consumer that genuinely only wants the text (a generator
+    /// interpolating it into output, or `@timeout_ms`'s `parse::<u64>()`)
+    /// needs no change. A consumer that cares *which kind* of value it got
+    /// should match the variants instead - that distinction is the whole
+    /// point of this type.
+    ///
+    /// `Cow` because a numeric or boolean value has no stored text to
+    /// borrow: it is rendered here rather than stored twice.
+    pub fn as_text(&self) -> Option<std::borrow::Cow<'_, str>> {
+        use std::borrow::Cow;
+        match self {
+            ConfigValue::Marker => None,
+            ConfigValue::Str(s)
+            | ConfigValue::Name(s)
+            | ConfigValue::Path(s)
+            | ConfigValue::FString(s) => Some(Cow::Borrowed(s)),
+            ConfigValue::Bool(b) => Some(Cow::Owned(b.to_string())),
+            ConfigValue::Integer(i) => Some(Cow::Owned(i.to_string())),
+        }
+    }
+
+    /// Whether this is a bare marker with no value.
+    pub fn is_marker(&self) -> bool {
+        matches!(self, ConfigValue::Marker)
+    }
 }
 
 #[derive(Deserialize, Serialize)]
