@@ -39,15 +39,27 @@ pub fn interpret_context(
         );
     }
 
-    // `settings` is optional - a package that writes none still gets
     // Comline's built-in default (`settings::defaults::built_in` -
-    // currently just "`@framing` is forbidden until explicitly allowed"),
-    // the same "sensible default, override when you need to" shape
-    // `specification_version` and `publish_registries` are heading
-    // toward. No other `.idp` field has this absent-key-gets-a-default
-    // behavior yet; this is the first.
-    if !interpreted.iter().any(|u| matches!(u, FrozenUnit::Settings(_))) {
-        interpreted.push(FrozenUnit::Settings(crate::settings::defaults::built_in()));
+    // currently just "`@framing` is forbidden until explicitly allowed")
+    // is the *base layer* every package's own settings merge onto, which
+    // is what the guide means by "the base every schema layers on top of".
+    //
+    // It used to be installed only when a package wrote no `settings` key
+    // at all, so writing any unrelated setting silently dropped the
+    // framing protection entirely - the opposite of a default. Merging it
+    // underneath instead means a package keeps the protection unless it
+    // actually says otherwise.
+    //
+    // A package that genuinely wants none of it still has a way out, for
+    // free: `mode = replace` at the root of its own `settings` drops the
+    // layer below, which `merge` already implements.
+    let built_in = crate::settings::defaults::built_in();
+    match interpreted.iter_mut().find_map(|u| match u {
+        FrozenUnit::Settings(dict) => Some(dict),
+        _ => None,
+    }) {
+        Some(written) => *written = crate::settings::merge::merge(&built_in, written),
+        None => interpreted.push(FrozenUnit::Settings(built_in)),
     }
 
     Ok(interpreted)
