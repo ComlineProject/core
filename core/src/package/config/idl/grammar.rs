@@ -28,7 +28,12 @@ pub mod grammar {
 
     #[derive(Debug, Clone)]
     pub struct NamespacedKey {
-        #[rust_sitter::leaf(pattern = r"[a-zA-Z0-9_]+(::[a-zA-Z0-9_]+)+", transform = |v| v.to_string())]
+        // `-` allowed per segment (not just `[a-zA-Z0-9_]`) so a diagnostic
+        // code id (`validation::deprecated-type-usage`) is writable
+        // verbatim as a `settings.diagnostics.<code>.level` dict key -
+        // still requires at least one `::`, so this stays scoped to
+        // namespaced tokens, not plain hyphenated words.
+        #[rust_sitter::leaf(pattern = r"[a-zA-Z0-9_-]+(::[a-zA-Z0-9_-]+)+", transform = |v| v.to_string())]
         pub value: String,
     }
 

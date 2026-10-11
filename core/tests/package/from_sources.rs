@@ -131,3 +131,51 @@ fn no_deprecation_means_no_warnings() {
     assert!(ctx.warnings().is_empty());
     assert!(ctx.rendered_warnings().is_empty());
 }
+
+#[test]
+fn settings_can_allow_away_a_deprecation_warning() {
+    let ctx = PackageSources::new()
+        .schema(
+            ["chat"],
+            "@deprecated\n\
+             struct Message {\n    body: str\n}\n\n\
+             struct Envelope {\n    inner: Message\n}\n\n\
+             settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"allow\"\n}\n",
+        )
+        .compile()
+        .expect("should compile - allow just silences the warning, it isn't a build failure");
+
+    assert!(ctx.warnings().is_empty(), "the allow-overridden warning should vanish entirely");
+}
+
+#[test]
+fn settings_can_escalate_a_deprecation_warning_to_a_build_failure() {
+    let err = PackageSources::new()
+        .schema(
+            ["chat"],
+            "@deprecated\n\
+             struct Message {\n    body: str\n}\n\n\
+             struct Envelope {\n    inner: Message\n}\n\n\
+             settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"error\"\n}\n",
+        )
+        .compile()
+        .expect_err("escalating to 'error' must fail the build - that's the whole point");
+
+    assert!(err.to_string().contains("Message"), "error names the escalated diagnostic: {err}");
+}
+
+#[test]
+fn a_malformed_diagnostic_level_is_its_own_build_failure() {
+    let err = PackageSources::new()
+        .schema(
+            ["chat"],
+            "@deprecated\n\
+             struct Message {\n    body: str\n}\n\n\
+             struct Envelope {\n    inner: Message\n}\n\n\
+             settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"nope\"\n}\n",
+        )
+        .compile()
+        .expect_err("a malformed level value is a hard error, not silently ignored");
+
+    assert!(err.to_string().contains("invalid-diagnostic-level"), "got: {err}");
+}

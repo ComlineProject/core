@@ -72,11 +72,22 @@ pub struct Diagnostic {
     /// here" (`secondary`), for an error whose root cause and trigger site
     /// are different places. Most diagnostics have none.
     pub secondary: Option<((usize, usize), String)>,
+    /// A project-configured severity for this one diagnostic (settings-
+    /// driven `diagnostics.<code>.level`), distinct from `code.severity` -
+    /// deliberately not stored *in* `code`: a `DiagnosticCode`'s severity
+    /// is its one intrinsic, non-reconfigurable meaning (see
+    /// `DiagnosticCode`'s own doc comment), while this is a downstream,
+    /// explicit policy choice layered on top. `None` (the default) means
+    /// "use `code.severity`, unchanged" - see [`Self::effective_severity`].
+    pub severity_override: Option<Severity>,
 }
 
 impl Diagnostic {
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
-        Self { code, message: message.into(), context: String::new(), span: None, help: None, secondary: None }
+        Self {
+            code, message: message.into(), context: String::new(), span: None, help: None,
+            secondary: None, severity_override: None,
+        }
     }
 
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
@@ -111,6 +122,23 @@ impl Diagnostic {
     pub fn with_secondary_span(mut self, span: (usize, usize), label: impl Into<String>) -> Self {
         self.secondary = Some((span, label.into()));
         self
+    }
+
+    /// A settings-configured severity for this one diagnostic - see
+    /// [`Self::severity_override`]'s own doc comment for why this doesn't
+    /// just mutate `code`.
+    pub fn with_severity_override(mut self, severity: Severity) -> Self {
+        self.severity_override = Some(severity);
+        self
+    }
+
+    /// The severity to actually treat this diagnostic as: the settings
+    /// override when one was applied, `code.severity` (its unchanged
+    /// intrinsic default) otherwise. Every consumer that branches on
+    /// severity (`render`, the LSP's `DiagnosticSeverity` mapping) should
+    /// call this, not `code.severity` directly.
+    pub fn effective_severity(&self) -> Severity {
+        self.severity_override.unwrap_or(self.code.severity)
     }
 }
 
@@ -282,7 +310,7 @@ pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
 
     let label = if d.context.is_empty() { "here" } else { d.context.as_str() };
     let byte_range: Range<usize> = span.0..span.1;
-    let kind = match d.code.severity {
+    let kind = match d.effective_severity() {
         Severity::Error => ReportKind::Error,
         Severity::Warning => ReportKind::Warning,
         Severity::Info | Severity::Hint => ReportKind::Advice,
@@ -485,6 +513,31 @@ mod tests {
         at(DiagnosticCode::warning, "Warning");
         at(DiagnosticCode::info, "Advice");
         at(DiagnosticCode::hint, "Advice");
+    }
+
+    #[test]
+    fn effective_severity_defaults_to_the_codes_own_severity() {
+        let d = Diagnostic::new(DiagnosticCode::warning("test::example"), "msg");
+        assert_eq!(d.effective_severity(), Severity::Warning);
+    }
+
+    #[test]
+    fn effective_severity_uses_the_override_when_set() {
+        let d = Diagnostic::new(DiagnosticCode::warning("test::example"), "msg")
+            .with_severity_override(Severity::Error);
+        assert_eq!(d.effective_severity(), Severity::Error);
+        // The code's own intrinsic severity is untouched by the override.
+        assert_eq!(d.code.severity, Severity::Warning);
+    }
+
+    #[test]
+    fn render_uses_the_overridden_severity_not_the_codes_own() {
+        let source = "struct Foo {\n  / bar: str\n}\n";
+        let d = Diagnostic::new(DiagnosticCode::warning("test::example"), "message")
+            .with_span((0, 1))
+            .with_severity_override(Severity::Error);
+        let rendered = render(&d, "main.ids", source);
+        assert!(rendered.contains("Error"), "expected an Error-kind render: {rendered}");
     }
 
     #[test]

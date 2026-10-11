@@ -9,6 +9,7 @@ use crate::schema::ir::compiler::import_resolver::{check_imports, resolve_use_to
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
+use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::settings::effective::package_settings;
@@ -84,7 +85,21 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
         match validation::validate(&frozen_units) {
             Ok(warnings) => {
+                let (warnings, fatal) = resolve_diagnostic_overrides(
+                    &frozen_units, warnings, &package_settings_dict, &package_settings_spans,
+                );
                 schema_context.borrow().warnings.borrow_mut().extend(warnings);
+                if !fatal.is_empty() {
+                    let rendered: Vec<String> = fatal
+                        .iter()
+                        .map(|error| schema_context.borrow().render(error))
+                        .collect();
+                    schema_errors.push(format!(
+                        "Schema '{}' has a diagnostic escalated to a build failure:\n{}",
+                        namespace_joined,
+                        rendered.join("\n\n")
+                    ));
+                }
             }
             Err(errors) => {
                 let rendered: Vec<String> = errors

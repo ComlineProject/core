@@ -23,6 +23,7 @@ pub enum Match<'a> {
     AnnotationAllowed { name: &'a str },
     ValidatorAllowed { name: &'a str },
     ValidatorAllowedCoarse,
+    DiagnosticLevel { code_id: &'a str },
 }
 
 /// Suffix match over a dotted key's segments. Mirrors exactly the
@@ -42,6 +43,14 @@ pub fn match_path<'a>(segments: &[&'a str]) -> Option<Match<'a>> {
     let n = segments.len();
     if n == 0 {
         return None;
+    }
+    // Exact shape only, unlike every other match below - `diagnostics.
+    // <code>.level` is deliberately package+schema scoped, not decl-path
+    // scoped (`resolve_diagnostic_overrides` never looks up a prefixed
+    // form), so a suffix match here would advertise completion for
+    // something that silently does nothing.
+    if n == 3 && segments[0] == "diagnostics" && segments[2] == "level" {
+        return Some(Match::DiagnosticLevel { code_id: segments[1] });
     }
     if segments[n - 1] == "mode" {
         return Some(Match::Mode);
@@ -104,6 +113,15 @@ pub fn doc_for(m: &Match) -> FieldDoc {
                 key matches first. `true` allows, `false` forbids (a hard build error \
                 naming the validator and this key).",
         },
+        Match::DiagnosticLevel { .. } => FieldDoc {
+            key_pattern: "diagnostics.<code>.level",
+            summary: "overrides a diagnostic code's effective severity",
+            description: "Overrides the severity of the named diagnostic code project-wide \
+                (package- and schema-level `settings` blocks only - not decl-scoped). One of \
+                'allow' (suppress it entirely), 'hint', 'info', 'warn', or 'error'. Only a code \
+                whose own intrinsic severity is non-Error can be overridden this way - an \
+                Error-severity code's level is fixed and this key has no effect on it.",
+        },
     }
 }
 
@@ -140,6 +158,13 @@ pub fn block_summary() -> &'static [FieldDoc] {
                 this scope covers, when no more specific `validators.<name>.allowed` key \
                 matches first. `true` allows, `false` forbids.",
         },
+        FieldDoc {
+            key_pattern: "diagnostics.<code>.level",
+            summary: "overrides a diagnostic code's effective severity",
+            description: "One of 'allow', 'hint', 'info', 'warn', or 'error' - project-wide \
+                (package/schema scope, not decl-scoped). Only works for a code whose own \
+                intrinsic severity is non-Error.",
+        },
     ]
 }
 
@@ -153,6 +178,7 @@ mod tests {
             Match::AnnotationAllowed { .. } => "annotation_allowed",
             Match::ValidatorAllowed { .. } => "validator_allowed",
             Match::ValidatorAllowedCoarse => "validator_allowed_coarse",
+            Match::DiagnosticLevel { .. } => "diagnostic_level",
         }
     }
 
@@ -206,6 +232,29 @@ mod tests {
     fn matches_decl_scoped_coarse_validators_allowed() {
         let m = match_path(&["struct", "field", "validators", "allowed"]).unwrap();
         assert_eq!(names(&m), "validator_allowed_coarse");
+    }
+
+    #[test]
+    fn matches_diagnostic_level() {
+        let m = match_path(&["diagnostics", "validation::deprecated-type-usage", "level"]).unwrap();
+        assert_eq!(names(&m), "diagnostic_level");
+        match m {
+            Match::DiagnosticLevel { code_id } => {
+                assert_eq!(code_id, "validation::deprecated-type-usage")
+            }
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn diagnostic_level_is_not_decl_scoped() {
+        // Deliberately exact-shape-only, unlike every other match here -
+        // a decl-scoped prefix must not match, since the resolver never
+        // looks one up.
+        assert!(
+            match_path(&["struct", "diagnostics", "validation::deprecated-type-usage", "level"])
+                .is_none()
+        );
     }
 
     #[test]

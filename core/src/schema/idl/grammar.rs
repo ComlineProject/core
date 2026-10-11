@@ -452,10 +452,40 @@ pub mod grammar {
     /// dictionary, desugared at freeze time (`crate::settings::desugar`).
     #[derive(Debug, Clone)]
     pub struct Setting {
-        pub key: DottedPath,
+        pub key: SettingsKey,
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: SettingValue,
+    }
+
+    /// A settings dotted key - almost always bare identifier segments
+    /// (`validators.allowed`), but a diagnostic code id
+    /// (`validation::deprecated-type-usage`) needs `::`/`-` inside one
+    /// segment, which no bare identifier allows. Quoting a segment is this
+    /// type's own escape hatch (`diagnostics."validation::deprecated-type-
+    /// usage".level`) - deliberately a separate type from `DottedPath`,
+    /// which is reused by f-string interpolation placeholders and a
+    /// validator `Operand`'s comparison path and must stay identifier-only
+    /// there (quoting `{"self".recipient}` would be nonsense in those
+    /// contexts).
+    #[derive(Debug, Clone)]
+    pub struct SettingsKey {
+        pub first: SettingsKeySegment,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<SettingsKeyPathSegment>,
+    }
+
+    #[derive(Debug, Clone)]
+    pub struct SettingsKeyPathSegment {
+        #[rust_sitter::leaf(text = ".")]
+        _dot: (),
+        pub segment: SettingsKeySegment,
+    }
+
+    #[derive(Debug, Clone)]
+    pub enum SettingsKeySegment {
+        Identifier(Identifier),
+        Quoted(StringLiteral),
     }
 
     /// A `settings` value. No general identifier alternative, so `True` /
@@ -1131,6 +1161,23 @@ pub mod grammar {
         }
     }
 
+    impl SettingsKeySegment {
+        fn text(&self) -> String {
+            match self {
+                SettingsKeySegment::Identifier(id) => id.text.clone(),
+                SettingsKeySegment::Quoted(s) => s.value.clone(),
+            }
+        }
+    }
+
+    impl SettingsKey {
+        pub fn joined(&self) -> String {
+            let mut segments = vec![self.first.text()];
+            segments.extend(self.rest.iter().map(|s| s.segment.text()));
+            segments.join(".")
+        }
+    }
+
     impl Enum {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
@@ -1164,8 +1211,8 @@ pub mod grammar {
         /// The dotted path's segments, for desugaring into a nested
         /// dictionary (`crate::settings::desugar`).
         pub fn key_path(&self) -> Vec<String> {
-            let mut path = vec![self.key.first.text.clone()];
-            path.extend(self.key.rest.iter().map(|s| s.segment.text.clone()));
+            let mut path = vec![self.key.first.text()];
+            path.extend(self.key.rest.iter().map(|s| s.segment.text()));
             path
         }
         /// The value rendered as a plain string (`"True"`, `"8"`, `"core"`,
