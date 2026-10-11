@@ -98,3 +98,36 @@ fn a_parse_error_is_returned_not_panicked() {
 
     assert!(err.to_string().contains("bad"), "error names the schema: {err}");
 }
+
+#[test]
+fn a_deprecated_struct_usage_compiles_successfully_and_is_a_warning() {
+    let ctx = PackageSources::new()
+        .schema(
+            ["chat"],
+            "@deprecated = \"use Message2 instead\"\n\
+             struct Message {\n    body: str\n}\n\n\
+             struct Envelope {\n    inner: Message\n}\n",
+        )
+        .compile()
+        .expect("deprecation is a warning, not a build failure");
+
+    let rendered = ctx.rendered_warnings();
+    assert_eq!(rendered.len(), 1);
+    assert!(rendered[0].contains("'Message' is deprecated"), "got: {}", rendered[0]);
+    assert!(rendered[0].contains("use Message2 instead"), "got: {}", rendered[0]);
+
+    let raw = ctx.warnings();
+    assert_eq!(raw.len(), 1);
+    assert_eq!(raw[0].code.id, "validation::deprecated-type-usage");
+}
+
+#[test]
+fn no_deprecation_means_no_warnings() {
+    let ctx = PackageSources::new()
+        .schema(["chat"], "struct Message {\n    body: str\n}\n")
+        .compile()
+        .expect("should compile");
+
+    assert!(ctx.warnings().is_empty());
+    assert!(ctx.rendered_warnings().is_empty());
+}

@@ -131,6 +131,20 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         value: "a bare name, e.g. `Strict` for a `settings Strict { ... }` block",
         consumed_by: &[],
     },
+    AnnotationInfo {
+        key: "deprecated",
+        scope: AnnotationScope::Leading,
+        authority: AnnotationAuthority::Core,
+        description: "Marks a struct as deprecated. Referencing it from a field, a function \
+                       argument/return, or a type alias target is a warning, naming this \
+                       declaration and (if given) the message. Parses on an error, a protocol, \
+                       a field, or a function too, but nothing warns on those yet - none of \
+                       them have a usage site this check can reach.",
+        default: "not deprecated",
+        value: "a bare marker, `true`/`false`, or a string message, e.g. \
+                `\"use NewAuthor instead\"`",
+        consumed_by: &["core's own validation pass (`ir::validation::validator`)"],
+    },
 ];
 
 /// Look up a known annotation by its key (the part right after `@`, no
@@ -165,9 +179,12 @@ mod tests {
     #[test]
     fn lookup_and_for_scope_agree_with_the_table() {
         assert!(lookup("validators").is_some());
+        assert!(lookup("deprecated").is_some());
         assert!(lookup("nope").is_none());
         // timeout_ms, idempotent (both Function), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
+        // framing, deprecated (both Leading), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 3);
     }
 
     #[test]

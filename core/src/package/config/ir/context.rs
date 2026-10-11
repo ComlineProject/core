@@ -157,6 +157,30 @@ impl ProjectContext {
 
         None
     }
+
+    /// Every non-fatal diagnostic accumulated across this project's own
+    /// schemas (e.g. a reference to a `@deprecated` struct/error), raw and
+    /// structured - for a consumer that wants to inspect code/severity/span
+    /// rather than just print them. In schema order.
+    pub fn warnings(&self) -> Vec<crate::diagnostics::Diagnostic> {
+        self.schema_contexts
+            .iter()
+            .flat_map(|schema| schema.borrow().warnings.borrow().clone())
+            .collect()
+    }
+
+    /// [`Self::warnings`], each one rendered against its own schema's
+    /// source - ready to print (e.g. via the CLI's `ui::warn`).
+    pub fn rendered_warnings(&self) -> Vec<String> {
+        self.schema_contexts
+            .iter()
+            .flat_map(|schema| {
+                let schema = schema.borrow();
+                let warnings = schema.warnings.borrow();
+                warnings.iter().map(|w| schema.render(w)).collect::<Vec<_>>()
+            })
+            .collect()
+    }
 }
 
 #[cfg(test)]
