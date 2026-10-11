@@ -163,6 +163,52 @@ settings = {
 }
 
 #[test]
+fn a_misspelled_settings_key_in_idp_is_rejected_not_panicked() {
+    // The `.idp` path now runs the same registry check as `.ids`, and
+    // reports it as an error rather than panicking.
+    let source = r#"congregation bad_key
+specification_version = 1
+
+settings = {
+    annotations = {
+        framing = {
+            alowed = true
+        }
+    }
+}
+"#;
+
+    let context = ProjectInterpreter::from_config_source(source).expect("should parse");
+    let err = comline_core::package::config::ir::interpreter::interpret::interpret_context(
+        &context, None,
+    )
+    .expect_err("an unrecognised key in a package manifest is an error");
+
+    let text = err.to_string();
+    assert!(text.contains("settings::unknown-key"), "got: {text}");
+    assert!(text.contains("alowed"), "names the offending key: {text}");
+}
+
+#[test]
+fn an_open_namespace_key_in_idp_still_freezes() {
+    // `.idp` settings stay as open at the top level as `.ids` ones.
+    let source = r#"congregation open_key
+specification_version = 1
+
+settings = {
+    max_depth = 8
+    overrides = {
+        mode = replace
+    }
+}
+"#;
+
+    let context = ProjectInterpreter::from_config_source(source).expect("should parse");
+    comline_core::package::config::ir::interpreter::interpret::interpret_context(&context, None)
+        .expect("an open-namespace key must not fail package interpretation");
+}
+
+#[test]
 fn a_package_can_opt_out_of_the_built_in_default_with_mode_replace() {
     use comline_core::package::config::ir::frozen::settings;
 

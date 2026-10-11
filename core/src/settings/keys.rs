@@ -596,13 +596,14 @@ pub fn enters_known_group(segments: &[&str]) -> bool {
     let Some(first) = rest.first() else {
         return false;
     };
+    // Keyed on the *first* segment after any decl path, deliberately, not
+    // on the leaf. A reserved word nested inside an open-namespace subtree
+    // (`overrides.mode = replace`) is legitimate - `mode` is meaningful at
+    // any depth and `merge` honours it there - so an unrecognised subtree
+    // stays unjudged, exactly like any other open-namespace key.
     SHAPES.iter().any(|shape| match shape {
         Shape::Path(p) => p.group == *first,
         Shape::Reserved(r) => r.word == *first,
-    }) || SHAPES.iter().any(|shape| match shape {
-        // A trailing reserved word anywhere inside a recognised position.
-        Shape::Reserved(r) => segments.last() == Some(&r.word),
-        _ => false,
     })
 }
 
@@ -937,6 +938,12 @@ mod tests {
         assert!(enters_known_group(&segs("diagnostics.c.level")));
         assert!(enters_known_group(&segs("mode")));
         assert!(enters_known_group(&segs("struct.mode")));
+
+        // A reserved word inside an open subtree is legitimate: `mode` is
+        // meaningful at any depth, and an unrecognised subtree is not
+        // core's to judge.
+        assert!(!enters_known_group(&segs("overrides.mode")));
+        assert!(!enters_known_group(&segs("my.custom.subtree.mode")));
 
         // Outside it - `settings` stays an open namespace at the top level.
         assert!(!enters_known_group(&segs("forbid_indexing")));
