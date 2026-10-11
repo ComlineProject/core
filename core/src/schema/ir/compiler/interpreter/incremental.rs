@@ -275,10 +275,23 @@ impl IncrementalInterpreter {
                     let values = crate::settings::desugar::desugar(&entries)
                         .unwrap_or_else(|_conflicts| crate::settings::desugar::desugar_lenient(&entries));
 
+                    // Origin span per leaf, keyed the same dotted-path way
+                    // `values` itself is read back via `get_path` - a
+                    // diagnostics-only sidecar, not part of `desugar`'s
+                    // nested tree (see `FrozenUnit::Settings`'s doc comment).
+                    let spans = crate::settings::SettingsSpans(
+                        settings_def
+                            .entries()
+                            .iter()
+                            .map(|entry| (entry.value.key_path().join("."), entry.span))
+                            .collect(),
+                    );
+
                     frozen_units.push(FrozenUnit::Settings {
                         docstring: settings_def.docstring(),
                         name: settings_def.name(),
                         values,
+                        spans,
                     });
                 }
                 Declaration::Validator(validator_def) => {

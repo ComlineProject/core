@@ -1,4 +1,4 @@
-use super::value::{SettingsDict, SettingsValue};
+use super::value::{SettingsDict, SettingsSpans, SettingsValue};
 
 /// The reserved key that opts a dictionary out of merging, at whichever
 /// nesting level it's written. Its value must be the bare keyword
@@ -97,6 +97,18 @@ fn merge_value(base_value: Option<&SettingsValue>, overlay_value: &SettingsValue
         (_, SettingsValue::Dict(o)) => SettingsValue::Dict(merge(&SettingsDict::default(), o)),
         (_, leaf) => leaf.clone(),
     }
+}
+
+/// [`merge`]'s counterpart for [`SettingsSpans`] - the origin-span sidecar,
+/// not the value tree itself. Simpler than `merge`: spans are flat
+/// (dotted-path keyed, not nested), and don't need `mode = replace`'s
+/// subtree-deletion semantics replicated - a lookup is only ever made for a
+/// key that still resolves on the *value* side, so an overlay simply wins
+/// key-by-key, same as a leaf value does in `merge_value`.
+pub fn merge_spans(base: &SettingsSpans, overlay: &SettingsSpans) -> SettingsSpans {
+    let mut result = base.0.clone();
+    result.extend(overlay.0.iter().map(|(k, v)| (k.clone(), *v)));
+    SettingsSpans(result)
 }
 
 fn is_replace_mode(dict: &SettingsDict) -> bool {
@@ -256,5 +268,37 @@ mod tests {
         let err = validate_mode_keys(&d).unwrap_err();
         assert_eq!(err.len(), 1);
         assert_eq!(err[0].path, "a");
+    }
+
+    // --- merge_spans ---
+
+    fn spans(entries: &[(&str, (usize, usize))]) -> SettingsSpans {
+        let mut s = SettingsSpans::new();
+        for (k, v) in entries {
+            s.0.insert(k.to_string(), *v);
+        }
+        s
+    }
+
+    #[test]
+    fn merge_spans_disjoint_keys_union() {
+        let base = spans(&[("a", (0, 1))]);
+        let overlay = spans(&[("b", (2, 3))]);
+        let result = merge_spans(&base, &overlay);
+        assert_eq!(result.get("a"), Some((0, 1)));
+        assert_eq!(result.get("b"), Some((2, 3)));
+    }
+
+    #[test]
+    fn merge_spans_shared_key_overlay_wins() {
+        let base = spans(&[("a", (0, 1))]);
+        let overlay = spans(&[("a", (10, 11))]);
+        assert_eq!(merge_spans(&base, &overlay).get("a"), Some((10, 11)));
+    }
+
+    #[test]
+    fn merge_spans_missing_key_is_none() {
+        let result = merge_spans(&SettingsSpans::new(), &SettingsSpans::new());
+        assert_eq!(result.get("a"), None);
     }
 }

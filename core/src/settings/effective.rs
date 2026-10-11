@@ -4,26 +4,34 @@ use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigFrozenUnit;
 use crate::schema::ir::frozen::unit::FrozenUnit as SchemaFrozenUnit;
 
-use super::merge::merge;
-use super::value::SettingsDict;
+use super::merge::{merge, merge_spans};
+use super::value::{SettingsDict, SettingsSpans};
 
 /// Every settings block one schema declares: its unnamed, file-wide block
-/// (if any), and every named, opt-in preset, keyed by name.
+/// (if any), and every named, opt-in preset, keyed by name - plus each
+/// one's origin-span sidecar, for diagnostics that need to point at the
+/// real `settings { ... }` entry rather than wherever it's used.
 #[derive(Debug, Clone, Default)]
 pub struct SchemaSettings {
     pub unnamed: Option<SettingsDict>,
     pub named: BTreeMap<String, SettingsDict>,
+    pub unnamed_spans: Option<SettingsSpans>,
+    pub named_spans: BTreeMap<String, SettingsSpans>,
 }
 
 /// Collect every `settings` block a schema's frozen units contain.
 pub fn schema_settings(frozen_schema_units: &[SchemaFrozenUnit]) -> SchemaSettings {
     let mut out = SchemaSettings::default();
     for unit in frozen_schema_units {
-        if let SchemaFrozenUnit::Settings { name, values, .. } = unit {
+        if let SchemaFrozenUnit::Settings { name, values, spans, .. } = unit {
             match name {
-                None => out.unnamed = Some(values.clone()),
+                None => {
+                    out.unnamed = Some(values.clone());
+                    out.unnamed_spans = Some(spans.clone());
+                }
                 Some(n) => {
                     out.named.insert(n.clone(), values.clone());
+                    out.named_spans.insert(n.clone(), spans.clone());
                 }
             }
         }
@@ -61,6 +69,20 @@ pub fn effective_schema_settings(
     }
 }
 
+/// [`effective_schema_settings`]'s origin-span counterpart - a fully
+/// separate function rather than a return-type change on the one above, so
+/// every existing caller (including the language server's settings-hover
+/// feature) keeps its current signature untouched.
+pub fn effective_schema_settings_spans(
+    package_spans: &SettingsSpans,
+    schema: &SchemaSettings,
+) -> SettingsSpans {
+    match &schema.unnamed_spans {
+        Some(overlay) => merge_spans(package_spans, overlay),
+        None => package_spans.clone(),
+    }
+}
+
 /// The `@settings = Name` value off one declaration's already-frozen
 /// annotation parameters (`FrozenUnit::Property` entries) - `None` if
 /// there's no such annotation.
@@ -86,6 +108,19 @@ pub fn effective_declaration_settings(
     match settings_name.and_then(|n| schema.named.get(n)) {
         Some(overlay) => merge(effective_schema, overlay),
         None => effective_schema.clone(),
+    }
+}
+
+/// [`effective_declaration_settings`]'s origin-span counterpart - see
+/// [`effective_schema_settings_spans`] for why this is a separate function.
+pub fn effective_declaration_settings_spans(
+    effective_schema_spans: &SettingsSpans,
+    schema: &SchemaSettings,
+    settings_name: Option<&str>,
+) -> SettingsSpans {
+    match settings_name.and_then(|n| schema.named_spans.get(n)) {
+        Some(overlay) => merge_spans(effective_schema_spans, overlay),
+        None => effective_schema_spans.clone(),
     }
 }
 
@@ -134,6 +169,14 @@ mod tests {
         d
     }
 
+    fn spans(entries: &[(&str, (usize, usize))]) -> SettingsSpans {
+        let mut s = SettingsSpans::new();
+        for (k, v) in entries {
+            s.0.insert(k.to_string(), *v);
+        }
+        s
+    }
+
     #[test]
     fn schema_settings_splits_unnamed_and_named() {
         let units = vec![
@@ -141,16 +184,20 @@ mod tests {
                 docstring: None,
                 name: None,
                 values: dict(&[("a", leaf(true))]),
+                spans: spans(&[("a", (0, 1))]),
             },
             SchemaFrozenUnit::Settings {
                 docstring: None,
                 name: Some("Strict".to_string()),
                 values: dict(&[("b", leaf(false))]),
+                spans: spans(&[("b", (2, 3))]),
             },
         ];
         let s = schema_settings(&units);
         assert_eq!(s.unnamed.unwrap().get("a"), Some(&leaf(true)));
         assert_eq!(s.named.get("Strict").unwrap().get("b"), Some(&leaf(false)));
+        assert_eq!(s.unnamed_spans.unwrap().get("a"), Some((0, 1)));
+        assert_eq!(s.named_spans.get("Strict").unwrap().get("b"), Some((2, 3)));
     }
 
     #[test]
@@ -159,6 +206,35 @@ mod tests {
         let schema = SchemaSettings::default();
         let result = effective_schema_settings(&package, &schema);
         assert_eq!(result.get("a"), Some(&leaf(true)));
+    }
+
+    #[test]
+    fn effective_schema_settings_spans_merges_package_and_schema_origins() {
+        let package_spans = spans(&[("a", (0, 1))]);
+        let schema = SchemaSettings {
+            unnamed_spans: Some(spans(&[("b", (10, 11))])),
+            ..SchemaSettings::default()
+        };
+        let result = effective_schema_settings_spans(&package_spans, &schema);
+        assert_eq!(result.get("a"), Some((0, 1)));
+        assert_eq!(result.get("b"), Some((10, 11)));
+    }
+
+    #[test]
+    fn effective_declaration_settings_spans_merges_in_the_named_presets_origins() {
+        let effective_spans = spans(&[("a", (0, 1))]);
+        let mut schema = SchemaSettings::default();
+        schema.named_spans.insert("Strict".to_string(), spans(&[("a", (20, 21))]));
+        let result = effective_declaration_settings_spans(&effective_spans, &schema, Some("Strict"));
+        assert_eq!(result.get("a"), Some((20, 21)), "the preset's own span should win");
+    }
+
+    #[test]
+    fn effective_declaration_settings_spans_with_unresolved_name_is_a_no_op() {
+        let effective_spans = spans(&[("a", (0, 1))]);
+        let schema = SchemaSettings::default();
+        let result = effective_declaration_settings_spans(&effective_spans, &schema, Some("Missing"));
+        assert_eq!(result.get("a"), Some((0, 1)));
     }
 
     #[test]

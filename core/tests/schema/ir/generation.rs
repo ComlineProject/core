@@ -79,7 +79,7 @@ settings Project {
         assert_eq!(ir_units.len(), 1);
 
         match &ir_units[0] {
-            FrozenUnit::Settings { docstring, name, values } => {
+            FrozenUnit::Settings { docstring, name, values, .. } => {
                 use comline_core::settings::value::SettingsValue;
 
                 assert_eq!(name.as_deref(), Some("Project"));

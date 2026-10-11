@@ -23,6 +23,26 @@ pub enum SettingsValue {
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SettingsDict(pub BTreeMap<String, SettingsValue>);
 
+/// Per-leaf origin span for one `settings` block, keyed by the same dotted
+/// path [`SettingsDict::get_path`] takes - flat, not nested like
+/// [`SettingsValue::Dict`]. Diagnostics-only: not part of `SettingsValue`'s
+/// own shape, so it carries no weight in the value tree's own identity. A
+/// stale entry left behind under a path a later `mode = replace` deleted
+/// from the *value* side is harmless - every lookup is gated by the value
+/// dict resolving first, so an orphaned span is simply never consulted.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
+pub struct SettingsSpans(pub BTreeMap<String, (usize, usize)>);
+
+impl SettingsSpans {
+    pub fn new() -> Self {
+        Self(BTreeMap::new())
+    }
+
+    pub fn get(&self, path: &str) -> Option<(usize, usize)> {
+        self.0.get(path).copied()
+    }
+}
+
 impl SettingsDict {
     pub fn new() -> Self {
         Self(BTreeMap::new())

@@ -19,11 +19,16 @@ pub struct Diagnostic {
     pub context: String,
     pub span: Option<(usize, usize)>,
     pub help: Option<String>,
+    /// A second, related span with its own short label - e.g. "this is
+    /// where the bad value was actually written" (`span`) plus "applied
+    /// here" (`secondary`), for an error whose root cause and trigger site
+    /// are different places. Most diagnostics have none.
+    pub secondary: Option<((usize, usize), String)>,
 }
 
 impl Diagnostic {
     pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), context: String::new(), span: None, help: None }
+        Self { message: message.into(), context: String::new(), span: None, help: None, secondary: None }
     }
 
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
@@ -49,6 +54,14 @@ impl Diagnostic {
 
     pub fn with_help(mut self, help: impl Into<String>) -> Self {
         self.help = Some(help.into());
+        self
+    }
+
+    /// A second, related span - rendered as its own label alongside the
+    /// primary one. `label` is short, like `span`'s own context (e.g.
+    /// "struct 'S'", the usage site that triggered this diagnostic).
+    pub fn with_secondary_span(mut self, span: (usize, usize), label: impl Into<String>) -> Self {
+        self.secondary = Some((span, label.into()));
         self
     }
 }
@@ -215,6 +228,12 @@ pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
         .with_message(&d.message)
         .with_label(Label::new((filename.to_string(), byte_range)).with_message(label));
 
+    if let Some((sec_span, sec_label)) = &d.secondary {
+        let sec_range: Range<usize> = sec_span.0..sec_span.1;
+        builder = builder
+            .with_label(Label::new((filename.to_string(), sec_range)).with_message(sec_label));
+    }
+
     if let Some(help) = &d.help {
         builder = builder.with_help(help);
     }
@@ -353,6 +372,19 @@ mod tests {
         // No raw Rust struct syntax ever leaks into the rendered text.
         assert!(!rendered.contains("ParseError {"), "{rendered}");
         assert!(!rendered.contains("FailedNode("), "{rendered}");
+    }
+
+    #[test]
+    fn render_with_a_secondary_span_shows_both_source_snippets() {
+        let d = Diagnostic::new("'x.allowed' must be a boolean, got Identifier(\"Tru\")")
+            .with_context("'x.allowed' set here")
+            .with_span((8, 9))
+            .with_secondary_span((20, 26), "struct 'S'");
+        let source = "settings { x.allowed = Tru }\nstruct S { @x message: str }\n";
+        let rendered = render(&d, "main.ids", source);
+        assert!(rendered.contains("main.ids"), "{rendered}");
+        assert!(rendered.contains("must be a boolean"), "{rendered}");
+        assert!(rendered.contains("struct 'S'"), "secondary label should appear: {rendered}");
     }
 
     #[test]
