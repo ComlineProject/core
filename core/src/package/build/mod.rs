@@ -178,6 +178,10 @@ fn default_congregation() -> String {
 pub fn build(package_path: &Path) -> Result<BuildResult> {
     let latest_project = compile_package(package_path)?;
 
+    // Discard any `.comline/` left behind by a different IR format before
+    // trusting it for anything below - see `ensure_compatible_store`.
+    cas::object_store::ensure_compatible_store(package_path)?;
+
     // Use CAS for immutable version storage
     let build_info = if cas::refs::ref_exists(package_path, cas::refs::main_ref()) {
         cas::build::process_changes(&package_path, &latest_project)?

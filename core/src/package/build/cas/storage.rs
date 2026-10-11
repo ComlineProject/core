@@ -67,3 +67,20 @@ pub fn decompress(data: &[u8]) -> Result<Vec<u8>> {
     lz4_flex::decompress_size_prepended(data)
         .map_err(|e| eyre!("Decompression failed: {}", e))
 }
+
+/// Encode a CAS-persisted value as CBOR - tags struct fields and enum
+/// variants by name, not declaration-order position, unlike `bincode`
+/// (which this replaced). That's what lets `FrozenUnit` grow/reorder
+/// safely without corrupting anything already on disk; only a rename or
+/// removal of an existing field/variant still needs
+/// `cas::CURRENT_IR_FORMAT_VERSION` bumped.
+pub fn to_cbor<T: serde::Serialize + ?Sized>(value: &T) -> Result<Vec<u8>> {
+    let mut buf = Vec::new();
+    ciborium::into_writer(value, &mut buf).map_err(|e| eyre!("CBOR encode failed: {}", e))?;
+    Ok(buf)
+}
+
+/// Decode a CAS-persisted CBOR value. See [`to_cbor`].
+pub fn from_cbor<T: serde::de::DeserializeOwned>(bytes: &[u8]) -> Result<T> {
+    ciborium::de::from_reader(bytes).map_err(|e| eyre!("CBOR decode failed: {}", e))
+}

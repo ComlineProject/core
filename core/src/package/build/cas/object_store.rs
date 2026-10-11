@@ -5,6 +5,54 @@ use eyre::{eyre, Result};
 use std::fs;
 use std::path::{Path, PathBuf};
 
+/// This binary's expected shape for everything persisted under `.comline/`
+/// (`FrozenUnit`, `Blob`/`Tree`/`Commit`, ...) - **not** the package-authored
+/// `specification_version` (that's the user's own chosen language edition,
+/// unrelated to core's internal IR representation).
+///
+/// CBOR tags struct fields and enum variants by name, so growing or
+/// reordering `FrozenUnit` needs no bump here - only *renaming* or
+/// *removing* an existing field/variant does, since that's the one case a
+/// self-describing format can't absorb for free. Bump this by hand when you
+/// do one of those; [`ensure_compatible_store`] then wipes any `.comline/`
+/// stamped with a different value instead of trying (and likely failing,
+/// or in the worst case silently misreading) to decode it.
+pub const CURRENT_IR_FORMAT_VERSION: u32 = 1;
+
+fn format_version_path(project_root: &Path) -> PathBuf {
+    project_root.join(".comline/FORMAT_VERSION")
+}
+
+/// Call before trusting anything already in `.comline/` (i.e. before
+/// deciding whether a previous commit exists to diff against). A missing
+/// or mismatched stamp - including every `.comline/` that predates this
+/// stamp existing at all - means the store's content can't be trusted, so
+/// it's wiped wholesale rather than partially trusted. This doesn't
+/// conflict with the CAS's own "objects are never deleted" design
+/// philosophy (see `cas/mod.rs`) - that's about normal operation within one
+/// format; content in an incompatible format was never buildable to begin
+/// with, so there's nothing of value to preserve.
+pub fn ensure_compatible_store(project_root: &Path) -> Result<()> {
+    let comline_dir = project_root.join(".comline");
+    if !comline_dir.exists() {
+        return Ok(()); // first build ever - nothing to check
+    }
+
+    let stored: Option<u32> = fs::read_to_string(format_version_path(project_root))
+        .ok()
+        .and_then(|s| s.trim().parse().ok());
+
+    if stored != Some(CURRENT_IR_FORMAT_VERSION) {
+        tracing::warn!(
+            "`.comline/` predates or mismatches this build's IR format \
+             (found {stored:?}, need {CURRENT_IR_FORMAT_VERSION}) - rebuilding from scratch"
+        );
+        fs::remove_dir_all(&comline_dir)?;
+    }
+
+    Ok(())
+}
+
 /// Object store manages content-addressable storage
 pub struct ObjectStore {
     objects_dir: PathBuf,  // .comline/objects/
@@ -18,9 +66,17 @@ impl ObjectStore {
         }
     }
 
-    /// Initialize the store (create directories)
+    /// Initialize the store (create directories), stamping it with
+    /// [`CURRENT_IR_FORMAT_VERSION`] if this is the first time.
     pub fn init(&self) -> Result<()> {
         fs::create_dir_all(&self.objects_dir)?;
+        let Some(comline_dir) = self.objects_dir.parent() else {
+            return Ok(());
+        };
+        let stamp = comline_dir.join("FORMAT_VERSION");
+        if !stamp.exists() {
+            fs::write(&stamp, CURRENT_IR_FORMAT_VERSION.to_string())?;
+        }
         Ok(())
     }
 

@@ -3,12 +3,12 @@
 
 use crate::package::build::cas::objects::{Blob, Tree, TreeEntry, EntryMode};
 use crate::package::build::cas::object_store::ObjectStore;
-use crate::package::build::cas::storage::Hash;
+use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use eyre::{eyre, Result};
+use eyre::Result;
 
 /// A canonical, cross-language-stable digest of one schema's frozen units:
-/// BLAKE3 over their `bincode` encoding — the same serialization the CAS uses
+/// BLAKE3 over their CBOR encoding — the same serialization the CAS uses
 /// for blobs (see [`frozen_unit_to_blob`]) — folded to 64 bits for the
 /// connection handshake's `ir_hash`.
 ///
@@ -16,9 +16,11 @@ use eyre::{eyre, Result};
 /// and whether the units were read from the working tree or a committed
 /// version. Two ends of a connection generated from the same schema — in any
 /// target language — get the same value, so a generator embeds this verbatim
-/// rather than hashing its own (language-specific) rendering.
+/// rather than hashing its own (language-specific) rendering. A core version
+/// that changes the IR's own encoding changes this value too - the intended
+/// signal per `Handshake`'s own doc comment, not a regression.
 pub fn schema_ir_hash(units: &[FrozenUnit]) -> u64 {
-    let bytes = bincode::serialize(units)
+    let bytes = to_cbor(units)
         .expect("FrozenUnit implements Serialize; in-memory encoding cannot fail");
     let digest = blake3::hash(&bytes);
     u64::from_le_bytes(
@@ -30,17 +32,12 @@ pub fn schema_ir_hash(units: &[FrozenUnit]) -> u64 {
 
 /// Convert a FrozenUnit to a Blob
 pub fn frozen_unit_to_blob(unit: &FrozenUnit) -> Result<Blob> {
-    // Serialize FrozenUnit using bincode
-    let serialized = bincode::serialize(unit)
-        .map_err(|e| eyre!("Failed to serialize FrozenUnit: {}", e))?;
-    
-    Ok(Blob::new(serialized))
+    Ok(Blob::new(to_cbor(unit)?))
 }
 
 /// Deserialize a Blob back to FrozenUnit
 pub fn blob_to_frozen_unit(blob: &Blob) -> Result<FrozenUnit> {
-    bincode::deserialize(&blob.content)
-        .map_err(|e| eyre!("Failed to deserialize FrozenUnit from blob: {}", e))
+    from_cbor(&blob.content)
 }
 
 /// Build a tree from a collection of FrozenUnits

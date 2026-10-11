@@ -12,6 +12,15 @@ pub type FrozenContextWhole = (SchemaContext, Vec<FrozenUnit>);
 
 
 // TODO: A lot of string instances could be &'a str, boxes could also get ditched, etc
+/// Persisted into `.comline/` as CBOR (`package::build::cas::storage::to_cbor`/
+/// `from_cbor`), which tags both this enum's own variants and every nested
+/// struct's fields by name, not declaration-order position - so adding or
+/// reordering a variant/field here is safe without touching anything else.
+/// Only *renaming* or *removing* an existing one needs
+/// `package::build::cas::object_store::CURRENT_IR_FORMAT_VERSION` bumped by
+/// hand (CBOR can't absorb that case for free; the bump makes any
+/// `.comline/` built under the old shape get wiped and rebuilt instead of
+/// misread).
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FrozenUnit {
@@ -37,17 +46,6 @@ pub enum FrozenUnit {
     Property {
         name: String,
         expression: Option<String>
-    },
-    /// No longer constructed (settings entries now freeze into
-    /// `Settings.values` instead - see below). Kept, unused, because
-    /// `bincode` encodes enum variants by declaration order: removing a
-    /// mid-enum variant would shift every later variant's index and
-    /// silently corrupt any existing CAS blob that contains one of them
-    /// (checked - real fixtures under `tests/fixtures/packages/test/.frozen`
-    /// do contain later variants like `Struct`/`Protocol`).
-    Parameter {
-        name: String,
-        default_value: String
     },
     /// A validator's `validate { ... }` block: the parsed asserts.
     ExpressionBlock {
@@ -176,10 +174,6 @@ pub enum FrozenUnit {
     /// `@deprecated`, frozen with real typed semantics instead of the
     /// generic `Property`'s flat `Option<String>` text (which can't tell
     /// a `true`/`false` literal apart from a same-spelled free word).
-    /// Appended here, at the end of the enum, not inserted earlier -
-    /// bincode encodes variants by declaration order, so appending keeps
-    /// every existing CAS blob's discriminants intact (see `Parameter`'s
-    /// own comment above for the same constraint).
     Deprecated(DeprecatedValue),
 }
 

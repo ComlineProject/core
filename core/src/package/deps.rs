@@ -18,7 +18,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // Crate Uses
-use crate::package::build::cas::storage::Hash;
+use crate::package::build::cas::storage::{to_cbor, Hash};
 use crate::package::build::compile_package_with;
 use crate::package::config::dependency::{git_checkout_dir, DependencyConfig, DependencySource, DEPS_CACHE_DIR};
 use crate::package::config::ir::context::ProjectContext;
@@ -224,8 +224,7 @@ fn hash_frozen_content(context: &ProjectContext) -> Result<Hash> {
         }
     }
 
-    let bytes = bincode::serialize(&all_units)
-        .map_err(|e| eyre!("failed to serialize dependency schema content: {e}"))?;
+    let bytes = to_cbor(&all_units)?;
     Ok(Hash::from_bytes(&bytes))
 }
 

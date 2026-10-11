@@ -17,9 +17,11 @@ pub enum SettingsValue {
     Dict(SettingsDict),
 }
 
-/// A `BTreeMap`, not a `HashMap`: this tree is bincode-serialized into CAS
-/// blobs, and deterministic iteration order is load-bearing for
-/// content-addressing.
+/// A `BTreeMap`, not a `HashMap`: this tree is serialized into CAS blobs,
+/// and deterministic iteration order is load-bearing for content-addressing
+/// (a `HashMap`'s iteration order isn't stable across runs, which would
+/// make the same logical settings hash differently from one build to the
+/// next).
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct SettingsDict(pub BTreeMap<String, SettingsValue>);
 
