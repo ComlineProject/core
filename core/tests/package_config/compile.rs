@@ -126,6 +126,71 @@ specification_version = 1
 }
 
 #[test]
+fn a_written_settings_block_still_gets_the_built_in_default_underneath() {
+    use comline_core::package::config::ir::frozen::settings;
+    use comline_core::settings::value::SettingsValue;
+
+    // Regression: the built-in default used to be installed only when a
+    // package wrote no `settings` key at all, so writing any unrelated
+    // setting silently dropped the framing protection entirely.
+    let source = r#"congregation writes_unrelated_settings
+specification_version = 1
+
+settings = {
+    validators = {
+        allowed = true
+    }
+}
+"#;
+
+    let context = ProjectInterpreter::from_config_source(source).expect("should parse");
+    let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
+        &context, None,
+    )
+    .expect("interpretation should succeed");
+
+    let dict = settings(&frozen).expect("a Settings unit should be frozen");
+    assert_eq!(
+        dict.get_path("annotations.framing.allowed"),
+        Some(&SettingsValue::Bool(false)),
+        "the built-in default must survive a package writing its own unrelated settings"
+    );
+    assert_eq!(
+        dict.get_path("validators.allowed"),
+        Some(&SettingsValue::Bool(true)),
+        "the package's own setting must still be there"
+    );
+}
+
+#[test]
+fn a_package_can_opt_out_of_the_built_in_default_with_mode_replace() {
+    use comline_core::package::config::ir::frozen::settings;
+
+    // The escape hatch for the merge above, which `merge` already
+    // implements: `mode = replace` at the root drops the layer below.
+    let source = r#"congregation opts_out
+specification_version = 1
+
+settings = {
+    mode = replace
+}
+"#;
+
+    let context = ProjectInterpreter::from_config_source(source).expect("should parse");
+    let frozen = comline_core::package::config::ir::interpreter::interpret::interpret_context(
+        &context, None,
+    )
+    .expect("interpretation should succeed");
+
+    let dict = settings(&frozen).expect("a Settings unit should be frozen");
+    assert_eq!(
+        dict.get_path("annotations.framing.allowed"),
+        None,
+        "`mode = replace` at the root drops the built-in layer"
+    );
+}
+
+#[test]
 fn settings_with_mode_replace_bare_keyword_freezes_without_panicking() {
     use comline_core::package::config::ir::frozen::settings;
     use comline_core::settings::value::SettingsValue;

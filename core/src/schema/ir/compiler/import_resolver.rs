@@ -12,7 +12,7 @@ use crate::package::stdlib;
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
-use crate::schema::ir::validation::validator::closest;
+use crate::utils::text::closest;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");

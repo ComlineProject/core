@@ -11,10 +11,9 @@ use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::settings::effective::{
     effective_schema_settings, effective_schema_settings_spans, schema_settings,
 };
+use crate::config_value::{self, ValueForm};
+use crate::settings::keys;
 use crate::settings::value::{SettingsDict, SettingsSpans, SettingsValue};
-
-const INVALID_DIAGNOSTIC_LEVEL: DiagnosticCode =
-    DiagnosticCode::error("settings::invalid-diagnostic-level");
 
 /// Applies any `diagnostics."<code>".level` overrides to an
 /// already-produced list of non-fatal diagnostics (the `Ok(warnings)`
@@ -58,23 +57,35 @@ pub fn resolve_diagnostic_overrides(
             continue;
         }
 
-        let key = format!("diagnostics.{}.level", diagnostic.code.id);
+        let shape = keys::diagnostics_level();
+        let key = shape.key(None, Some(diagnostic.code.id));
         let Some(value) = effective.get_path(&key) else {
             warnings.push(diagnostic);
             continue;
         };
 
-        let SettingsValue::Str(level) = value else {
+        // One check against the registry replaces both the "is it a
+        // string" test and the open-coded membership match - the five
+        // accepted spellings now live only in the registry.
+        if config_value::check(&shape.value, value.form()).is_err() {
+            fatal.push(malformed(&key, value, &effective_spans, &diagnostic));
+            continue;
+        }
+
+        let ValueForm::Str(level) = value.form() else {
             fatal.push(malformed(&key, value, &effective_spans, &diagnostic));
             continue;
         };
 
-        match level.as_str() {
+        match level {
             "allow" => {}
             "hint" => warnings.push(diagnostic.with_severity_override(Severity::Hint)),
             "info" => warnings.push(diagnostic.with_severity_override(Severity::Info)),
             "warn" => warnings.push(diagnostic.with_severity_override(Severity::Warning)),
             "error" => fatal.push(diagnostic.with_severity_override(Severity::Error)),
+            // Unreachable: `check` above accepted it, so it is one of the
+            // five. Kept as a real arm rather than `unreachable!` so a new
+            // registry spelling degrades to "malformed" instead of panicking.
             _ => fatal.push(malformed(&key, value, &effective_spans, &diagnostic)),
         }
     }
@@ -88,11 +99,13 @@ fn malformed(
     effective_spans: &SettingsSpans,
     diagnostic: &Diagnostic,
 ) -> Diagnostic {
+    let shape = keys::diagnostics_level();
+    let expected = config_value::describe(&shape.value);
     let d = Diagnostic::new(
-        INVALID_DIAGNOSTIC_LEVEL,
-        format!("'{key}' must be one of 'allow', 'hint', 'info', 'warn', 'error' - got {value:?}"),
+        shape.malformed,
+        format!("'{key}' must be {expected}, got {}", value.form()),
     )
-    .with_help("a diagnostics '.level' key only accepts one of those five string values");
+    .with_help(format!("a diagnostics '{}' key only accepts {expected}", shape.leaf));
 
     match effective_spans.get(key) {
         Some(origin) => d.with_span(origin).with_context(format!("'{key}' set here")),

@@ -6,6 +6,7 @@ use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use crate::utils::text::{closest, levenshtein_distance};
 
 const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
 const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
@@ -584,42 +585,6 @@ fn type_category(kind: &KindValue) -> Option<&'static str> {
         }
         _ => None,
     }
-}
-
-/// Closest candidate to `target` within a "plausibly a typo" edit distance
-/// (half the target's length, min 1) — `None` if nothing is close.
-pub(crate) fn closest<'a>(target: &str, candidates: impl Iterator<Item = &'a str>) -> Option<String> {
-    let len = target.chars().count();
-    let max_distance = ((len + 1) / 2).max(1);
-    candidates
-        .filter(|&c| c != target)
-        .map(|c| (c, levenshtein_distance(target, c)))
-        .filter(|&(_, d)| d <= max_distance)
-        .min_by_key(|&(_, d)| d)
-        .map(|(c, _)| c.to_string())
-}
-
-/// Standard Levenshtein edit distance (single-character insert/delete/
-/// substitute) between two strings, used to power "did you mean?"
-/// suggestions below.
-fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-    let b_len = b.len();
-
-    let mut prev: Vec<usize> = (0..=b_len).collect();
-    let mut curr = vec![0usize; b_len + 1];
-
-    for (i, &a_ch) in a.iter().enumerate() {
-        curr[0] = i + 1;
-        for (j, &b_ch) in b.iter().enumerate() {
-            let cost = if a_ch == b_ch { 0 } else { 1 };
-            curr[j + 1] = (prev[j + 1] + 1).min(curr[j] + 1).min(prev[j] + cost);
-        }
-        std::mem::swap(&mut prev, &mut curr);
-    }
-
-    prev[b_len]
 }
 
 /// Find the closest known symbol or primitive name to an unrecognized

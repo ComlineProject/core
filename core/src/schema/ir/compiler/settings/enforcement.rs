@@ -17,6 +17,8 @@ use crate::settings::effective::{
     effective_schema_settings, effective_schema_settings_spans, schema_settings,
     settings_annotation_of, SchemaSettings,
 };
+use crate::config_value::{self, ValueType};
+use crate::settings::keys::{self, DeclPath, PathShape};
 use crate::settings::value::{SettingsDict, SettingsSpans, SettingsValue};
 
 const PRESET_NOT_FOUND: DiagnosticCode = DiagnosticCode::error("settings::preset-not-found");
@@ -42,11 +44,11 @@ pub fn check_settings_enforcement(
         match unit {
             FrozenUnit::Struct { name, parameters, fields, span, .. } => {
                 check_declaration(
-                    &schema_effective, &schema_effective_spans, &schema, "struct", parameters,
+                    &schema_effective, &schema_effective_spans, &schema, DeclPath::Struct, parameters,
                     &format!("struct '{name}'"), Some(*span), &mut errors,
                 );
                 for field in fields {
-                    check_field(&schema_effective, &schema_effective_spans, &schema, "struct.field", field, &mut errors);
+                    check_field(&schema_effective, &schema_effective_spans, &schema, DeclPath::StructField, field, &mut errors);
                 }
             }
             FrozenUnit::Error { name, parameters, fields, .. } => {
@@ -55,22 +57,22 @@ pub fn check_settings_enforcement(
                 // `validation::validator`'s existing precedent for the
                 // same gap, e.g. its `Validator` symbol-table entries).
                 check_declaration(
-                    &schema_effective, &schema_effective_spans, &schema, "error", parameters,
+                    &schema_effective, &schema_effective_spans, &schema, DeclPath::Error, parameters,
                     &format!("error '{name}'"), None, &mut errors,
                 );
                 for field in fields {
-                    check_field(&schema_effective, &schema_effective_spans, &schema, "error.field", field, &mut errors);
+                    check_field(&schema_effective, &schema_effective_spans, &schema, DeclPath::ErrorField, field, &mut errors);
                 }
             }
             FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
                 check_declaration(
-                    &schema_effective, &schema_effective_spans, &schema, "protocol", parameters,
+                    &schema_effective, &schema_effective_spans, &schema, DeclPath::Protocol, parameters,
                     &format!("protocol '{name}'"), Some(*span), &mut errors,
                 );
                 for function in functions {
                     if let FrozenUnit::Function { name: fname, parameters: fp, span: fs, .. } = function {
                         check_declaration(
-                            &schema_effective, &schema_effective_spans, &schema, "protocol.function", fp,
+                            &schema_effective, &schema_effective_spans, &schema, DeclPath::ProtocolFunction, fp,
                             &format!("protocol '{name}', function '{fname}'"), Some(*fs), &mut errors,
                         );
                     }
@@ -87,13 +89,13 @@ fn check_field(
     schema_effective: &SettingsDict,
     schema_effective_spans: &SettingsSpans,
     schema: &SchemaSettings,
-    decl_path: &str,
+    decl: DeclPath,
     field: &FrozenUnit,
     errors: &mut Vec<Diagnostic>,
 ) {
     if let FrozenUnit::Field { name, parameters, span, .. } = field {
         check_declaration(
-            schema_effective, schema_effective_spans, schema, decl_path, parameters,
+            schema_effective, schema_effective_spans, schema, decl, parameters,
             &format!("field '{name}'"), Some(*span), errors,
         );
     }
@@ -113,7 +115,7 @@ fn check_declaration(
     schema_effective: &SettingsDict,
     schema_effective_spans: &SettingsSpans,
     schema: &SchemaSettings,
-    decl_path: &str,
+    decl: DeclPath,
     parameters: &[FrozenUnit],
     decl_label: &str,
     span: Option<(usize, usize)>,
@@ -139,79 +141,73 @@ fn check_declaration(
             // The preset selector itself, not a policy-governed feature.
             FrozenUnit::Property { name, .. } if name == "settings" => {}
             FrozenUnit::Property { name, .. } => {
-                check_annotation(&effective, &effective_spans, decl_path, name, decl_label, span, errors);
+                check_governed(
+                    keys::annotations_allowed(), &effective, &effective_spans, decl, name,
+                    decl_label, span, errors,
+                );
             }
             FrozenUnit::ValidatorRef { name, .. } => {
-                check_validator_ref(&effective, &effective_spans, decl_path, name, decl_label, span, errors);
+                check_governed(
+                    keys::validators_allowed(), &effective, &effective_spans, decl, name,
+                    decl_label, span, errors,
+                );
             }
             _ => {}
         }
     }
 }
 
-/// A plain `@name`/`@name = value` annotation: decl-scoped key first,
-/// global key second, allowed by default if neither exists.
-fn check_annotation(
+/// One policy-governed usage - an `@annotation` or a `@validators` entry -
+/// checked against `shape`'s own ordered candidate keys.
+///
+/// Both kinds used to have their own near-identical function with its own
+/// hand-written candidate array. The only thing that actually differs is
+/// the wording, so that is all `shape` has to supply beyond the key
+/// structure it already owns.
+#[allow(clippy::too_many_arguments)]
+fn check_governed(
+    shape: &'static PathShape,
     effective: &SettingsDict,
     effective_spans: &SettingsSpans,
-    decl_path: &str,
+    decl: DeclPath,
     name: &str,
     decl_label: &str,
     span: Option<(usize, usize)>,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let candidates = [
-        format!("{decl_path}.annotations.{name}.allowed"),
-        format!("annotations.{name}.allowed"),
-    ];
-    verdict(effective, effective_spans, &candidates, decl_label, span, errors, |key| {
-        (
-            format!("annotation '@{name}' is forbidden here by '{key} = false'"),
-            format!("remove '@{name}', or set '{key} = true' to allow it"),
-        )
-    });
-}
-
-/// A `@validators = [Name(...), ...]` entry: decl-scoping dominates,
-/// specific-validator-name is the secondary tie-break within each level -
-/// decl+name, decl+coarse, global+name, global+coarse, then allowed.
-fn check_validator_ref(
-    effective: &SettingsDict,
-    effective_spans: &SettingsSpans,
-    decl_path: &str,
-    name: &str,
-    decl_label: &str,
-    span: Option<(usize, usize)>,
-    errors: &mut Vec<Diagnostic>,
-) {
-    let candidates = [
-        format!("{decl_path}.validators.{name}.allowed"),
-        format!("{decl_path}.validators.allowed"),
-        format!("validators.{name}.allowed"),
-        "validators.allowed".to_string(),
-    ];
-    verdict(effective, effective_spans, &candidates, decl_label, span, errors, |key| {
-        (
-            format!("validator '{name}' is forbidden here by '{key} = false'"),
-            format!("remove '{name}(...)' from '@validators', or set '{key} = true' to allow it"),
-        )
+    let candidates = shape.candidates(decl, name);
+    let is_annotation = shape.id == keys::ANNOTATIONS_ALLOWED;
+    verdict(shape, effective, effective_spans, &candidates, decl_label, span, errors, |key| {
+        if is_annotation {
+            (
+                format!("annotation '@{name}' is forbidden here by '{key} = false'"),
+                format!("remove '@{name}', or set '{key} = true' to allow it"),
+            )
+        } else {
+            (
+                format!("validator '{name}' is forbidden here by '{key} = false'"),
+                format!("remove '{name}(...)' from '@validators', or set '{key} = true' to allow it"),
+            )
+        }
     });
 }
 
 /// Shared resolution: the first candidate key that exists at all wins -
 /// `true` passes, `false` is a hard error built by `message`, anything
-/// else (not a boolean) is its own "must be a boolean" error. No
-/// candidate existing at any level means allowed, silently.
+/// else is its own type-mismatch error. No candidate existing at any level
+/// means allowed, silently.
 ///
 /// The two error shapes point at different places, deliberately: "forbidden
 /// by `= false`" is a real, correctly-written setting simply disallowing
 /// this usage - `span` (the usage site) is the right place to show that. A
-/// non-boolean value is a mistake in the settings block itself, so when its
-/// origin span is known (`effective_spans`), that becomes the primary span,
-/// with the usage site attached as a secondary pointer - when it isn't
-/// known (hand-built settings in tests, or a package-level origin, not yet
-/// span-tracked), this falls back to today's usage-site-only behavior.
+/// wrongly-typed value is a mistake in the settings block itself, so when
+/// its origin span is known (`effective_spans`), that becomes the primary
+/// span, with the usage site attached as a secondary pointer - when it
+/// isn't known (hand-built settings in tests, or a package-level origin,
+/// not yet span-tracked), this falls back to usage-site-only behavior.
+#[allow(clippy::too_many_arguments)]
 fn verdict(
+    shape: &'static PathShape,
     effective: &SettingsDict,
     effective_spans: &SettingsSpans,
     candidates: &[String],
@@ -226,29 +222,37 @@ fn verdict(
     else {
         return;
     };
-    match value {
-        SettingsValue::Bool(true) => {}
-        SettingsValue::Bool(false) => {
+
+    // A governed key is a boolean by construction; `false` is the policy
+    // decision this function exists to report, so it is handled before the
+    // generic type check rather than through it.
+    if let (ValueType::Bool, SettingsValue::Bool(allowed)) = (&shape.value, value) {
+        if !allowed {
             let (msg, help) = message(key);
             errors.push(
-                Diagnostic::new(FORBIDDEN, msg).with_context(decl_label.to_string()).with_help(help).maybe_span(span),
+                Diagnostic::new(FORBIDDEN, msg)
+                    .with_context(decl_label.to_string())
+                    .with_help(help)
+                    .maybe_span(span),
             );
         }
-        other => {
-            let mut d = Diagnostic::new(MALFORMED_VALUE, format!("'{key}' must be a boolean, got {other:?}"))
-                .with_help("a settings '.allowed' key only accepts 'true' or 'false'");
-            d = match effective_spans.get(key) {
-                Some(origin) => {
-                    d = d.with_span(origin).with_context(format!("'{key}' set here"));
-                    match span {
-                        Some(usage) => d.with_secondary_span(usage, decl_label.to_string()),
-                        None => d,
-                    }
+        return;
+    }
+
+    if let Err(mismatch) = config_value::check(&shape.value, value.form()) {
+        let mut d = Diagnostic::new(MALFORMED_VALUE, mismatch.message(key))
+            .with_help(format!("a settings '{}' key only accepts {}", shape.leaf, mismatch.expected));
+        d = match effective_spans.get(key) {
+            Some(origin) => {
+                d = d.with_span(origin).with_context(format!("'{key}' set here"));
+                match span {
+                    Some(usage) => d.with_secondary_span(usage, decl_label.to_string()),
+                    None => d,
                 }
-                None => d.with_context(decl_label.to_string()).maybe_span(span),
-            };
-            errors.push(d);
-        }
+            }
+            None => d.with_context(decl_label.to_string()).maybe_span(span),
+        };
+        errors.push(d);
     }
 }
 
@@ -357,6 +361,20 @@ mod tests {
         let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("must be a boolean"));
+    }
+
+    #[test]
+    fn a_malformed_value_reports_source_text_not_a_rust_debug_dump() {
+        // A mistyped `Tru` used to reach the user as `Identifier("Tru")`.
+        let package = package_with(
+            &["annotations", "framing", "allowed"],
+            SettingsValue::Identifier("Tru".to_string()),
+        );
+        let units = vec![a_struct("S", vec![property("framing")], vec![])];
+        let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert!(errors[0].message.contains("got Tru"), "{}", errors[0].message);
+        assert!(!errors[0].message.contains("Identifier("), "{}", errors[0].message);
     }
 
     #[test]

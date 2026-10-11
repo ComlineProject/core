@@ -7,17 +7,17 @@
 
 use crate::schema::idl::grammar::Declaration;
 use crate::settings::desugar::desugar;
-use crate::settings::merge::validate_mode_keys;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
+use super::conformance::check_settings_conformance;
 
 const CONFLICT: DiagnosticCode = DiagnosticCode::error("settings::conflict");
-const INVALID_MODE: DiagnosticCode = DiagnosticCode::error("settings::invalid-mode");
 
 /// Validate every `settings` block in `declarations`: its dotted keys must
 /// describe one consistent nested shape (no leaf-vs-group conflict, no
-/// exact duplicate), and wherever a reserved `mode` key appears, its value
-/// must be the bare keyword `replace`. Both checks run against every
-/// block found, collecting every error rather than stopping at the first.
+/// exact duplicate), and once that holds, every key and value must match
+/// the registry (see [`super::conformance`]). Both checks run against
+/// every block found, collecting every error rather than stopping at the
+/// first.
 pub fn check_settings_conflicts(
     declarations: &[rust_sitter::Spanned<Declaration>],
 ) -> Result<(), Vec<Diagnostic>> {
@@ -60,30 +60,27 @@ pub fn check_settings_conflicts(
                 }
             }
             Ok(values) => {
-                if let Err(mode_errors) = validate_mode_keys(&values) {
-                    for e in mode_errors {
-                        let where_ = if e.path.is_empty() {
-                            label.clone()
-                        } else {
-                            format!("{label}, at '{}'", e.path)
-                        };
-                        errors.push(Diagnostic {
-                            code: INVALID_MODE,
-                            help: Some(
-                                "'mode' only accepts the bare keyword 'replace' - remove it \
-                                 to merge (the default) instead"
-                                    .to_string(),
-                            ),
-                            message: format!(
-                                "Invalid 'mode' value: {:?} is not 'replace'",
-                                e.found
-                            ),
-                            context: where_,
-                            span: Some(decl.span),
-                            secondary: None,
-                            severity_override: None,
-                        });
-                    }
+                // Per-entry origin spans, so a conformance error points at
+                // the offending line rather than the whole block. Built
+                // the same way the freezing pass builds its own sidecar.
+                let spans = crate::settings::SettingsSpans(
+                    settings_def
+                        .entries()
+                        .iter()
+                        .map(|entry| (entry.value.key_path().join("."), entry.span))
+                        .collect(),
+                );
+                // Subsumes what `merge::validate_mode_keys` used to report
+                // here: it walks every leaf, `mode` included, and checks
+                // each against the registry - so an invalid `mode` is
+                // reported once, by its own code, instead of twice.
+                if let Err(conformance_errors) = check_settings_conformance(
+                    &values,
+                    &spans,
+                    &label,
+                    Some(decl.span),
+                ) {
+                    errors.extend(conformance_errors);
                 }
             }
         }

@@ -1,12 +1,21 @@
+use super::keys;
 use super::value::{SettingsDict, SettingsSpans, SettingsValue};
+use crate::config_value;
 
 /// The reserved key that opts a dictionary out of merging, at whichever
 /// nesting level it's written. Its value must be the bare keyword
 /// `replace` (`SettingsValue::Identifier("replace")`, not a quoted
 /// string) - checked eagerly by [`validate_mode_keys`] at freeze time, so
 /// [`merge`] itself never has to handle an invalid one.
-pub const MODE_KEY: &str = "mode";
-const MODE_REPLACE: &str = "replace";
+///
+/// Re-exported from [`keys`], which owns the word and the value it
+/// accepts, so the editor can read them too rather than hardcoding
+/// `replace` on its own.
+pub use keys::{MODE_REPLACE, MODE};
+
+/// The reserved key's spelling. Kept as its own name because `merge`
+/// indexes dictionaries by it constantly.
+pub const MODE_KEY: &str = MODE;
 
 /// One `mode` key, somewhere in a settings tree, whose value isn't the
 /// bare keyword `replace`.
@@ -37,7 +46,7 @@ pub fn validate_mode_keys(dict: &SettingsDict) -> Result<(), Vec<InvalidModeValu
 
 fn walk_mode_keys(dict: &SettingsDict, path: &str, errors: &mut Vec<InvalidModeValue>) {
     if let Some(value) = dict.get(MODE_KEY) {
-        if !matches!(value, SettingsValue::Identifier(s) if s == MODE_REPLACE) {
+        if !accepts_mode_value(value) {
             errors.push(InvalidModeValue {
                 path: path.to_string(),
                 found: value.clone(),
@@ -111,8 +120,16 @@ pub fn merge_spans(base: &SettingsSpans, overlay: &SettingsSpans) -> SettingsSpa
     SettingsSpans(result)
 }
 
+/// Whether `value` is an acceptable `mode`, per the registry. The single
+/// definition behind both [`validate_mode_keys`] (which reports a bad one)
+/// and [`is_replace_mode`] (which acts on a good one) - these used to be
+/// two independent copies of the same pattern match, free to disagree.
+fn accepts_mode_value(value: &SettingsValue) -> bool {
+    config_value::check(&keys::mode().value, value.form()).is_ok()
+}
+
 fn is_replace_mode(dict: &SettingsDict) -> bool {
-    matches!(dict.get(MODE_KEY), Some(SettingsValue::Identifier(s)) if s == MODE_REPLACE)
+    dict.get(MODE_KEY).is_some_and(accepts_mode_value)
 }
 
 fn without_mode_key(dict: &SettingsDict) -> SettingsDict {

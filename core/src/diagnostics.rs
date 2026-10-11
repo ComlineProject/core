@@ -474,7 +474,7 @@ mod tests {
 
     #[test]
     fn render_with_a_secondary_span_shows_both_source_snippets() {
-        let d = Diagnostic::new(TEST_CODE, "'x.allowed' must be a boolean, got Identifier(\"Tru\")")
+        let d = Diagnostic::new(TEST_CODE, "'x.allowed' must be a boolean (`true` or `false`), got Tru")
             .with_context("'x.allowed' set here")
             .with_span((8, 9))
             .with_secondary_span((20, 26), "struct 'S'");
