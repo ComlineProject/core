@@ -2,8 +2,6 @@
 use std::collections::HashMap;
 
 // Crate Uses
-// use crate::schema::idl::ast::unit;
-// use crate::schema::idl::ast::unit::ASTUnit;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
@@ -19,7 +17,7 @@ use crate::diagnostics::Diagnostic;
 
 // External Uses
 
-#[allow(unused)]
+
 pub struct IncrementalInterpreter {}
 
 impl IncrementalInterpreter {
@@ -57,7 +55,6 @@ impl IncrementalInterpreter {
     }
 }
 
-#[allow(unused)]
 impl Compile for IncrementalInterpreter {
     type Output = Vec<FrozenUnit>;
 
@@ -66,7 +63,6 @@ impl Compile for IncrementalInterpreter {
     }
 }
 
-#[allow(unused)]
 impl IncrementalInterpreter {
     fn compile_declarations(
         declarations: Vec<rust_sitter::Spanned<Declaration>>,
@@ -362,18 +358,6 @@ impl IncrementalInterpreter {
         // Return the generated IR units for testing/validation
         frozen_units
     }
-
-    /*
-    fn from_ast(ast: Vec<ASTUnit>) -> Self::Output {
-        // Legacy implementation
-        todo!()
-    }
-
-    fn from_sourced_whole(sourced: crate::schema::idl::ast::unit::SourcedWholeRc) -> Self::Output {
-        // Legacy implementation
-        todo!()
-    }
-    */
 }
 
 /// The resolved error space of one schema: every error name this schema can
