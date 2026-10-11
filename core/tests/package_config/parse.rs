@@ -107,6 +107,31 @@ foo::bar@1.0.0 = "bar"
 }
 
 #[test]
+fn test_hyphenated_namespaced_key() {
+    // A diagnostic code id (`validation::deprecated-type-usage`) needs a
+    // hyphen inside a `::`-namespaced key - as a bare top-level key, nested
+    // inside a dictionary (the `settings.diagnostics.<code>.level` shape),
+    // and as a `Value::Namespaced` (the cross-package `settings =
+    // <dep>::settings::<name>` reference shape, unaffected by this widened
+    // regex since it requires no hyphen but shouldn't reject one either).
+    let code = r#"
+congregation HyphenTest
+
+validation::deprecated-type-usage = "warn"
+
+diagnostics = {
+    validation::deprecated-type-usage = "warn"
+}
+
+settings = my-dep::settings::Strict
+"#;
+    let result = grammar::parse(code);
+    assert!(result.is_ok(), "Failed to parse hyphenated namespaced key: {:?}", result.err());
+    let config = result.unwrap();
+    assert_eq!(config.assignments.len(), 3);
+}
+
+#[test]
 fn test_unquoted_identifiers() {
     let code = r#"
 congregation Identifiers

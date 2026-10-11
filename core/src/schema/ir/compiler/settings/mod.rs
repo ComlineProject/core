@@ -8,3 +8,4 @@
 
 pub mod enforcement;
 pub mod resolution;
+pub mod severity;

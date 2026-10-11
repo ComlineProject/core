@@ -258,6 +258,20 @@ struct Message { body: str }
     }
 
     #[test]
+    fn test_quoted_settings_key_segment() {
+        // A diagnostic code id (`validation::deprecated-type-usage`) has
+        // `::`/`-`, which no bare identifier allows - quoting that one
+        // segment is the escape hatch, mixed freely with bare segments on
+        // either side.
+        assert!(grammar::parse(
+            "settings Foo { diagnostics.\"validation::deprecated-type-usage\".level = \"warn\" }"
+        )
+        .is_ok());
+        // A fully-quoted first segment too, for symmetry.
+        assert!(grammar::parse("settings Foo { \"a::b-c\".level = \"error\" }").is_ok());
+    }
+
+    #[test]
     fn test_mode_bare_keyword() {
         // No quotes - a bare keyword, like any other `Identifier` value.
         assert!(grammar::parse("settings Foo { mode = replace }").is_ok());
