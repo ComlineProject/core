@@ -8,7 +8,10 @@
 use crate::schema::idl::grammar::Declaration;
 use crate::settings::desugar::desugar;
 use crate::settings::merge::validate_mode_keys;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
+
+const CONFLICT: DiagnosticCode = DiagnosticCode::error("settings::conflict");
+const INVALID_MODE: DiagnosticCode = DiagnosticCode::error("settings::invalid-mode");
 
 /// Validate every `settings` block in `declarations`: its dotted keys must
 /// describe one consistent nested shape (no leaf-vs-group conflict, no
@@ -39,6 +42,7 @@ pub fn check_settings_conflicts(
             Err(conflicts) => {
                 for c in conflicts {
                     errors.push(Diagnostic {
+                        code: CONFLICT,
                         help: Some(
                             "a dotted key can't be used as both a single value and a \
                              group of nested values"
@@ -63,6 +67,7 @@ pub fn check_settings_conflicts(
                             format!("{label}, at '{}'", e.path)
                         };
                         errors.push(Diagnostic {
+                            code: INVALID_MODE,
                             help: Some(
                                 "'mode' only accepts the bare keyword 'replace' - remove it \
                                  to merge (the default) instead"

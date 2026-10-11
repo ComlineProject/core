@@ -31,7 +31,11 @@ use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, Type};
 use crate::schema::ir::compiler::import_resolver::{find_schema_bringing_into_scope, schema_declares_symbol};
 use crate::schema::ir::validation::validator::is_primitive;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
+
+const DUPLICATE_DEFINITION: DiagnosticCode = DiagnosticCode::error("alias::duplicate-definition");
+const UNKNOWN_TARGET: DiagnosticCode = DiagnosticCode::error("alias::unknown-target");
+const CYCLE: DiagnosticCode = DiagnosticCode::error("alias::cycle");
 
 /// Validate every local `type` alias in `declarations`: no name collision
 /// with another declaration (local), no cycle among local aliases, and
@@ -72,7 +76,7 @@ pub fn check_aliases(
         let name = alias.name();
 
         if let Some(kind) = other_names.get(&name) {
-            errors.push(Diagnostic { help: None, secondary: None,
+            errors.push(Diagnostic { code: DUPLICATE_DEFINITION, help: None, secondary: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of TypeAlias '{}' (already a {})", name, kind),
                 span: Some(decl.span),
@@ -80,7 +84,7 @@ pub fn check_aliases(
             continue;
         }
         if alias_map.contains_key(&name) {
-            errors.push(Diagnostic { help: None, secondary: None,
+            errors.push(Diagnostic { code: DUPLICATE_DEFINITION, help: None, secondary: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of TypeAlias '{}'", name),
                 span: Some(decl.span),
@@ -100,7 +104,7 @@ pub fn check_aliases(
 
     for (name, (ty, span)) in &alias_map {
         if let Some(bad) = first_unresolvable_name(ty, declarations, &alias_map, use_context) {
-            errors.push(Diagnostic { help: None, secondary: None,
+            errors.push(Diagnostic { code: UNKNOWN_TARGET, help: None, secondary: None,
                 message: format!("Type alias '{}' targets unknown type '{}'", name, bad),
                 context: format!("Type alias '{}'", name),
                 span: Some(*span),
@@ -154,7 +158,7 @@ fn detect_alias_cycle(alias_map: &HashMap<String, (Type, (usize, usize))>) -> Op
         let mut visiting: HashSet<String> = HashSet::new();
         let mut path: Vec<String> = Vec::new();
         if let Some(cycle) = visit_alias(start_name, alias_map, &mut visited, &mut visiting, &mut path) {
-            return Some(Diagnostic { help: None, secondary: None,
+            return Some(Diagnostic { code: CYCLE, help: None, secondary: None,
                 message: format!("Cycle detected among type aliases: {}", cycle.join(" -> ")),
                 context: format!("Type alias '{}'", start_name),
                 span: alias_map.get(start_name.as_str()).map(|(_, span)| *span),
