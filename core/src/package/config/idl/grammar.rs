@@ -116,7 +116,19 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "false")]
         False,
     }
-    
+
+    impl BooleanLiteral {
+        /// The canonical textual spelling - mirrors `.ids`'s
+        /// `BoolLiteral::as_text()`.
+        pub fn as_text(&self) -> &'static str {
+            match self {
+                BooleanLiteral::True => "true",
+                BooleanLiteral::False => "false",
+            }
+        }
+    }
+
+
     #[derive(Debug, Clone)]
     pub struct Variable {
         #[rust_sitter::leaf(pattern = r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)+", transform = |v| v.to_string())]
