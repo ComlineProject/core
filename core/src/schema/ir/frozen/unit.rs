@@ -173,6 +173,28 @@ pub enum FrozenUnit {
         target: KindValue,
         span: (usize, usize),
     },
+    /// `@deprecated`, frozen with real typed semantics instead of the
+    /// generic `Property`'s flat `Option<String>` text (which can't tell
+    /// a `true`/`false` literal apart from a same-spelled free word).
+    /// Appended here, at the end of the enum, not inserted earlier -
+    /// bincode encodes variants by declaration order, so appending keeps
+    /// every existing CAS blob's discriminants intact (see `Parameter`'s
+    /// own comment above for the same constraint).
+    Deprecated(DeprecatedValue),
+}
+
+#[derive(Deserialize, Serialize)]
+#[derive(Debug, Eq, PartialEq, Clone)]
+pub enum DeprecatedValue {
+    False,
+    True,
+    Message(String),
+    /// Not a bool literal or a plain string - a bare identifier (any
+    /// casing, including a mistyped `True`/`False`), a `::`-path, an
+    /// f-string, an integer, or a list. Carries the rendered text purely
+    /// for the diagnostic `deprecation_of` (`validator.rs`) raises for
+    /// it.
+    Malformed(String),
 }
 
 #[derive(Deserialize, Serialize)]
