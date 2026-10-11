@@ -19,4 +19,4 @@ pub mod effective;
 pub mod merge;
 pub mod value;
 
-pub use value::{SettingsDict, SettingsValue};
+pub use value::{SettingsDict, SettingsSpans, SettingsValue};

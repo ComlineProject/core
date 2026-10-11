@@ -74,13 +74,16 @@ pub enum FrozenUnit {
     /// `name: None` = an unnamed block, applying implicitly to the whole
     /// schema file; `Some(name)` = a reusable preset, opted into
     /// per-declaration via `@settings = name`. `values` is the dotted-key
-    /// desugared tree (`crate::settings::desugar`) - not yet validated or
-    /// enforced against anything, same "parsed and frozen, not yet
-    /// enforced" status this block has always had.
+    /// desugared tree (`crate::settings::desugar`). `spans` is a parallel,
+    /// flat, dotted-path-keyed sidecar recording where each leaf was
+    /// actually written - diagnostics-only, not part of `values`' own
+    /// shape, so enforcement errors about a malformed leaf can point at its
+    /// real origin instead of wherever it happened to be used.
     Settings {
         docstring: Option<String>,
         name: Option<String>,
         values: crate::settings::SettingsDict,
+        spans: crate::settings::SettingsSpans,
     },
     Struct {
         docstring: Option<String>,

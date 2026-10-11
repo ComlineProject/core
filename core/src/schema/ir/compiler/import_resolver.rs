@@ -618,7 +618,7 @@ pub fn check_imports(
         let Declaration::Use(use_stmt) = &decl.value else {
             continue;
         };
-        let unresolved = |context: String| Diagnostic { help: None,
+        let unresolved = |context: String| Diagnostic { help: None, secondary: None,
             message: "Unresolved import".to_string(),
             context,
             span: Some(decl.span),

@@ -37,6 +37,11 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
     let mut schema_errors: Vec<String> = vec![];
     let package_settings_dict = package_settings(project_context);
+    // Package-level (`.idp`) settings origins aren't span-tracked yet
+    // (only schema-level `settings { ... }` blocks are) - a malformed
+    // package-level value falls back to usage-site-only diagnostics, same
+    // as before this change.
+    let package_settings_spans = crate::settings::SettingsSpans::default();
 
     for schema_context in project_context.schema_contexts.iter() {
         let declarations = { schema_context.borrow().declarations.clone() };
@@ -103,7 +108,9 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             ));
         }
 
-        if let Err(errors) = check_settings_enforcement(&frozen_units, &package_settings_dict) {
+        if let Err(errors) =
+            check_settings_enforcement(&frozen_units, &package_settings_dict, &package_settings_spans)
+        {
             let rendered: Vec<String> = errors
                 .iter()
                 .map(|error| render_in(error, &schema_context.borrow()))

@@ -43,7 +43,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
         };
 
         if let Err(_existing_kind) = symbols.insert(name, kind) {
-            errors.push(Diagnostic { help: None,
+            errors.push(Diagnostic { help: None, secondary: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),
                 span,
@@ -87,7 +87,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
             FrozenUnit::Constant { name, kind_value, span, .. } => {
                 // Constants usually primitive, but check if namespaced
                 if let KindValue::Namespaced(type_name, _) = kind_value {
-                     errors.push(Diagnostic { help: None,
+                     errors.push(Diagnostic { help: None, secondary: None,
                         message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
                         context: format!("Constant '{}'", name),
                         span: Some(*span),
@@ -160,7 +160,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                         &format!(" - did you mean 'params.{}'?", s),
                                     );
                                 }
-                                errors.push(Diagnostic { help: None,
+                                errors.push(Diagnostic { help: None, secondary: None,
                                     message,
                                     context: vctx.clone(),
                                     span: None,
@@ -168,7 +168,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                             }
                         }
                     }
-                    other => errors.push(Diagnostic { help: None,
+                    other => errors.push(Diagnostic { help: None, secondary: None,
                         message: format!(
                             "validator '{}': `{}` is not a valid reference in `validate` \
                              (use `value.*` or `params.*`)",
@@ -220,7 +220,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                     continue;
                                 };
                                 if seen.contains(&kw.as_str()) {
-                                    errors.push(Diagnostic { help: None,
+                                    errors.push(Diagnostic { help: None, secondary: None,
                                         message: format!(
                                             "duplicate argument '{}' to validator '{}'",
                                             kw, vname
@@ -241,7 +241,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                             &format!(" - did you mean '{}'?", s),
                                         );
                                     }
-                                    errors.push(Diagnostic { help: None,
+                                    errors.push(Diagnostic { help: None, secondary: None,
                                         message,
                                         context: field_ctx.clone(),
                                         span: Some(*span),
@@ -270,7 +270,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                     (want, value_category(val))
                                 {
                                     if want != got {
-                                        errors.push(Diagnostic { help: None,
+                                        errors.push(Diagnostic { help: None, secondary: None,
                                             message: format!(
                                                 "validator '{}': argument '{}' expects {}, got {}",
                                                 vname, kw, want, got
@@ -284,7 +284,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                         }
                     }
                     Some(other) if *other != SymbolType::Import => {
-                        errors.push(Diagnostic { help: None,
+                        errors.push(Diagnostic { help: None, secondary: None,
                             message: format!("'{}' is not a validator", vname),
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -299,7 +299,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                         if let Some(s) = suggest_similar_name(vname, &symbols) {
                             message.push_str(&format!(" - did you mean '{}'?", s));
                         }
-                        errors.push(Diagnostic { help: None,
+                        errors.push(Diagnostic { help: None, secondary: None,
                             message,
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -358,7 +358,7 @@ fn detect_cycle<'a>(
 
                     if unit_map.contains_key(base_type) {
                         if visiting.contains(base_type) {
-                            errors.push(Diagnostic { help: None,
+                            errors.push(Diagnostic { help: None, secondary: None,
                                 message: format!("Cycle detected involving struct '{}'", base_type),
                                 context: format!("Struct '{}' depends on '{}'", current, base_type),
                                 span: Some(*span),
@@ -398,7 +398,7 @@ fn validate_type(
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));
                 }
-                errors.push(Diagnostic { help: None,
+                errors.push(Diagnostic { help: None, secondary: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),
