@@ -16,6 +16,7 @@ pub mod catalog;
 pub mod defaults;
 pub mod desugar;
 pub mod effective;
+pub mod keys;
 pub mod merge;
 pub mod value;
 
