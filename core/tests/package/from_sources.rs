@@ -165,6 +165,59 @@ fn settings_can_escalate_a_deprecation_warning_to_a_build_failure() {
 }
 
 #[test]
+fn a_wrongly_typed_annotation_value_fails_the_build() {
+    // Core had no opinion on these at all before: both of these compiled
+    // clean and were then silently dropped by whichever generator read
+    // them.
+    for (source, expected) in [
+        ("@framing = \"nonsense\"\nprotocol P {\n    function f();\n}\n", "jsonrpc"),
+        (
+            "protocol P {\n    @timeout_ms = \"abc\"\n    function f();\n}\n",
+            "an integer",
+        ),
+    ] {
+        let err = PackageSources::new()
+            .schema(["chat"], source)
+            .compile()
+            .expect_err("a wrongly-typed annotation value is a hard error");
+        let text = err.to_string();
+        assert!(text.contains("annotation-value-mismatch"), "got: {text}");
+        assert!(text.contains(expected), "expected {expected:?} in: {text}");
+    }
+}
+
+#[test]
+fn a_framing_alias_is_accepted_everywhere_the_generators_accept_one() {
+    // The alias set lives in core now, so every consumer agrees. The
+    // playground's own copy was missing `json-rpc`.
+    for spelling in ["jsonrpc", "json-rpc", "jsonrpc-2.0", "datagram"] {
+        PackageSources::new()
+            .schema(
+                ["chat"],
+                &format!(
+                    "@framing = \"{spelling}\"\nprotocol P {{\n    function f();\n}}\n\
+                     settings {{\n    annotations.framing.allowed = true\n}}\n"
+                ),
+            )
+            .compile()
+            .unwrap_or_else(|e| panic!("{spelling} should be accepted: {e}"));
+    }
+}
+
+#[test]
+fn an_unknown_annotation_is_still_not_an_error() {
+    // `@key` is an open namespace by design - an unrecognised one has no
+    // declared shape to check against.
+    PackageSources::new()
+        .schema(
+            ["chat"],
+            "@whatever = 42\nprotocol P {\n    function f();\n}\n",
+        )
+        .compile()
+        .expect("an unrecognised annotation must not fail the build");
+}
+
+#[test]
 fn a_misspelled_settings_key_fails_the_build_with_a_suggestion() {
     // Used to compile clean and do nothing at all.
     let err = PackageSources::new()

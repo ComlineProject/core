@@ -8,6 +8,7 @@ use crate::schema::ir::frozen::unit::{ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
+use crate::schema::idl::annotations;
 
 const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
 const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
@@ -29,6 +30,8 @@ const DEPRECATED_TYPE_USAGE: DiagnosticCode =
     DiagnosticCode::warning("validation::deprecated-type-usage");
 const DEPRECATED_MALFORMED_VALUE: DiagnosticCode =
     DiagnosticCode::error("validation::deprecated-malformed-value");
+const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::annotation-value-mismatch");
 
 
 
@@ -373,10 +376,86 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
         }
     }
 
+    check_annotation_values(units, &mut errors);
+
     if errors.is_empty() {
         Ok(warnings)
     } else {
         Err(errors)
+    }
+}
+
+/// Check every *known* annotation's value against the shape its registry
+/// entry declares. Core had no opinion on these at all before: both
+/// `@timeout_ms = "abc"` and `@framing = "nonsense"` compiled clean and
+/// were then silently dropped by whichever generator tried to read them.
+///
+/// Only keys in [`annotations::KNOWN_ANNOTATIONS`] are checked - `@key` is
+/// an open namespace by design, so an unrecognised one is not an error and
+/// has no declared shape to check against.
+fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, parameters, fields, span, .. } => {
+                check_params(parameters, &format!("struct '{name}'"), Some(*span), errors);
+                check_field_params(fields, errors);
+            }
+            // `FrozenUnit::Error` carries no span, so its own violations
+            // are spanless - the same gap the other passes here have.
+            FrozenUnit::Error { name, parameters, fields, .. } => {
+                check_params(parameters, &format!("error '{name}'"), None, errors);
+                check_field_params(fields, errors);
+            }
+            FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
+                check_params(parameters, &format!("protocol '{name}'"), Some(*span), errors);
+                for function in functions {
+                    if let FrozenUnit::Function { name: fname, parameters, span, .. } = function {
+                        check_params(
+                            parameters,
+                            &format!("protocol '{name}', function '{fname}'"),
+                            Some(*span),
+                            errors,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_field_params(fields: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    for field in fields {
+        if let FrozenUnit::Field { name, parameters, span, .. } = field {
+            check_params(parameters, &format!("field '{name}'"), Some(*span), errors);
+        }
+    }
+}
+
+fn check_params(
+    parameters: &[FrozenUnit],
+    context: &str,
+    span: Option<(usize, usize)>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    for param in parameters {
+        let FrozenUnit::Property { name, value } = param else {
+            continue;
+        };
+        let Some(info) = annotations::lookup(name) else {
+            continue;
+        };
+        if let Err(mismatch) = config_value::check(&info.value, value.form()) {
+            errors.push(
+                Diagnostic::new(
+                    ANNOTATION_VALUE_MISMATCH,
+                    format!("'@{name}' must be {}, got {}", mismatch.expected, mismatch.found),
+                )
+                .with_context(context.to_string())
+                .with_help(format!("'@{name}' takes {}", mismatch.expected))
+                .maybe_span(span),
+            );
+        }
     }
 }
 

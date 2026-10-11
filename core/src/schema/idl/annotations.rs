@@ -26,6 +26,8 @@
 //! a future registry would only need to change how [`lookup`]/[`for_scope`]
 //! are implemented, not [`AnnotationInfo`]'s shape.
 
+use crate::config_value::{StrVariant, ValueType};
+
 /// Which declaration an `@key=value` annotation attaches to. The grammar
 /// permits annotations on a `struct`, an `error`, a `Field`, a `protocol`,
 /// and a `Function` (`grammar.rs`); `Leading` covers the first three — a
@@ -54,14 +56,27 @@ pub enum AnnotationAuthority {
     /// Core itself reads/validates it (`@validators`, via
     /// `ir::validation::validator`).
     Core,
-    /// A target-language generator reads it; core freezes it as an opaque
-    /// `Property` and has no opinion on its meaning (`@framing`,
-    /// `@timeout_ms`).
+    /// A target-language generator decides what it *means*; core checks
+    /// only that the value has the declared shape (`@framing`,
+    /// `@timeout_ms`). Core used to have no opinion at all here and froze
+    /// the value as opaque text - so `@timeout_ms = "abc"` and
+    /// `@framing = "nonsense"` both compiled clean and were silently
+    /// dropped by whichever generator tried to read them.
     Target,
     /// Decided and documented (see `design/core-target-contract.md`); no
     /// consumer reads it yet.
     Advisory,
 }
+
+/// The canonical spellings of `@framing`'s wire framings, with every
+/// accepted alias. The single place this set lives: before this it existed
+/// as prose here plus four independent copies in the consumers, one of
+/// which (the playground) was missing `json-rpc` and so rendered a
+/// JSON-RPC protocol as datagram.
+const FRAMINGS: &[StrVariant] = &[
+    StrVariant::with_aliases("jsonrpc", &["json-rpc", "jsonrpc-2.0"]),
+    StrVariant::with_aliases("datagram", &["comline.datagram"]),
+];
 
 /// Everything known about one `@key`.
 pub struct AnnotationInfo {
@@ -72,8 +87,12 @@ pub struct AnnotationInfo {
     pub description: &'static str,
     /// Plain-text behavior when the annotation is absent.
     pub default: &'static str,
-    /// The expected value's shape, for display.
-    pub value: &'static str,
+    /// What this annotation's value must be. Machine-readable, so core
+    /// can validate it, a generator can canonicalise it, and the editor
+    /// can offer its real values - previously a prose string that only a
+    /// human could read, which is why each consumer kept its own copy of
+    /// e.g. `@framing`'s accepted set.
+    pub value: ValueType,
     /// Named consumers, as data rather than prose. Empty — not
     /// necessarily only for `authority: Advisory` — means nothing reads
     /// it yet.
@@ -87,7 +106,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         authority: AnnotationAuthority::Core,
         description: "Attaches one or more named validators to this field.",
         default: "no validators run",
-        value: "a list of validator calls, e.g. `[StringBounds(min_chars = 3)]`",
+        value: ValueType::ValidatorList,
         consumed_by: &["`comline build`'s validation pass"],
     },
     AnnotationInfo {
@@ -97,7 +116,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         description: "How long the client waits for the response before timing out. \
                        Request/response calls only — a one-way call has nothing to wait for.",
         default: "no timeout — waits indefinitely",
-        value: "an integer, in milliseconds",
+        value: ValueType::Integer,
         consumed_by: &["the generated Rust client (`comline-rust`)"],
     },
     AnnotationInfo {
@@ -107,7 +126,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         description: "Marks that calling this function twice has the same effect as calling \
                        it once — safe to retry.",
         default: "not idempotent",
-        value: "a bare marker — no `=value`",
+        value: ValueType::Marker,
         consumed_by: &[],
     },
     AnnotationInfo {
@@ -117,8 +136,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         description: "The wire framing the generated client/server use for this protocol. \
                        No effect on a struct.",
         default: "datagram — Comline's compact binary framing",
-        value: "one of `\"jsonrpc\"` (`\"json-rpc\"`, `\"jsonrpc-2.0\"`), or `\"datagram\"` \
-                to opt a single protocol back out of a package-wide default",
+        value: ValueType::StrEnum(FRAMINGS),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -128,7 +146,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         description: "Opts a declaration into a named `settings NAME { ... }` preset declared \
                        in this schema, merged onto whatever settings already apply to it.",
         default: "no preset applied — only the package/schema-level settings apply",
-        value: "a bare name, e.g. `Strict` for a `settings Strict { ... }` block",
+        value: ValueType::Name,
         consumed_by: &[],
     },
     AnnotationInfo {
@@ -141,11 +159,37 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                        a field, or a function too, but nothing warns on those yet - none of \
                        them have a usage site this check can reach.",
         default: "not deprecated",
-        value: "a bare marker, `true`/`false`, or a string message, e.g. \
-                `\"use NewAuthor instead\"`",
+        value: ValueType::BoolOrStr,
         consumed_by: &["core's own validation pass (`ir::validation::validator`)"],
     },
 ];
+
+/// The human sentence describing what `@key`'s value must be - generated
+/// from [`AnnotationInfo::value`] rather than written out, so the prose and
+/// the check can never disagree.
+pub fn describe_value(info: &AnnotationInfo) -> String {
+    crate::config_value::describe(&info.value)
+}
+
+/// Fold a written value onto the canonical spelling its annotation
+/// declares, e.g. `@framing = "json-rpc"` to `jsonrpc`. `None` for a key
+/// with no closed value set, or a value that isn't an accepted spelling.
+///
+/// **Every consumer that acts on a closed-set annotation should call
+/// this** rather than matching the spellings itself. Each generator used
+/// to keep its own copy of `@framing`'s aliases, and they had already
+/// drifted: the playground's omitted `json-rpc`, so a protocol the real
+/// generators emitted as JSON-RPC rendered as datagram there.
+pub fn canonical_value(key: &str, written: &str) -> Option<&'static str> {
+    let info = lookup(key)?;
+    crate::config_value::canonicalize(&info.value, written)
+}
+
+/// Every spelling `@key` offers for completion - canonical forms only.
+/// Empty for a key with no closed set.
+pub fn value_spellings(key: &str) -> Vec<&'static str> {
+    lookup(key).map(|i| crate::config_value::spellings(&i.value)).unwrap_or_default()
+}
 
 /// Look up a known annotation by its key (the part right after `@`, no
 /// `=value`). `None` for anything not in [`KNOWN_ANNOTATIONS`] — including
@@ -185,6 +229,47 @@ mod tests {
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
         // framing, deprecated (both Leading), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Leading).count(), 3);
+    }
+
+    #[test]
+    fn framing_accepts_every_spelling_its_consumers_relied_on() {
+        // The union of what the two generators and the playground each
+        // matched on their own, before this became one table. The
+        // playground's copy was missing `json-rpc` entirely.
+        for spelling in ["jsonrpc", "json-rpc", "jsonrpc-2.0"] {
+            assert_eq!(canonical_value("framing", spelling), Some("jsonrpc"), "{spelling}");
+        }
+        for spelling in ["datagram", "comline.datagram"] {
+            assert_eq!(canonical_value("framing", spelling), Some("datagram"), "{spelling}");
+        }
+        assert_eq!(canonical_value("framing", "nonsense"), None);
+    }
+
+    #[test]
+    fn completion_offers_only_the_canonical_framings() {
+        assert_eq!(value_spellings("framing"), vec!["jsonrpc", "datagram"]);
+        // A key with no closed set has nothing to offer, rather than
+        // the editor inventing something.
+        assert!(value_spellings("timeout_ms").is_empty());
+        assert!(value_spellings("nope").is_empty());
+    }
+
+    #[test]
+    fn canonical_value_is_none_for_a_key_without_a_closed_set() {
+        assert_eq!(canonical_value("timeout_ms", "100"), None);
+        assert_eq!(canonical_value("nope", "whatever"), None);
+    }
+
+    #[test]
+    fn every_entrys_prose_is_generated_from_its_declared_type() {
+        for info in KNOWN_ANNOTATIONS {
+            let described = describe_value(info);
+            assert!(!described.is_empty(), "{}", info.key);
+        }
+        // Spot-check that the generated prose actually reflects the type.
+        let framing = lookup("framing").unwrap();
+        assert!(describe_value(framing).contains("jsonrpc"));
+        assert_eq!(describe_value(lookup("timeout_ms").unwrap()), "an integer");
     }
 
     #[test]
