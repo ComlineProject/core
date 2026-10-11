@@ -13,7 +13,9 @@ use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::validation::validator::closest;
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
+
+const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
 
 /// Resolved import information
 #[derive(Debug, Clone)]
@@ -618,7 +620,7 @@ pub fn check_imports(
         let Declaration::Use(use_stmt) = &decl.value else {
             continue;
         };
-        let unresolved = |context: String| Diagnostic { help: None, secondary: None,
+        let unresolved = |context: String| Diagnostic { code: UNRESOLVED, help: None, secondary: None,
             message: "Unresolved import".to_string(),
             context,
             span: Some(decl.span),

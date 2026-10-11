@@ -10,7 +10,7 @@
 //! that function's signature would touch every other caller for no
 //! benefit.
 
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::settings::effective::{
     effective_declaration_settings, effective_declaration_settings_spans,
@@ -18,6 +18,10 @@ use crate::settings::effective::{
     settings_annotation_of, SchemaSettings,
 };
 use crate::settings::value::{SettingsDict, SettingsSpans, SettingsValue};
+
+const PRESET_NOT_FOUND: DiagnosticCode = DiagnosticCode::error("settings::preset-not-found");
+const FORBIDDEN: DiagnosticCode = DiagnosticCode::error("settings::forbidden");
+const MALFORMED_VALUE: DiagnosticCode = DiagnosticCode::error("settings::malformed-value");
 
 /// Walk every annotation-bearing declaration in `units` (`Struct`+its
 /// `Field`s, `Error`+its `Field`s, `Protocol`+its `Function`s - the only
@@ -119,7 +123,7 @@ fn check_declaration(
     if let Some(name) = settings_name {
         if !schema.named.contains_key(name) {
             errors.push(
-                Diagnostic::new(format!("settings preset '{name}' not found"))
+                Diagnostic::new(PRESET_NOT_FOUND, format!("settings preset '{name}' not found"))
                     .with_context(decl_label.to_string())
                     .with_help("check for a typo, or that it's declared as 'settings Name { ... }' in this schema")
                     .maybe_span(span),
@@ -227,11 +231,11 @@ fn verdict(
         SettingsValue::Bool(false) => {
             let (msg, help) = message(key);
             errors.push(
-                Diagnostic::new(msg).with_context(decl_label.to_string()).with_help(help).maybe_span(span),
+                Diagnostic::new(FORBIDDEN, msg).with_context(decl_label.to_string()).with_help(help).maybe_span(span),
             );
         }
         other => {
-            let mut d = Diagnostic::new(format!("'{key}' must be a boolean, got {other:?}"))
+            let mut d = Diagnostic::new(MALFORMED_VALUE, format!("'{key}' must be a boolean, got {other:?}"))
                 .with_help("a settings '.allowed' key only accepts 'true' or 'false'");
             d = match effective_spans.get(key) {
                 Some(origin) => {
@@ -332,6 +336,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("framing"));
         assert!(errors[0].message.contains("annotations.framing.allowed"));
+        assert_eq!(errors[0].code.id, "settings::forbidden");
     }
 
     #[test]
@@ -507,6 +512,7 @@ mod tests {
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("Missing"));
         assert!(errors[0].message.contains("not found"));
+        assert_eq!(errors[0].code.id, "settings::preset-not-found");
     }
 
     // --- end-to-end: real parsed source, not hand-built fixtures ---
@@ -539,6 +545,7 @@ settings {
                 .unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("must be a boolean"));
+        assert_eq!(errors[0].code.id, "settings::malformed-value");
 
         let origin = errors[0].span.expect("origin span should be known from real parsing");
         let origin_text = &source[origin.0..origin.1];

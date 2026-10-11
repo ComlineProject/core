@@ -2,10 +2,27 @@
 use std::collections::{HashMap, HashSet};
 
 // Crate Uses
-use crate::diagnostics::Diagnostic;
+use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+
+const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
+const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
+const UNKNOWN_VALIDATOR_PROPERTY: DiagnosticCode =
+    DiagnosticCode::error("validation::unknown-validator-property");
+const INVALID_VALIDATOR_REFERENCE: DiagnosticCode =
+    DiagnosticCode::error("validation::invalid-validator-reference");
+const DUPLICATE_VALIDATOR_ARGUMENT: DiagnosticCode =
+    DiagnosticCode::error("validation::duplicate-validator-argument");
+const UNKNOWN_VALIDATOR_ARGUMENT: DiagnosticCode =
+    DiagnosticCode::error("validation::unknown-validator-argument");
+const VALIDATOR_ARGUMENT_TYPE_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::validator-argument-type-mismatch");
+const NOT_A_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::not-a-validator");
+const UNKNOWN_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::unknown-validator");
+const STRUCT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::struct-cycle");
+const UNKNOWN_TYPE: DiagnosticCode = DiagnosticCode::error("validation::unknown-type");
 
 
 
@@ -43,7 +60,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
         };
 
         if let Err(_existing_kind) = symbols.insert(name, kind) {
-            errors.push(Diagnostic { help: None, secondary: None,
+            errors.push(Diagnostic { code: DUPLICATE_DECLARATION, help: None, secondary: None,
                 message: format!("Duplicate definition of '{}'", name),
                 context: format!("Definition of {:?} '{}'", kind, name),
                 span,
@@ -87,7 +104,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
             FrozenUnit::Constant { name, kind_value, span, .. } => {
                 // Constants usually primitive, but check if namespaced
                 if let KindValue::Namespaced(type_name, _) = kind_value {
-                     errors.push(Diagnostic { help: None, secondary: None,
+                     errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: None, secondary: None,
                         message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
                         context: format!("Constant '{}'", name),
                         span: Some(*span),
@@ -160,7 +177,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                         &format!(" - did you mean 'params.{}'?", s),
                                     );
                                 }
-                                errors.push(Diagnostic { help: None, secondary: None,
+                                errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_PROPERTY, help: None, secondary: None,
                                     message,
                                     context: vctx.clone(),
                                     span: None,
@@ -168,7 +185,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                             }
                         }
                     }
-                    other => errors.push(Diagnostic { help: None, secondary: None,
+                    other => errors.push(Diagnostic { code: INVALID_VALIDATOR_REFERENCE, help: None, secondary: None,
                         message: format!(
                             "validator '{}': `{}` is not a valid reference in `validate` \
                              (use `value.*` or `params.*`)",
@@ -220,7 +237,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                     continue;
                                 };
                                 if seen.contains(&kw.as_str()) {
-                                    errors.push(Diagnostic { help: None, secondary: None,
+                                    errors.push(Diagnostic { code: DUPLICATE_VALIDATOR_ARGUMENT, help: None, secondary: None,
                                         message: format!(
                                             "duplicate argument '{}' to validator '{}'",
                                             kw, vname
@@ -241,7 +258,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                             &format!(" - did you mean '{}'?", s),
                                         );
                                     }
-                                    errors.push(Diagnostic { help: None, secondary: None,
+                                    errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_ARGUMENT, help: None, secondary: None,
                                         message,
                                         context: field_ctx.clone(),
                                         span: Some(*span),
@@ -270,7 +287,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                                     (want, value_category(val))
                                 {
                                     if want != got {
-                                        errors.push(Diagnostic { help: None, secondary: None,
+                                        errors.push(Diagnostic { code: VALIDATOR_ARGUMENT_TYPE_MISMATCH, help: None, secondary: None,
                                             message: format!(
                                                 "validator '{}': argument '{}' expects {}, got {}",
                                                 vname, kw, want, got
@@ -284,7 +301,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                         }
                     }
                     Some(other) if *other != SymbolType::Import => {
-                        errors.push(Diagnostic { help: None, secondary: None,
+                        errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None,
                             message: format!("'{}' is not a validator", vname),
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -299,7 +316,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                         if let Some(s) = suggest_similar_name(vname, &symbols) {
                             message.push_str(&format!(" - did you mean '{}'?", s));
                         }
-                        errors.push(Diagnostic { help: None, secondary: None,
+                        errors.push(Diagnostic { code: UNKNOWN_VALIDATOR, help: None, secondary: None,
                             message,
                             context: format!(
                                 "{} '{}', field '{}'",
@@ -358,7 +375,7 @@ fn detect_cycle<'a>(
 
                     if unit_map.contains_key(base_type) {
                         if visiting.contains(base_type) {
-                            errors.push(Diagnostic { help: None, secondary: None,
+                            errors.push(Diagnostic { code: STRUCT_CYCLE, help: None, secondary: None,
                                 message: format!("Cycle detected involving struct '{}'", base_type),
                                 context: format!("Struct '{}' depends on '{}'", current, base_type),
                                 span: Some(*span),
@@ -398,7 +415,7 @@ fn validate_type(
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));
                 }
-                errors.push(Diagnostic { help: None, secondary: None,
+                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: None, secondary: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),

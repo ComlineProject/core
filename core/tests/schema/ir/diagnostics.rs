@@ -2,7 +2,7 @@
 // data that's actually load-bearing, not on ariadne's colored terminal
 // output (which isn't stable/meaningful to snapshot).
 
-use comline_core::diagnostics::{render, Diagnostic};
+use comline_core::diagnostics::{render, Diagnostic, DiagnosticCode};
 use comline_core::schema::idl::grammar;
 use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
 use comline_core::schema::ir::compiler::Compile;
@@ -23,6 +23,7 @@ fn test_duplicate_name_diagnostic_renders_with_span() {
     // offending source, not just silently fall back to a bare string.
     assert!(rendered.contains("Duplicate definition of 'User'"));
     assert!(rendered.contains("struct User"));
+    assert_eq!(errors[0].code.id, "validation::duplicate-declaration");
 }
 
 #[test]
@@ -38,11 +39,13 @@ fn test_unknown_type_diagnostic_renders_with_span() {
     assert!(!rendered.is_empty());
     assert!(rendered.contains("Unknown type 'Author'"));
     assert!(rendered.contains("author: Author"));
+    assert_eq!(errors[0].code.id, "validation::unknown-type");
 }
 
 #[test]
 fn test_diagnostic_without_span_falls_back_gracefully() {
-    let error = Diagnostic::new("Synthetic error with no span").with_context("nowhere in particular");
+    let code = DiagnosticCode::error("test::synthetic");
+    let error = Diagnostic::new(code, "Synthetic error with no span").with_context("nowhere in particular");
 
     // Should not panic even though there's no span to render a label for.
     let rendered = render(&error, "test.ids", "struct Empty {\n}\n");

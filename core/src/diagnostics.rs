@@ -9,12 +9,60 @@ use ariadne::{Label, Report, ReportKind, Source};
 
 type SpanId = (String, Range<usize>);
 
-/// A human-facing problem with a schema or package config: a message, an
-/// optional short label for its span (`"unexpected here"`, `"Struct
-/// 'User'"`), an optional byte range into the source, and an optional
-/// suggestion (`"did you mean `str`?"`).
-#[derive(Debug, Clone, PartialEq, Default)]
+/// How urgently a diagnostic should be treated - one-to-one with LSP's four
+/// `DiagnosticSeverity` tiers, so mapping to the editor never needs a
+/// translation table. Every diagnostic today is `Error`; the other three
+/// exist as infrastructure for later work (configurable lint-style
+/// severity, deprecation diagnostics) - nothing currently constructs one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Severity {
+    Error,
+    Warning,
+    Info,
+    Hint,
+}
+
+/// A diagnostic's stable identity: a namespaced, kebab-case code
+/// (`"settings::malformed-value"`, `"validation::unknown-type"`) paired
+/// with its one intrinsic severity. Bundled into a single type on purpose,
+/// not two independent fields on `Diagnostic` - a given code's severity is
+/// a fact about what it means, not a per-call-site choice, so it should be
+/// structurally impossible to construct the same code as `Error` in one
+/// place and `Warning` in another. Each module that raises diagnostics
+/// declares its own small set of `const DiagnosticCode`s near the logic
+/// that raises them (see `settings::enforcement`, `validation::validator`,
+/// …) rather than one central registry every new diagnostic has to join.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DiagnosticCode {
+    pub id: &'static str,
+    pub severity: Severity,
+}
+
+impl DiagnosticCode {
+    pub const fn error(id: &'static str) -> Self {
+        Self { id, severity: Severity::Error }
+    }
+
+    pub const fn warning(id: &'static str) -> Self {
+        Self { id, severity: Severity::Warning }
+    }
+
+    pub const fn info(id: &'static str) -> Self {
+        Self { id, severity: Severity::Info }
+    }
+
+    pub const fn hint(id: &'static str) -> Self {
+        Self { id, severity: Severity::Hint }
+    }
+}
+
+/// A human-facing problem with a schema or package config: a stable code,
+/// a message, an optional short label for its span (`"unexpected here"`,
+/// `"Struct 'User'"`), an optional byte range into the source, and an
+/// optional suggestion (`"did you mean `str`?"`).
+#[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
+    pub code: DiagnosticCode,
     pub message: String,
     pub context: String,
     pub span: Option<(usize, usize)>,
@@ -27,8 +75,8 @@ pub struct Diagnostic {
 }
 
 impl Diagnostic {
-    pub fn new(message: impl Into<String>) -> Self {
-        Self { message: message.into(), context: String::new(), span: None, help: None, secondary: None }
+    pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
+        Self { code, message: message.into(), context: String::new(), span: None, help: None, secondary: None }
     }
 
     pub fn with_context(mut self, context: impl Into<String>) -> Self {
@@ -66,6 +114,11 @@ impl Diagnostic {
     }
 }
 
+const UNEXPECTED_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::unexpected-token");
+const MISSING_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::missing-token");
+const SYNTAX_ERROR: DiagnosticCode = DiagnosticCode::error("parse::syntax-error");
+const UNCLOSED_BRACKET: DiagnosticCode = DiagnosticCode::error("parse::unclosed-bracket");
+
 /// Collapse a grammar's raw `Vec<ParseError>` (both the `.ids` schema
 /// grammar and the `.idp` package-config grammar share this exact
 /// rust-sitter type) into the single most-informative `Diagnostic`. A
@@ -77,15 +130,16 @@ impl Diagnostic {
 /// uses.
 pub fn from_parse_errors(errors: &[rust_sitter::errors::ParseError]) -> Diagnostic {
     match most_informative(errors) {
-        Some((message, context, span, help)) => {
-            let mut d = Diagnostic::new(message).with_context(context).with_span(span);
+        Some((code, message, context, span, help)) => {
+            let mut d = Diagnostic::new(code, message).with_context(context).with_span(span);
             if let Some(help) = help {
                 d = d.with_help(help);
             }
             d
         }
         None => {
-            let mut d = Diagnostic::new("syntax error: unrecognized or incomplete syntax");
+            let mut d =
+                Diagnostic::new(SYNTAX_ERROR, "syntax error: unrecognized or incomplete syntax");
             if let Some(span) = errors.first().map(deepest_span) {
                 d = d.with_span(span);
             }
@@ -155,7 +209,7 @@ pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
     let (pos, ch) = *stack.first()?;
     let close = if ch == b'{' { '}' } else { ']' };
     Some(
-        Diagnostic::new(format!("unclosed `{}`", ch as char))
+        Diagnostic::new(UNCLOSED_BRACKET, format!("unclosed `{}`", ch as char))
             .with_context("opened here")
             .with_span((pos, pos + 1))
             .with_help(format!("add a matching `{close}` to close this block")),
@@ -165,13 +219,14 @@ pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
 #[allow(clippy::type_complexity)]
 fn most_informative(
     errors: &[rust_sitter::errors::ParseError],
-) -> Option<(String, &'static str, (usize, usize), Option<String>)> {
+) -> Option<(DiagnosticCode, String, &'static str, (usize, usize), Option<String>)> {
     use rust_sitter::errors::ParseErrorReason;
 
     for err in errors {
         match &err.reason {
             ParseErrorReason::UnexpectedToken(token) => {
                 return Some((
+                    UNEXPECTED_TOKEN,
                     format!("unexpected token `{token}`"),
                     "unexpected here",
                     (err.start, err.end),
@@ -180,6 +235,7 @@ fn most_informative(
             }
             ParseErrorReason::MissingToken(expected) => {
                 return Some((
+                    MISSING_TOKEN,
                     format!("missing required token `{expected}`"),
                     "expected here",
                     (err.start, err.end),
@@ -212,9 +268,12 @@ fn get_suggestion(token: &str) -> Option<String> {
 /// `ariadne`. Falls back to a flat `message\n  context` when there's no
 /// span, or if rendering itself fails.
 pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
-    let flat = || match d.context.is_empty() {
-        true => d.message.clone(),
-        false => format!("{}\n  {}", d.message, d.context),
+    let flat = || {
+        let prefixed = format!("[{}] {}", d.code.id, d.message);
+        match d.context.is_empty() {
+            true => prefixed,
+            false => format!("{prefixed}\n  {}", d.context),
+        }
     };
 
     let Some(span) = d.span else {
@@ -223,8 +282,14 @@ pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
 
     let label = if d.context.is_empty() { "here" } else { d.context.as_str() };
     let byte_range: Range<usize> = span.0..span.1;
+    let kind = match d.code.severity {
+        Severity::Error => ReportKind::Error,
+        Severity::Warning => ReportKind::Warning,
+        Severity::Info | Severity::Hint => ReportKind::Advice,
+    };
 
-    let mut builder = Report::<SpanId>::build(ReportKind::Error, filename.to_string(), span.0)
+    let mut builder = Report::<SpanId>::build(kind, filename.to_string(), span.0)
+        .with_code(d.code.id)
         .with_message(&d.message)
         .with_label(Label::new((filename.to_string(), byte_range)).with_message(label));
 
@@ -269,6 +334,7 @@ mod tests {
         assert_eq!(d.message, "unexpected token `???`");
         assert_eq!(d.span, Some((5, 8)));
         assert_eq!(d.help, None);
+        assert_eq!(d.code.id, "parse::unexpected-token");
     }
 
     #[test]
@@ -278,6 +344,7 @@ mod tests {
         let d = from_parse_errors(&errors);
         assert_eq!(d.message, "missing required token `:`");
         assert_eq!(d.span, Some((5, 5)));
+        assert_eq!(d.code.id, "parse::missing-token");
     }
 
     #[test]
@@ -361,14 +428,17 @@ mod tests {
         assert_eq!(d.span, Some((1761, 1762)));
     }
 
+    const TEST_CODE: DiagnosticCode = DiagnosticCode::error("test::example");
+
     #[test]
     fn render_with_a_span_produces_a_source_snippet() {
-        let d = Diagnostic::new("unexpected token `/`")
+        let d = Diagnostic::new(UNEXPECTED_TOKEN, "unexpected token `/`")
             .with_context("unexpected here")
             .with_span((8, 9));
         let rendered = render(&d, "main.ids", "struct Foo {\n  / bar: str\n}\n");
         assert!(rendered.contains("main.ids"), "{rendered}");
         assert!(rendered.contains("unexpected token"), "{rendered}");
+        assert!(rendered.contains("parse::unexpected-token"), "code should appear: {rendered}");
         // No raw Rust struct syntax ever leaks into the rendered text.
         assert!(!rendered.contains("ParseError {"), "{rendered}");
         assert!(!rendered.contains("FailedNode("), "{rendered}");
@@ -376,7 +446,7 @@ mod tests {
 
     #[test]
     fn render_with_a_secondary_span_shows_both_source_snippets() {
-        let d = Diagnostic::new("'x.allowed' must be a boolean, got Identifier(\"Tru\")")
+        let d = Diagnostic::new(TEST_CODE, "'x.allowed' must be a boolean, got Identifier(\"Tru\")")
             .with_context("'x.allowed' set here")
             .with_span((8, 9))
             .with_secondary_span((20, 26), "struct 'S'");
@@ -389,14 +459,32 @@ mod tests {
 
     #[test]
     fn render_without_a_span_falls_back_to_a_flat_message() {
-        let d = Diagnostic::new("something went wrong").with_context("Struct 'User'");
-        assert_eq!(render(&d, "main.ids", "irrelevant"), "something went wrong\n  Struct 'User'");
+        let d = Diagnostic::new(TEST_CODE, "something went wrong").with_context("Struct 'User'");
+        assert_eq!(
+            render(&d, "main.ids", "irrelevant"),
+            "[test::example] something went wrong\n  Struct 'User'"
+        );
     }
 
     #[test]
     fn render_without_a_span_or_context_is_just_the_message() {
-        let d = Diagnostic::new("something went wrong");
-        assert_eq!(render(&d, "main.ids", "irrelevant"), "something went wrong");
+        let d = Diagnostic::new(TEST_CODE, "something went wrong");
+        assert_eq!(render(&d, "main.ids", "irrelevant"), "[test::example] something went wrong");
+    }
+
+    #[test]
+    fn render_maps_severity_to_the_right_ariadne_report_kind() {
+        let source = "struct Foo {\n  / bar: str\n}\n";
+        let at = |severity_ctor: fn(&'static str) -> DiagnosticCode, expect: &str| {
+            let code = severity_ctor("test::example");
+            let d = Diagnostic::new(code, "message").with_span((0, 1));
+            let rendered = render(&d, "main.ids", source);
+            assert!(rendered.contains(expect), "expected {expect:?} in: {rendered}");
+        };
+        at(DiagnosticCode::error, "Error");
+        at(DiagnosticCode::warning, "Warning");
+        at(DiagnosticCode::info, "Advice");
+        at(DiagnosticCode::hint, "Advice");
     }
 
     #[test]
@@ -412,6 +500,7 @@ mod tests {
         let (start, end) = d.span.expect("a span pointing at the `{`");
         assert_eq!(&source[start..end], "{");
         assert_eq!(d.help.as_deref(), Some("add a matching `}` to close this block"));
+        assert_eq!(d.code.id, "parse::unclosed-bracket");
     }
 
     #[test]
