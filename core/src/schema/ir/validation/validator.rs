@@ -532,7 +532,7 @@ fn value_category(text: &str) -> Option<&'static str> {
     let t = text.trim();
     if t.starts_with('"') || t.starts_with("f\"") {
         Some("string")
-    } else if matches!(t, "true" | "false" | "True" | "False") {
+    } else if matches!(t, "true" | "false") {
         Some("bool")
     } else if t.parse::<i128>().is_ok() {
         Some("integer")

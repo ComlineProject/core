@@ -1,7 +1,7 @@
 // Standard Uses
 
 // Crate Uses
-use crate::package::config::idl::grammar::{Assignment, Key, Value};
+use crate::package::config::idl::grammar::{Assignment, BooleanLiteral, Key, Value};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::{
     Dependency, FrozenUnit, FrozenWhole, LanguageDetails, PublishRegistry, RegistryKind,
@@ -345,21 +345,17 @@ fn interpret_settings_value(
     use crate::settings::value::SettingsValue;
 
     Ok(match value {
-        Value::Boolean(b) => SettingsValue::Bool(b.value == "true"),
+        Value::Boolean(BooleanLiteral::True) => SettingsValue::Bool(true),
+        Value::Boolean(BooleanLiteral::False) => SettingsValue::Bool(false),
         Value::Number(n) => SettingsValue::Integer(
             n.value
                 .parse()
                 .unwrap_or_else(|_| panic!("'{}' is not a valid settings integer", n.value)),
         ),
         Value::String(s) => SettingsValue::Str(strip_quotes(&s.value)),
-        // `true`/`false` and a reserved bare keyword (`replace`) are both
-        // lexically `[a-zA-Z_][a-zA-Z0-9_]*` - `Identifier`'s pattern,
-        // not `Boolean`'s, is what actually matches them here (confirmed:
-        // `grep`ping this grammar's own tests, nothing ever asserts which
-        // `Value` variant bare `true`/`false` produces). So both cases are
-        // handled on this one arm, not two.
-        Value::Identifier(id) if id.value == "true" => SettingsValue::Bool(true),
-        Value::Identifier(id) if id.value == "false" => SettingsValue::Bool(false),
+        // A reserved bare keyword (`replace`) - `true`/`false` are now
+        // `Boolean`'s literal-text leaves, never `Identifier`'s regex, so
+        // this arm no longer needs (or has) a `true`/`false` special case.
         Value::Identifier(id) => SettingsValue::Identifier(id.value.clone()),
         Value::Dictionary(d) => SettingsValue::Dict(interpret_settings_dict(d)?),
         other => panic!(

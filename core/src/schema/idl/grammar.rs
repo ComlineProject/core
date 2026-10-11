@@ -488,10 +488,16 @@ pub mod grammar {
         Quoted(StringLiteral),
     }
 
-    /// A `settings` value. No general identifier alternative, so `True` /
-    /// `False` lex unambiguously here (unlike in a general `Expression`) -
-    /// `Identifier` is only for a handful of reserved bare keywords (e.g.
-    /// `mode`'s `replace`), checked at freeze time, not a general value kind.
+    /// A `settings` value. `BoolLiteral` is a pair of literal-text leaves
+    /// (not a combined regex), which is what lets it coexist unambiguously
+    /// with `Identifier` here - tree-sitter's keyword-extraction prefers an
+    /// exact literal match over a same-shaped identifier regex at the same
+    /// position, so `true`/`false` always parse as `Bool`, never as
+    /// `Identifier`. `Identifier` itself is only for a handful of reserved
+    /// bare keywords (e.g. `mode`'s `replace`), checked at freeze time, not
+    /// a general value kind. [`Expression::Bool`] reuses this exact same
+    /// `BoolLiteral` type and the same literal-leaf shape, so a boolean is
+    /// spelled and lexed identically everywhere in `.ids` source.
     #[derive(Debug, Clone)]
     pub enum SettingValue {
         Bool(BoolLiteral),
@@ -502,10 +508,23 @@ pub mod grammar {
 
     #[derive(Debug, Clone)]
     pub enum BoolLiteral {
-        #[rust_sitter::leaf(text = "True")]
+        #[rust_sitter::leaf(text = "true")]
         True,
-        #[rust_sitter::leaf(text = "False")]
+        #[rust_sitter::leaf(text = "false")]
         False,
+    }
+
+    impl BoolLiteral {
+        /// The single canonical textual spelling - every consumer that
+        /// renders a boolean back to source text goes through this, so
+        /// there is exactly one place that could ever disagree with the
+        /// grammar's own leaf text.
+        pub fn as_text(&self) -> &'static str {
+            match self {
+                BoolLiteral::True => "true",
+                BoolLiteral::False => "false",
+            }
+        }
     }
 
     // ===== Validator Definition =====
@@ -950,6 +969,7 @@ pub mod grammar {
     /// Expression (simplified for now)
     #[derive(Debug, Clone)]
     pub enum Expression {
+        Bool(BoolLiteral),
         Integer(IntegerLiteral),
         String(StringLiteral),
         FString(FString),
@@ -1215,12 +1235,11 @@ pub mod grammar {
             path.extend(self.key.rest.iter().map(|s| s.segment.text()));
             path
         }
-        /// The value rendered as a plain string (`"True"`, `"8"`, `"core"`,
+        /// The value rendered as a plain string (`"true"`, `"8"`, `"core"`,
         /// `"replace"`).
         pub fn value_string(&self) -> String {
             match &self.value {
-                SettingValue::Bool(BoolLiteral::True) => "True".to_string(),
-                SettingValue::Bool(BoolLiteral::False) => "False".to_string(),
+                SettingValue::Bool(b) => b.as_text().to_string(),
                 SettingValue::Integer(i) => i.value.to_string(),
                 SettingValue::Str(s) => s.value.clone(),
                 SettingValue::Identifier(id) => id.text.clone(),
@@ -1532,6 +1551,7 @@ pub mod grammar {
             match self {
                 // Scalars keep their plain rendering (a bare string, not a
                 // quoted literal) for back-compat with existing consumers.
+                AnnotationValue::Scalar(Expression::Bool(b)) => b.as_text().to_string(),
                 AnnotationValue::Scalar(Expression::Integer(i)) => i.value.to_string(),
                 AnnotationValue::Scalar(Expression::String(s)) => s.value.clone(),
                 AnnotationValue::Scalar(Expression::Identifier(i)) => i.text.clone(),
@@ -1563,6 +1583,7 @@ pub mod grammar {
         /// bare identifier, a `::`-path, or an `f"..."`.
         pub fn as_text(&self) -> String {
             match self {
+                Expression::Bool(b) => b.as_text().to_string(),
                 Expression::Integer(i) => i.value.to_string(),
                 Expression::String(s) => format!("{:?}", s.value),
                 Expression::Identifier(i) => i.text.clone(),

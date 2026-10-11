@@ -101,10 +101,20 @@ pub mod grammar {
         pub value: String,
     }
 
+    /// Two literal-text leaves, not a combined regex - this is what lets
+    /// tree-sitter's keyword-extraction prefer an exact `true`/`false`
+    /// match over `Identifier`'s same-shaped regex at this position,
+    /// mirroring `.ids`'s own `BoolLiteral`. A combined regex leaf (the
+    /// previous shape here) doesn't get that preference, which is why
+    /// `interpret_settings_value` used to need a defensive fallback
+    /// matching `Value::Identifier` too - removed now that this is
+    /// unambiguous.
     #[derive(Debug, Clone)]
-    pub struct BooleanLiteral {
-         #[rust_sitter::leaf(pattern = r"true|false", transform = |v| v.to_string())]
-         pub value: String,
+    pub enum BooleanLiteral {
+        #[rust_sitter::leaf(text = "true")]
+        True,
+        #[rust_sitter::leaf(text = "false")]
+        False,
     }
     
     #[derive(Debug, Clone)]

@@ -107,13 +107,13 @@ mod tests {
 
     #[test]
     fn a_consistent_settings_block_passes() {
-        let declarations = decls("settings {\n    struct.field.validators.allowed = True\n}");
+        let declarations = decls("settings {\n    struct.field.validators.allowed = true\n}");
         assert!(check_settings_conflicts(&declarations).is_ok());
     }
 
     #[test]
     fn a_leaf_vs_group_conflict_is_rejected() {
-        let declarations = decls("settings {\n    a.b = True\n    a.b.c = 1\n}");
+        let declarations = decls("settings {\n    a.b = true\n    a.b.c = 1\n}");
         let errors = check_settings_conflicts(&declarations).unwrap_err();
         assert_eq!(errors.len(), 1);
         assert!(errors[0].message.contains("a.b"));

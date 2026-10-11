@@ -130,7 +130,7 @@ code_generation = { languages = { rust#1.70.0 = {} } }
             ["chat"],
             r#"
 settings {
-    a.b = True
+    a.b = true
     a.b.c = 1
 }
 "#,
