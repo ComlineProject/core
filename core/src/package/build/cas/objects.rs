@@ -3,8 +3,8 @@
 // - Tree: Organizes objects hierarchically
 // - Commit: Tracks version history
 
-use super::storage::Hash;
-use eyre::{eyre, Result};
+use super::storage::{from_cbor, to_cbor, Hash};
+use eyre::Result;
 use serde_derive::{Deserialize, Serialize};
 
 // ========== Blob ==========
@@ -24,14 +24,12 @@ impl Blob {
 
     /// Serialize to bytes for storage
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| eyre!("Failed to serialize blob: {}", e))
+        to_cbor(self)
     }
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| eyre!("Failed to deserialize blob: {}", e))
+        from_cbor(bytes)
     }
 
     /// Get the hash of this blob's content
@@ -74,14 +72,12 @@ impl Tree {
 
     /// Serialize to bytes for storage
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| eyre!("Failed to serialize tree: {}", e))
+        to_cbor(self)
     }
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| eyre!("Failed to deserialize tree: {}", e))
+        from_cbor(bytes)
     }
 
     /// Get the hash of this tree
@@ -148,14 +144,12 @@ impl Commit {
 
     /// Serialize to bytes for storage
     pub fn to_bytes(&self) -> Result<Vec<u8>> {
-        bincode::serialize(self)
-            .map_err(|e| eyre!("Failed to serialize commit: {}", e))
+        to_cbor(self)
     }
 
     /// Deserialize from bytes
     pub fn from_bytes(bytes: &[u8]) -> Result<Self> {
-        bincode::deserialize(bytes)
-            .map_err(|e| eyre!("Failed to deserialize commit: {}", e))
+        from_cbor(bytes)
     }
 
     /// Get the hash of this commit

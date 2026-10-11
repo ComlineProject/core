@@ -6,22 +6,19 @@
 
 use crate::package::build::cas::object_store::ObjectStore;
 use crate::package::build::cas::objects::Blob;
-use crate::package::build::cas::storage::Hash;
+use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::frozen::FrozenUnit;
 
-use eyre::{eyre, Result};
+use eyre::Result;
 
 /// Serialize the frozen congregation into a blob and store it, returning its hash.
 pub fn write_config(units: &[FrozenUnit], store: &ObjectStore) -> Result<Hash> {
-    let bytes =
-        bincode::serialize(units).map_err(|e| eyre!("Failed to serialize frozen config: {e}"))?;
-    let blob = Blob::new(bytes);
+    let blob = Blob::new(to_cbor(units)?);
     store.write(&blob.to_bytes()?)
 }
 
 /// Load a frozen congregation blob back from the store.
 pub fn read_config(store: &ObjectStore, hash: &Hash) -> Result<Vec<FrozenUnit>> {
     let blob = Blob::from_bytes(&store.read(hash)?)?;
-    bincode::deserialize(&blob.content)
-        .map_err(|e| eyre!("Failed to deserialize frozen config: {e}"))
+    from_cbor(&blob.content)
 }

@@ -6,7 +6,7 @@ use comline_core::schema::ir::frozen::cas::blob::{
     blob_to_frozen_unit, build_tree_from_schema, frozen_unit_to_blob,
     load_schema_from_tree,
 };
-use comline_core::schema::ir::frozen::unit::FrozenUnit;
+use comline_core::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
 use tempfile::TempDir;
 
 #[test]
@@ -27,6 +27,23 @@ fn test_frozen_unit_blob_roundtrip() {
             FrozenUnit::Constant { name: n2, .. },
         ) => assert_eq!(n1, n2),
         _ => panic!("Type mismatch"),
+    }
+}
+
+#[test]
+fn test_frozen_unit_deprecated_variant_roundtrips_through_cbor() {
+    // The newest variant in the enum - confirms CBOR's name-based tagging
+    // (not bincode's position-based one) actually works end to end for it,
+    // not just in theory.
+    for unit in [
+        FrozenUnit::Deprecated(DeprecatedValue::True),
+        FrozenUnit::Deprecated(DeprecatedValue::False),
+        FrozenUnit::Deprecated(DeprecatedValue::Message("use NewThing instead".to_string())),
+        FrozenUnit::Deprecated(DeprecatedValue::Malformed("True".to_string())),
+    ] {
+        let blob = frozen_unit_to_blob(&unit).unwrap();
+        let restored = blob_to_frozen_unit(&blob).unwrap();
+        assert_eq!(unit, restored);
     }
 }
 

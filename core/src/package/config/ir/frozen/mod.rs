@@ -16,6 +16,10 @@ use serde_derive::{Serialize, Deserialize};
 pub type FrozenWhole = (ProjectContext, Vec<FrozenUnit>);
 
 
+/// Persisted into `.comline/` as CBOR, same as `schema::ir::frozen::unit::FrozenUnit`
+/// (a separate enum of the same name, one level up in this module tree) -
+/// see that type's own doc comment for what that means for safely
+/// growing/reordering this one.
 #[derive(Debug, Eq, PartialEq, Clone)]
 #[derive(Deserialize, Serialize)]
 pub enum FrozenUnit {
@@ -26,8 +30,6 @@ pub enum FrozenUnit {
     Dependency(Dependency),
     CodeGeneration(LanguageDetails),
     PublishRegistry((String, PublishRegistry)),
-    // Appended, not inserted - these variants are bincode-encoded by
-    // declaration order in CAS blobs, so a new one must always go last.
     Settings(crate::settings::SettingsDict),
 }
 
