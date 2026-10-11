@@ -9,26 +9,12 @@ use crate::schema::ir::compiler::import_resolver::{check_imports, resolve_use_to
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
-use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::settings::effective::package_settings;
 
 // External Uses
 use eyre::{bail, Result};
-
-/// [`crate::diagnostics::render`] against `schema_context`'s own source,
-/// falling back to a flat message when the context has no registered file
-/// to render a snippet against.
-fn render_in(error: &crate::diagnostics::Diagnostic, schema_context: &SchemaContext) -> String {
-    let Some(file) = schema_context.codemap.files().first() else {
-        return match error.context.is_empty() {
-            true => error.message.clone(),
-            false => format!("{}\n  {}", error.message, error.context),
-        };
-    };
-    crate::diagnostics::render(error, file.filename(), file.contents())
-}
 
 pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     if let Some(cycle) = detect_import_cycle(project_context) {
@@ -50,7 +36,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         if let Err(errors) = check_imports(&declarations, &namespace, project_context) {
             let rendered: Vec<String> = errors
                 .iter()
-                .map(|error| render_in(error, &schema_context.borrow()))
+                .map(|error| schema_context.borrow().render(error))
                 .collect();
             schema_errors.push(format!(
                 "Schema '{}' has unresolved imports:\n{}",
@@ -63,7 +49,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         if let Err(errors) = check_aliases(&declarations, Some((&namespace, project_context))) {
             let rendered: Vec<String> = errors
                 .iter()
-                .map(|error| render_in(error, &schema_context.borrow()))
+                .map(|error| schema_context.borrow().render(error))
                 .collect();
             schema_errors.push(format!(
                 "Schema '{}' failed alias resolution:\n{}",
@@ -76,7 +62,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         if let Err(errors) = check_settings_conflicts(&declarations) {
             let rendered: Vec<String> = errors
                 .iter()
-                .map(|error| render_in(error, &schema_context.borrow()))
+                .map(|error| schema_context.borrow().render(error))
                 .collect();
             schema_errors.push(format!(
                 "Schema '{}' has invalid settings:\n{}",
@@ -96,16 +82,21 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
 
-        if let Err(errors) = validation::validate(&frozen_units) {
-            let rendered: Vec<String> = errors
-                .iter()
-                .map(|error| render_in(error, &schema_context.borrow()))
-                .collect();
-            schema_errors.push(format!(
-                "Schema '{}' failed validation:\n{}",
-                namespace_joined,
-                rendered.join("\n\n")
-            ));
+        match validation::validate(&frozen_units) {
+            Ok(warnings) => {
+                schema_context.borrow().warnings.borrow_mut().extend(warnings);
+            }
+            Err(errors) => {
+                let rendered: Vec<String> = errors
+                    .iter()
+                    .map(|error| schema_context.borrow().render(error))
+                    .collect();
+                schema_errors.push(format!(
+                    "Schema '{}' failed validation:\n{}",
+                    namespace_joined,
+                    rendered.join("\n\n")
+                ));
+            }
         }
 
         if let Err(errors) =
@@ -113,7 +104,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         {
             let rendered: Vec<String> = errors
                 .iter()
-                .map(|error| render_in(error, &schema_context.borrow()))
+                .map(|error| schema_context.borrow().render(error))
                 .collect();
             schema_errors.push(format!(
                 "Schema '{}' failed settings enforcement:\n{}",

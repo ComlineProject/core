@@ -23,12 +23,16 @@ const NOT_A_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::not-a
 const UNKNOWN_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::unknown-validator");
 const STRUCT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::struct-cycle");
 const UNKNOWN_TYPE: DiagnosticCode = DiagnosticCode::error("validation::unknown-type");
+const DEPRECATED_TYPE_USAGE: DiagnosticCode =
+    DiagnosticCode::warning("validation::deprecated-type-usage");
 
 
 
-pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
+pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>> {
     let mut errors = vec![];
+    let mut warnings = vec![];
     let mut symbols = SymbolTable::new();
+    let mut deprecated: HashMap<&str, Option<String>> = HashMap::new();
 
     // Pass 1: Collect Symbols & Check Duplicates
     for unit in units {
@@ -66,6 +70,22 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                 span,
             });
         }
+
+        // Only a struct can be referenced by name elsewhere (a field's
+        // type, a function's arg/return, a type alias target) and have that
+        // reference resolve through `validate_type`'s symbol lookup below -
+        // confirmed `FrozenUnit::Error` is never added to `symbols` at all
+        // (not matched above, falls to `_ => continue`), since an error is
+        // only ever referenced via a function's `! Name` throws, resolved to
+        // an ordinal slot in a different pass (`interpreter::incremental`)
+        // before `validate` even runs. So `@deprecated` on an error, a
+        // protocol, a field, or a function parses fine but has no usage
+        // site this check can reach yet.
+        if let FrozenUnit::Struct { parameters, .. } = unit {
+            if let Some(message) = deprecation_of(parameters) {
+                deprecated.insert(name, message);
+            }
+        }
     }
 
     // Stop if duplicate errors found (avoids cascading errors)
@@ -80,7 +100,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                 for field in fields {
                     match field {
                         FrozenUnit::Field { name: field_name, kind_value, span, .. } => {
-                            validate_type(kind_value, &symbols, &mut errors, &format!("Struct '{}', field '{}'", name, field_name), *span);
+                            validate_type(kind_value, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Struct '{}', field '{}'", name, field_name), *span);
                         }
                         _ => {}
                     }
@@ -91,10 +111,10 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                     match func {
                         FrozenUnit::Function { name: func_name, arguments, _return, span, .. } => {
                             for arg in arguments {
-                                validate_type(&arg.kind, &symbols, &mut errors, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name), arg.span);
+                                validate_type(&arg.kind, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name), arg.span);
                             }
                             if let Some(ret_type) = _return {
-                                validate_type(ret_type, &symbols, &mut errors, &format!("Protocol '{}', function '{}' return", name, func_name), *span);
+                                validate_type(ret_type, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Protocol '{}', function '{}' return", name, func_name), *span);
                             }
                         }
                         _ => {}
@@ -120,7 +140,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
                 // each individual *use* site, if even that (a field typed
                 // as this very alias validates fine on its own, since the
                 // alias's own name is now a registered symbol).
-                validate_type(target, &symbols, &mut errors, &format!("Type alias '{}'", name), *span);
+                validate_type(target, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Type alias '{}'", name), *span);
             }
             _ => {}
         }
@@ -346,7 +366,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<(), Vec<Diagnostic>> {
     }
 
     if errors.is_empty() {
-        Ok(())
+        Ok(warnings)
     } else {
         Err(errors)
     }
@@ -393,15 +413,38 @@ fn detect_cycle<'a>(
     visited.insert(current);
 }
 
+/// Look for a `deprecated` property among a struct/error's own annotation
+/// parameters. Outer `Option`: is it deprecated at all - `None` for absent
+/// or explicit `@deprecated = false`. Inner: an optional message, lenient
+/// about the value's shape (mirrors Rust's own `#[deprecated]`/
+/// `#[deprecated = "note"]`): a bare marker or `= true` means "deprecated,
+/// no message"; any value besides the literal text `false` carries its
+/// rendered text as the message.
+fn deprecation_of(parameters: &[FrozenUnit]) -> Option<Option<String>> {
+    for p in parameters {
+        let FrozenUnit::Property { name, expression } = p else { continue };
+        if name != "deprecated" {
+            continue;
+        }
+        return match expression {
+            None => Some(None),
+            Some(v) if v == "false" => None,
+            Some(v) if v == "true" => Some(None),
+            Some(v) => Some(Some(v.clone())),
+        };
+    }
+    None
+}
+
 fn validate_type(
-    kind: &KindValue, symbols: &SymbolTable, errors: &mut Vec<Diagnostic>,
-    context: &str, span: (usize, usize),
+    kind: &KindValue, symbols: &SymbolTable, deprecated: &HashMap<&str, Option<String>>,
+    errors: &mut Vec<Diagnostic>, warnings: &mut Vec<Diagnostic>, context: &str, span: (usize, usize),
 ) {
     match kind {
         KindValue::Namespaced(type_name, _) => {
             // Handle array syntax e.g. "User[]", "User[][]"
             let base_type = type_name.trim_end_matches("[]");
-            
+
             // Allow primitives
             if is_primitive(base_type) {
                 return;
@@ -420,6 +463,14 @@ fn validate_type(
                     context: context.to_string(),
                     span: Some(span),
                 });
+            } else if let Some(deprecation_message) = deprecated.get(base_type) {
+                let message = match deprecation_message {
+                    Some(msg) => format!("'{}' is deprecated: {}", base_type, msg),
+                    None => format!("'{}' is deprecated", base_type),
+                };
+                warnings.push(Diagnostic::new(DEPRECATED_TYPE_USAGE, message)
+                    .with_context(context.to_string())
+                    .with_span(span));
             }
         }
         KindValue::Primitive(_) => {
@@ -427,7 +478,7 @@ fn validate_type(
         }
         KindValue::Union(members) => {
             for member in members {
-                validate_type(member, symbols, errors, context, span);
+                validate_type(member, symbols, deprecated, errors, warnings, context, span);
             }
         }
         KindValue::EnumVariant(_, _) => {

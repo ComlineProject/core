@@ -525,3 +525,114 @@ struct Message {
     let ir = IncrementalInterpreter::from_source(code);
     assert!(validate(&ir).is_ok(), "{:?}", validate(&ir).err());
 }
+
+// --- @deprecated: referencing a deprecated struct/error is a warning, not
+// an error - `validate` succeeds (`Ok`), carrying the warning instead of
+// failing the build.
+
+#[test]
+fn test_no_deprecation_anywhere_returns_no_warnings() {
+    let code = r#"
+struct Author {
+    name: str
+}
+
+struct Post {
+    author: Author
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert_eq!(validate(&ir), Ok(vec![]));
+}
+
+#[test]
+fn test_bare_deprecated_struct_usage_warns_with_no_message() {
+    let code = r#"
+@deprecated
+struct Author {
+    name: str
+}
+
+struct Post {
+    author: Author
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let warnings = validate(&ir).expect("deprecation is a warning, not an error");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].code.id, "validation::deprecated-type-usage");
+    assert_eq!(warnings[0].code.severity, comline_core::diagnostics::Severity::Warning);
+    assert_eq!(warnings[0].message, "'Author' is deprecated");
+    assert!(warnings[0].context.contains("Post") && warnings[0].context.contains("author"));
+}
+
+#[test]
+fn test_deprecated_true_is_the_same_as_bare() {
+    let code = r#"
+@deprecated = true
+struct Author {
+    name: str
+}
+
+struct Post {
+    author: Author
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let warnings = validate(&ir).expect("deprecation is a warning, not an error");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].message, "'Author' is deprecated");
+}
+
+#[test]
+fn test_deprecated_with_a_message_includes_it() {
+    let code = r#"
+@deprecated = "use NewAuthor instead"
+struct Author {
+    name: str
+}
+
+struct Post {
+    author: Author
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let warnings = validate(&ir).expect("deprecation is a warning, not an error");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].message, "'Author' is deprecated: use NewAuthor instead");
+}
+
+#[test]
+fn test_deprecated_false_does_not_warn() {
+    let code = r#"
+@deprecated = false
+struct Author {
+    name: str
+}
+
+struct Post {
+    author: Author
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    assert_eq!(validate(&ir), Ok(vec![]));
+}
+
+#[test]
+fn test_deprecated_struct_referenced_from_a_protocol_function_warns() {
+    let code = r#"
+@deprecated
+struct Old {
+    id: u64
+}
+
+protocol Svc {
+    function get() -> Old;
+}
+"#;
+    let ir = IncrementalInterpreter::from_source(code);
+    let warnings = validate(&ir).expect("deprecation is a warning, not an error");
+    assert_eq!(warnings.len(), 1);
+    assert_eq!(warnings[0].message, "'Old' is deprecated");
+    assert!(warnings[0].context.contains("Svc") && warnings[0].context.contains("get"));
+}
