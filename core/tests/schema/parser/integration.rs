@@ -223,14 +223,14 @@ protocol Service { // inline protocol comment
     fn test_settings_block() {
         // bool / int / string values, an empty block, and one alongside other
         // declarations.
-        assert!(grammar::parse("settings S { a = True b = False }").is_ok());
+        assert!(grammar::parse("settings S { a = true b = false }").is_ok());
         assert!(grammar::parse("settings S { n = 42 s = \"x\" }").is_ok());
         assert!(grammar::parse("settings Empty {}").is_ok());
 
         let code = r#"
 /// switches
 settings Project {
-    forbid_indexing = True
+    forbid_indexing = true
     max_depth = 8
 }
 
@@ -238,22 +238,22 @@ struct Message { body: str }
 "#;
         assert!(grammar::parse(code).is_ok());
 
-        // `True` / `False` stay valid identifiers elsewhere - the keyword only
+        // `true` / `false` stay valid identifiers elsewhere - the keyword only
         // applies inside a settings value.
-        assert!(grammar::parse("enum E { True False }").is_ok());
+        assert!(grammar::parse("enum E { true false }").is_ok());
     }
 
     #[test]
     fn test_unnamed_settings_block() {
         // No name after `settings` - applies implicitly to the whole file.
-        assert!(grammar::parse("settings { a = True }").is_ok());
+        assert!(grammar::parse("settings { a = true }").is_ok());
         assert!(grammar::parse("settings {}").is_ok());
     }
 
     #[test]
     fn test_dotted_settings_key() {
         assert!(
-            grammar::parse("settings Foo { struct.field.validators.allowed = True }").is_ok()
+            grammar::parse("settings Foo { struct.field.validators.allowed = true }").is_ok()
         );
     }
 

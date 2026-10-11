@@ -32,12 +32,12 @@ settings = {
             ["chat"],
             r#"
 settings {
-    validators.allowed = False
+    validators.allowed = false
 }
 
 settings Strict {
     validators.mode = replace
-    validators.allowed = True
+    validators.allowed = true
 }
 
 @settings = Strict

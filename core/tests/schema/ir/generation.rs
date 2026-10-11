@@ -68,7 +68,7 @@ enum Status {
         let code = r#"
 /// Project-wide switches.
 settings Project {
-    forbid_indexing = True
+    forbid_indexing = true
     max_depth = 8
     label = "core"
 }
