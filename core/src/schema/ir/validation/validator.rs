@@ -26,6 +26,7 @@ const NOT_A_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::not-a
 const UNKNOWN_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::unknown-validator");
 const STRUCT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::struct-cycle");
 const UNKNOWN_TYPE: DiagnosticCode = DiagnosticCode::error("validation::unknown-type");
+const NOT_A_TYPE: DiagnosticCode = DiagnosticCode::error("validation::not-a-type");
 const DEPRECATED_TYPE_USAGE: DiagnosticCode =
     DiagnosticCode::warning("validation::deprecated-type-usage");
 const DEPRECATED_MALFORMED_VALUE: DiagnosticCode =
@@ -66,6 +67,22 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
             FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
             FrozenUnit::Validator { name, .. } => (name.as_str(), SymbolType::Validator, None),
             FrozenUnit::TypeAlias { name, span, .. } => (name.as_str(), SymbolType::TypeAlias, Some(*span)),
+            // An error shares this one namespace with every other
+            // declaration, because it generates a type named after itself -
+            // `export interface Rejected` in TypeScript, `pub struct
+            // Rejected` in Rust. A `struct Test` next to an `error Test`
+            // therefore emitted two definitions of `Test` and the generated
+            // code did not compile; nothing here rejected it, and two
+            // `error Test` were not caught either.
+            // A re-export slot (`imported_from: Some(_)`) is not a local
+            // declaration - it is the ordinal this schema reserved for
+            // another schema's error, created by `throws` resolution rather
+            // than written here - so it must not collide with a local
+            // declaration of that name. `Error` carries no span of its own,
+            // same as `Validator`.
+            FrozenUnit::Error { name, imported_from: None, .. } => {
+                (name.as_str(), SymbolType::Error, None)
+            }
             // TODO: Function handling if they become top-level
             _ => continue,
         };
@@ -78,16 +95,13 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
             });
         }
 
-        // Only a struct can be referenced by name elsewhere (a field's
-        // type, a function's arg/return, a type alias target) and have that
-        // reference resolve through `validate_type`'s symbol lookup below -
-        // confirmed `FrozenUnit::Error` is never added to `symbols` at all
-        // (not matched above, falls to `_ => continue`), since an error is
-        // only ever referenced via a function's `! Name` throws, resolved to
-        // an ordinal slot in a different pass (`interpreter::incremental`)
-        // before `validate` even runs. So `@deprecated` on an error, a
-        // protocol, a field, or a function parses fine but has no usage
-        // site this check can reach yet.
+        // Deprecation tracking stays struct-only. Which kinds are usable in
+        // a type position is `SymbolType::usable_as_type`'s business now,
+        // but a *usage site* is still only reachable for a struct: a
+        // function's `! Name` throws is already an ordinal by the time
+        // `validate` runs (`interpreter::incremental` resolves it), so
+        // `@deprecated` on an error, a protocol, a field, or a function
+        // parses fine and has nothing for this check to flag.
         if let FrozenUnit::Struct { parameters, .. } = unit {
             match deprecation_of(parameters, span) {
                 Ok(Some(message)) => {
@@ -545,10 +559,28 @@ fn validate_type(
                 return;
             }
 
-            // Check if type exists — either as a local declaration / qualified
-            // import (`contains`), or as the bare name a `use ns::Name` brought
-            // into scope.
-            if !symbols.contains(base_type) && !symbols.is_imported_bare(base_type) {
+            // Resolve the name, then check that what it names can actually
+            // stand here. Presence used to be the whole test, so anything in
+            // the table passed: `field: SomeProtocol`, `field: SOME_CONST`
+            // and `field: SomeValidator` all type-checked, and adding errors
+            // to the table would have quietly extended that to them.
+            //
+            // A name the bare-import set brought into scope is opaque - the
+            // schema it came from is not necessarily parsed here - so it is
+            // accepted without a kind.
+            let found = symbols.get(base_type);
+            let imported_bare = symbols.is_imported_bare(base_type);
+
+            if let Some(kind) = found.filter(|k| !k.usable_as_type()) {
+                errors.push(
+                    Diagnostic::new(
+                        NOT_A_TYPE,
+                        format!("'{base_type}' is {}, not a type", kind.describe()),
+                    )
+                    .with_context(context.to_string())
+                    .with_span(span),
+                );
+            } else if found.is_none() && !imported_bare {
                 let mut message = format!("Unknown type '{}'", base_type);
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));

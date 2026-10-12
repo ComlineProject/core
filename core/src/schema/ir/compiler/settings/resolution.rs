@@ -11,6 +11,7 @@ use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::conformance::check_settings_conformance;
 
 const CONFLICT: DiagnosticCode = DiagnosticCode::error("settings::conflict");
+const DUPLICATE_BLOCK: DiagnosticCode = DiagnosticCode::error("settings::duplicate-block");
 
 /// Validate every `settings` block in `declarations`: its dotted keys must
 /// describe one consistent nested shape (no leaf-vs-group conflict, no
@@ -22,6 +23,12 @@ pub fn check_settings_conflicts(
     declarations: &[rust_sitter::Spanned<Declaration>],
 ) -> Result<(), Vec<Diagnostic>> {
     let mut errors = Vec::new();
+    // A schema has one unnamed block and at most one block per name.
+    // `effective::schema_settings` collects them into a map keyed by name
+    // (and a single `unnamed` slot), so a second block with the same name
+    // silently replaced the first and everything written in it was
+    // discarded - no diagnostic anywhere.
+    let mut seen: Vec<Option<String>> = Vec::new();
 
     for decl in declarations {
         let Declaration::Settings(settings_def) = &decl.value else {
@@ -31,6 +38,16 @@ pub fn check_settings_conflicts(
             .name()
             .map(|n| format!("settings block '{n}'"))
             .unwrap_or_else(|| "the unnamed settings block".to_string());
+
+        if seen.contains(&settings_def.name()) {
+            errors.push(
+                Diagnostic::new(DUPLICATE_BLOCK, format!("Duplicate {label}"))
+                    .with_context("declared twice in this schema".to_string())
+                    .with_help("merge them - only the last one has any effect".to_string())
+                    .with_span(decl.span),
+            );
+        }
+        seen.push(settings_def.name());
 
         let entries: Vec<_> = settings_def
             .entries()

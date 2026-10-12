@@ -11,6 +11,47 @@ pub enum SymbolType {
     Import,
     Validator,
     TypeAlias,
+    Error,
+}
+
+impl SymbolType {
+    /// Whether a name of this kind may stand in a type position - a field's
+    /// type, a function's argument or return, a type alias' target.
+    ///
+    /// Presence in the table used to be the whole test, so every kind here
+    /// was usable as a type: `field: SomeProtocol`, `field: SOME_CONST` and
+    /// `field: SomeValidator` all type-checked. An `Import` is opaque (the
+    /// imported schema is not necessarily parsed here), so it stays
+    /// permitted.
+    pub const fn usable_as_type(self) -> bool {
+        match self {
+            SymbolType::Struct
+            | SymbolType::Enum
+            | SymbolType::TypeAlias
+            | SymbolType::Import => true,
+            SymbolType::Protocol
+            | SymbolType::Function
+            | SymbolType::Constant
+            | SymbolType::Validator
+            | SymbolType::Error => false,
+        }
+    }
+
+    /// How to name this kind in a diagnostic, with its article - "an error",
+    /// "a protocol".
+    pub const fn describe(self) -> &'static str {
+        match self {
+            SymbolType::Struct => "a struct",
+            SymbolType::Enum => "an enum",
+            SymbolType::Protocol => "a protocol",
+            SymbolType::Function => "a function",
+            SymbolType::Constant => "a constant",
+            SymbolType::Import => "an import",
+            SymbolType::Validator => "a validator",
+            SymbolType::TypeAlias => "a type alias",
+            SymbolType::Error => "an error",
+        }
+    }
 }
 
 pub struct SymbolTable<'a> {

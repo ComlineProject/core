@@ -280,3 +280,133 @@ fn a_malformed_diagnostic_level_is_its_own_build_failure() {
 
     assert!(err.to_string().contains("invalid-diagnostic-level"), "got: {err}");
 }
+
+#[test]
+fn an_error_colliding_with_a_type_is_a_duplicate_declaration() {
+    // Both generate a type named after themselves - `export interface Test`
+    // in TypeScript, `pub struct Test` in Rust - so this emitted two
+    // definitions of `Test` and the generated code did not compile. Core
+    // excluded errors from the duplicate check outright, so nothing said so.
+    for (label, source) in [
+        ("struct", "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n"),
+        ("enum", "enum Test {\n    A\n}\n\nerror Test {\n    message = \"\"\n}\n"),
+        (
+            "protocol",
+            "protocol Test {\n    function f();\n}\n\nerror Test {\n    message = \"\"\n}\n",
+        ),
+        // Two errors were not caught either.
+        (
+            "another error",
+            "error Test {\n    message = \"\"\n}\n\nerror Test {\n    message = \"\"\n}\n",
+        ),
+    ] {
+        let err = PackageSources::new()
+            .schema(["chat"], source)
+            .compile()
+            .err()
+            .unwrap_or_else(|| panic!("{label} + error Test should be rejected"));
+        let text = err.to_string();
+        assert!(text.contains("Duplicate definition"), "{label}: {text}");
+        assert!(text.contains("Test"), "{label}: {text}");
+    }
+}
+
+#[test]
+fn a_settings_preset_may_share_a_name_with_a_declaration() {
+    // A `settings` block generates no type, so it cannot collide in codegen
+    // and stays in its own namespace. This is the case the editor has to
+    // disambiguate rather than the one core should reject.
+    PackageSources::new()
+        .schema(
+            ["chat"],
+            "struct Test {\n    a: str\n}\n\n\
+             settings Test {\n    validators.allowed = true\n}\n",
+        )
+        .compile()
+        .expect("a settings preset is a separate namespace");
+}
+
+#[test]
+fn a_name_that_is_not_a_type_is_rejected_in_a_type_position() {
+    // Resolution was presence-only, so anything in the symbol table passed
+    // as a field's type. Each of these compiled clean.
+    for (source, expected) in [
+        (
+            "error Boom {\n    message = \"\"\n}\n\nstruct S {\n    f: Boom\n}\n",
+            "an error",
+        ),
+        (
+            "protocol P {\n    function f();\n}\n\nstruct S {\n    f: P\n}\n",
+            "a protocol",
+        ),
+        ("const LIMIT: u16 = 20\n\nstruct S {\n    f: LIMIT\n}\n", "a constant"),
+    ] {
+        let err = PackageSources::new()
+            .schema(["chat"], source)
+            .compile()
+            .expect_err("a non-type in a type position is an error");
+        let text = err.to_string();
+        assert!(text.contains("not a type"), "got: {text}");
+        assert!(text.contains(expected), "expected {expected:?} in: {text}");
+    }
+}
+
+#[test]
+fn an_error_is_still_usable_where_an_error_belongs() {
+    // The flip side of the two tests above: folding errors into the
+    // declaration namespace must not disturb `! Name` throws, which is the
+    // one place an error is meant to be named.
+    PackageSources::new()
+        .schema(
+            ["chat"],
+            "error Rejected {\n    message = \"\"\n}\n\n\
+             protocol Chat {\n    function send(text: str) ! Rejected;\n}\n",
+        )
+        .compile()
+        .expect("a throws clause must still resolve its error");
+}
+
+#[test]
+fn a_duplicate_settings_block_is_reported_rather_than_silently_dropped() {
+    // `effective::schema_settings` keys named blocks by name and keeps a
+    // single unnamed slot, so a second block with the same name replaced
+    // the first outright - everything written in the first was discarded
+    // with no diagnostic anywhere.
+    for (label, source) in [
+        (
+            "named",
+            "struct S {\n    a: str\n}\n\n\
+             settings Strict {\n    validators.allowed = true\n}\n\n\
+             settings Strict {\n    annotations.framing.allowed = true\n}\n",
+        ),
+        (
+            "unnamed",
+            "struct S {\n    a: str\n}\n\n\
+             settings {\n    validators.allowed = true\n}\n\n\
+             settings {\n    annotations.framing.allowed = true\n}\n",
+        ),
+    ] {
+        let err = PackageSources::new()
+            .schema(["chat"], source)
+            .compile()
+            .err()
+            .unwrap_or_else(|| panic!("a duplicate {label} block should be reported"));
+        let text = err.to_string();
+        assert!(text.contains("settings::duplicate-block"), "{label}: {text}");
+        assert!(text.contains("only the last one"), "{label}: {text}");
+    }
+}
+
+#[test]
+fn distinct_settings_blocks_are_still_fine() {
+    PackageSources::new()
+        .schema(
+            ["chat"],
+            "struct S {\n    a: str\n}\n\n\
+             settings {\n    validators.allowed = true\n}\n\n\
+             settings Strict {\n    annotations.framing.allowed = true\n}\n\n\
+             settings Lax {\n    validators.allowed = false\n}\n",
+        )
+        .compile()
+        .expect("one unnamed block plus distinct named blocks is the normal case");
+}
