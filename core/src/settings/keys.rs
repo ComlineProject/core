@@ -151,6 +151,21 @@ impl NameKind {
             NameKind::CodeId => "<code>",
         }
     }
+
+    /// Every placeholder spelling, so a consumer can recognise one without
+    /// hardcoding the list.
+    pub const ALL_PLACEHOLDERS: &'static [&'static str] = &["<name>", "<code>"];
+}
+
+/// Whether one segment of a displayed key pattern is a placeholder standing
+/// in for a user-chosen name, rather than a literal the user must type.
+///
+/// The editor splits a pattern on `.` and needs to know which segments are
+/// holes - it used to test `segment == "<name>"`, which silently excluded
+/// `diagnostics.<code>.level` from both completion filtering and snippet
+/// tab-stops.
+pub fn is_placeholder(segment: &str) -> bool {
+    NameKind::ALL_PLACEHOLDERS.contains(&segment)
 }
 
 /// Whether a key may be scoped to a declaration site.
@@ -967,6 +982,26 @@ mod tests {
                 "diagnostics.<code>.level",
             ]
         );
+    }
+
+    #[test]
+    fn is_placeholder_covers_every_placeholder_a_shape_actually_uses() {
+        // The editor recognises holes in a pattern by this predicate, so
+        // the list must not fall behind the shapes. A new `NameKind`
+        // whose placeholder is not listed fails here rather than silently
+        // dropping that key from completion.
+        for shape in SHAPES {
+            if let Shape::Path(p) = shape {
+                assert!(
+                    is_placeholder(p.name.placeholder()),
+                    "{} uses an unlisted placeholder {:?}",
+                    p.id,
+                    p.name.placeholder()
+                );
+            }
+        }
+        assert!(!is_placeholder("allowed"));
+        assert!(!is_placeholder("annotations"));
     }
 
     #[test]
