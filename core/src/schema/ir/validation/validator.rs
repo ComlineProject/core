@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 // Crate Uses
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
-use crate::schema::ir::frozen::unit::{ConfigValue, DeprecatedValue, FrozenUnit};
+use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
@@ -41,6 +41,16 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
     let mut warnings = vec![];
     let mut symbols = SymbolTable::new();
     let mut deprecated: HashMap<&str, Option<String>> = HashMap::new();
+    // The schema this is, for naming a declaration the way the author would
+    // have to write it from elsewhere. `None` on the paths that freeze
+    // declarations without a project context (most of this crate's own
+    // tests, and the editor before it knows the file's module path), where
+    // the bare name is all there is to say.
+    let namespace = schema_namespace(units).filter(|ns| !ns.is_empty());
+    let qualified = |name: &str| match namespace {
+        Some(ns) => format!("{ns}::{name}"),
+        None => name.to_string(),
+    };
 
     // Pass 1: Collect Symbols & Check Duplicates
     for unit in units {
@@ -49,7 +59,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
         // separate set (so it never conflicts and a local declaration shadows
         // it). Redundant identical `use`s are fine, hence `let _`.
         if let FrozenUnit::Import(path, alias, _span) = unit {
-            let _ = symbols.insert(path.as_str(), SymbolType::Import);
+            let _ = symbols.insert(path.as_str(), SymbolType::Import, Some(*_span));
             let bare = match alias {
                 Some(a) => Some(a.as_str()),
                 None => path.rsplit("::").next().filter(|s| *s != path.as_str()),
@@ -65,7 +75,9 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
             FrozenUnit::Enum { name, span, .. } => (name.as_str(), SymbolType::Enum, Some(*span)),
             FrozenUnit::Protocol { name, span, .. } => (name.as_str(), SymbolType::Protocol, Some(*span)),
             FrozenUnit::Constant { name, span, .. } => (name.as_str(), SymbolType::Constant, Some(*span)),
-            FrozenUnit::Validator { name, .. } => (name.as_str(), SymbolType::Validator, None),
+            FrozenUnit::Validator { name, span, .. } => {
+                (name.as_str(), SymbolType::Validator, Some(*span))
+            }
             FrozenUnit::TypeAlias { name, span, .. } => (name.as_str(), SymbolType::TypeAlias, Some(*span)),
             // An error shares this one namespace with every other
             // declaration, because it generates a type named after itself -
@@ -78,21 +90,40 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
             // declaration - it is the ordinal this schema reserved for
             // another schema's error, created by `throws` resolution rather
             // than written here - so it must not collide with a local
-            // declaration of that name. `Error` carries no span of its own,
-            // same as `Validator`.
-            FrozenUnit::Error { name, imported_from: None, .. } => {
-                (name.as_str(), SymbolType::Error, None)
+            // declaration of that name. Its `span` is `None` for the same
+            // reason: it was written in another file.
+            FrozenUnit::Error { name, imported_from: None, span, .. } => {
+                (name.as_str(), SymbolType::Error, *span)
             }
             // TODO: Function handling if they become top-level
             _ => continue,
         };
 
-        if let Err(_existing_kind) = symbols.insert(name, kind) {
-            errors.push(Diagnostic { code: DUPLICATE_DECLARATION, help: None, secondary: None, severity_override: None,
-                message: format!("Duplicate definition of '{}'", name),
-                context: format!("Definition of {:?} '{}'", kind, name),
-                span,
-            });
+        // Both sites, named by keyword and qualified by namespace: a
+        // duplicate is a two-site problem, and "Definition of Error 'Test'"
+        // (a `{:?}` dump, unqualified) left the Problems panel with no way
+        // to tell which `Test` in which schema it meant. The primary span
+        // is the declaration that collided; the secondary is the one
+        // already holding the name.
+        if let Err(existing) = symbols.insert(name, kind, span) {
+            let qualified_name = qualified(name);
+            errors.push(
+                Diagnostic::new(
+                    DUPLICATE_DECLARATION,
+                    format!("Duplicate definition of '{qualified_name}'"),
+                )
+                .with_context(format!("{} '{qualified_name}'", kind.keyword()))
+                .with_help(format!(
+                    "rename this {} or remove it - the {} above already defines '{name}'",
+                    kind.keyword(),
+                    existing.kind.keyword(),
+                ))
+                .maybe_span(span)
+                .maybe_secondary(
+                    existing.span,
+                    format!("{} '{qualified_name}' declared here", existing.kind.keyword()),
+                ),
+            );
         }
 
         // Deprecation tracking stays struct-only. Which kinds are usable in
@@ -263,7 +294,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
                 // `a::b::*` glob); the other schema isn't loaded here, so any
                 // import that could supply `vname` means we can't judge it.
                 let maybe_imported = symbols.symbols.iter().any(|(k, v)| {
-                    *v == SymbolType::Import
+                    v.kind == SymbolType::Import
                         && (*k == vname
                             || k.ends_with(&format!("::{vname}"))
                             || k.ends_with("::*"))
@@ -272,7 +303,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
                 let field_ctx =
                     format!("{} '{}', field '{}'", owner_kind, owner_name, field_name);
 
-                match symbols.symbols.get(vname.as_str()) {
+                match symbols.get(vname.as_str()) {
                     Some(SymbolType::Validator) => {
                         // Locally declared - check the keyword arguments.
                         if let Some(props) = validator_props.get(vname.as_str()) {
@@ -345,7 +376,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
                             }
                         }
                     }
-                    Some(other) if *other != SymbolType::Import => {
+                    Some(other) if other != SymbolType::Import => {
                         errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None, severity_override: None,
                             message: format!("'{}' is not a validator", vname),
                             context: format!(
@@ -414,10 +445,8 @@ fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
                 check_params(parameters, &format!("struct '{name}'"), Some(*span), errors);
                 check_field_params(fields, errors);
             }
-            // `FrozenUnit::Error` carries no span, so its own violations
-            // are spanless - the same gap the other passes here have.
-            FrozenUnit::Error { name, parameters, fields, .. } => {
-                check_params(parameters, &format!("error '{name}'"), None, errors);
+            FrozenUnit::Error { name, parameters, fields, span, .. } => {
+                check_params(parameters, &format!("error '{name}'"), *span, errors);
                 check_field_params(fields, errors);
             }
             FrozenUnit::Protocol { name, parameters, functions, span, .. } => {

@@ -248,7 +248,7 @@ validator StringBounds {
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
 
-        let FrozenUnit::Validator { docstring, name, properties, expression_block } = &ir_units[0]
+        let FrozenUnit::Validator { docstring, name, properties, expression_block, .. } = &ir_units[0]
         else {
             panic!("expected Validator, got {:?}", ir_units[0]);
         };

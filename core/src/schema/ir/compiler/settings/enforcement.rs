@@ -51,14 +51,10 @@ pub fn check_settings_enforcement(
                     check_field(&schema_effective, &schema_effective_spans, &schema, DeclPath::StructField, field, &mut errors);
                 }
             }
-            FrozenUnit::Error { name, parameters, fields, .. } => {
-                // `FrozenUnit::Error` carries no span - its own
-                // violations are necessarily spanless (matches
-                // `validation::validator`'s existing precedent for the
-                // same gap, e.g. its `Validator` symbol-table entries).
+            FrozenUnit::Error { name, parameters, fields, span, .. } => {
                 check_declaration(
                     &schema_effective, &schema_effective_spans, &schema, DeclPath::Error, parameters,
-                    &format!("error '{name}'"), None, &mut errors,
+                    &format!("error '{name}'"), *span, &mut errors,
                 );
                 for field in fields {
                     check_field(&schema_effective, &schema_effective_spans, &schema, DeclPath::ErrorField, field, &mut errors);
@@ -307,7 +303,7 @@ mod tests {
     fn an_error(name: &str, parameters: Vec<FrozenUnit>, fields: Vec<FrozenUnit>) -> FrozenUnit {
         FrozenUnit::Error {
             docstring: None, parameters, ordinal: 0, imported_from: None,
-            name: name.to_string(), message: "msg".to_string(), fields,
+            name: name.to_string(), message: "msg".to_string(), fields, span: Some((0, 1)),
         }
     }
 
@@ -493,9 +489,29 @@ mod tests {
     }
 
     #[test]
-    fn bare_error_violation_has_no_span() {
+    fn error_violation_points_at_the_error() {
         let package = package_with(&["error", "annotations", "x", "allowed"], b(false));
         let units = vec![an_error("E", vec![property("x")], vec![])];
+        let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].span, Some((0, 1)));
+    }
+
+    /// A re-export slot's span belongs to the schema that declared the
+    /// error, not this one, so it stays `None` rather than underlining an
+    /// arbitrary byte range of the wrong file.
+    #[test]
+    fn a_re_exported_error_violation_stays_spanless() {
+        let package = package_with(&["error", "annotations", "x", "allowed"], b(false));
+        let FrozenUnit::Error { docstring, parameters, ordinal, name, message, fields, .. } =
+            an_error("E", vec![property("x")], vec![])
+        else {
+            unreachable!("an_error builds an Error")
+        };
+        let units = vec![FrozenUnit::Error {
+            docstring, parameters, ordinal, name, message, fields,
+            imported_from: Some("other".to_string()), span: None,
+        }];
         let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
         assert_eq!(errors.len(), 1);
         assert_eq!(errors[0].span, None);

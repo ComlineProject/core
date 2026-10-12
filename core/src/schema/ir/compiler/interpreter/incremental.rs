@@ -255,7 +255,7 @@ impl IncrementalInterpreter {
                     // them; `None` only if a Protocol arm somehow references a
                     // name before it's planned, which can't happen.
                     let ordinal = error_ordinals.get(&error_decl.name()).copied().unwrap_or(0);
-                    frozen_units.push(frozen_error(&error_decl, ordinal, None));
+                    frozen_units.push(frozen_error(&error_decl, ordinal, None, Some(span)));
                 }
                 Declaration::Settings(settings_def) => {
                     let entries: Vec<_> = settings_def
@@ -324,6 +324,7 @@ impl IncrementalInterpreter {
                         properties,
                         name: validator_def.name(),
                         expression_block: Box::new(FrozenUnit::ExpressionBlock { asserts }),
+                        span,
                     });
                 }
                 Declaration::TypeAlias(alias) => {
@@ -419,6 +420,7 @@ fn plan_error_space(
                         name: name.clone(),
                         message: String::new(),
                         fields: vec![],
+                        span: None,
                     }
                 }),
             );
@@ -450,6 +452,7 @@ fn resolve_foreign_error(
                     error_decl,
                     ordinal,
                     Some(schema_ref.namespace_joined()),
+                    None,
                 ));
             }
         }
@@ -460,10 +463,13 @@ fn resolve_foreign_error(
 
 /// Freeze one `error` declaration - shared by a local declaration and a
 /// re-exported import (which only differ in `ordinal` / `imported_from`).
+/// `span` is `Some` only for a local declaration - see
+/// [`FrozenUnit::Error`]'s own `span` doc for why a re-export's is `None`.
 fn frozen_error(
     error_decl: &grammar::Error,
     ordinal: u16,
     imported_from: Option<String>,
+    span: Option<(usize, usize)>,
 ) -> FrozenUnit {
     let field_units: Vec<FrozenUnit> = error_decl
         .fields()
@@ -486,6 +492,7 @@ fn frozen_error(
         name: error_decl.name(),
         message: error_decl.message(),
         fields: field_units,
+        span,
     }
 }
 
