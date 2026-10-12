@@ -728,3 +728,109 @@ protocol MessagingService {
         );
     }
 }
+
+/// A duplicate declaration is a two-site problem. Before this, the
+/// diagnostic named one site, dumped its kind with `{:?}`, and - when the
+/// offending declaration was an `error`, which carried no span at all -
+/// pointed at byte 0, i.e. the top of the file.
+#[cfg(test)]
+mod duplicate_declaration_diagnostics {
+    use comline_core::diagnostics::render;
+    use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
+    use comline_core::schema::ir::compiler::Compile;
+    use comline_core::schema::ir::frozen::unit::FrozenUnit;
+    use comline_core::schema::ir::validation::validate;
+
+    /// The byte range `source` quotes for `span`.
+    fn quoted(source: &str, span: (usize, usize)) -> &str {
+        &source[span.0..span.1]
+    }
+
+    #[test]
+    fn a_struct_and_an_error_name_both_sites() {
+        let code = "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n";
+        let errors = validate(&IncrementalInterpreter::from_source(code)).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let error = &errors[0];
+        assert_eq!(error.code.id, "validation::duplicate-declaration");
+
+        // Primary: the `error` that collided - not byte 0.
+        let span = error.span.expect("the error declaration has a span now");
+        assert!(quoted(code, span).starts_with("error Test"), "{:?}", quoted(code, span));
+
+        // Secondary: the struct already holding the name.
+        let (sec_span, sec_label) = error.secondary.as_ref().expect("both sites are named");
+        assert!(quoted(code, *sec_span).starts_with("struct Test"));
+        assert_eq!(sec_label, "struct 'Test' declared here");
+
+        assert_eq!(error.context, "error 'Test'");
+        assert_eq!(
+            error.help.as_deref(),
+            Some("rename this error or remove it - the struct above already defines 'Test'"),
+        );
+
+        // Both sites really do render, not just travel in the struct.
+        let rendered = render(error, "test.ids", code);
+        assert!(rendered.contains("struct Test"), "{rendered}");
+        assert!(rendered.contains("error Test"), "{rendered}");
+    }
+
+    /// Declaring the same `error` twice was caught by `core#89`, but the
+    /// report had nowhere to point.
+    #[test]
+    fn two_errors_name_both_sites() {
+        let code = "error Test {\n    message = \"a\"\n}\n\nerror Test {\n    message = \"b\"\n}\n";
+        let errors = validate(&IncrementalInterpreter::from_source(code)).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let span = errors[0].span.expect("spanned");
+        let (sec_span, _) = errors[0].secondary.as_ref().expect("two sites");
+        assert_ne!(span, *sec_span, "the two errors are different declarations");
+        assert!(quoted(code, span).contains("\"b\""), "the primary is the second one");
+        assert!(quoted(code, *sec_span).contains("\"a\""), "the secondary is the first");
+    }
+
+    /// A `validator` had the same spanless gap an `error` did.
+    #[test]
+    fn a_validator_colliding_with_a_struct_is_spanned() {
+        let code = concat!(
+            "struct Bounded {\n    a: str\n}\n\n",
+            "validator Bounded {\n    min: u32 = 1\n\n    validate {\n",
+            "        assert(value.length >= params.min, \"too short\")\n    }\n}\n",
+        );
+        let errors = validate(&IncrementalInterpreter::from_source(code)).unwrap_err();
+
+        assert_eq!(errors.len(), 1);
+        let span = errors[0].span.expect("the validator declaration has a span now");
+        assert!(quoted(code, span).starts_with("validator Bounded"));
+        assert_eq!(errors[0].context, "validator 'Bounded'");
+    }
+
+    /// `settings` presets are their own namespace - a `settings Test`
+    /// beside a `struct Test` generates nothing and collides with nothing.
+    #[test]
+    fn a_settings_preset_may_share_a_name() {
+        let code = "struct Test {\n    a: str\n}\n\nsettings Test {\n    validators.allowed = true\n}\n";
+        validate(&IncrementalInterpreter::from_source(code))
+            .expect("a settings preset shares no namespace with a struct");
+    }
+
+    /// With a namespace in hand - what a real `comline build` always has -
+    /// both sites are named the way the author would have to write them
+    /// from another schema.
+    #[test]
+    fn a_namespace_qualifies_both_sites() {
+        let code = "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n";
+        let mut units = IncrementalInterpreter::from_source(code);
+        units.insert(0, FrozenUnit::Namespace("test::main".to_string()));
+
+        let errors = validate(&units).unwrap_err();
+        assert_eq!(errors[0].message, "Duplicate definition of 'test::main::Test'");
+        assert_eq!(errors[0].context, "error 'test::main::Test'");
+        let (_, sec_label) = errors[0].secondary.as_ref().expect("two sites");
+        assert_eq!(sec_label, "struct 'test::main::Test' declared here");
+        // The help names the bare identifier - it's telling you what to type.
+        assert!(errors[0].help.as_deref().unwrap().ends_with("already defines 'Test'"));
+    }
+}

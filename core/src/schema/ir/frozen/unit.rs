@@ -14,13 +14,17 @@ pub type FrozenContextWhole = (SchemaContext, Vec<FrozenUnit>);
 // TODO: A lot of string instances could be &'a str, boxes could also get ditched, etc
 /// Persisted into `.comline/` as CBOR (`package::build::cas::storage::to_cbor`/
 /// `from_cbor`), which tags both this enum's own variants and every nested
-/// struct's fields by name, not declaration-order position - so adding or
-/// reordering a variant/field here is safe without touching anything else.
-/// Only *renaming* or *removing* an existing one needs
+/// struct's fields by name, not declaration-order position - so *reordering*
+/// a variant or field here is safe without touching anything else, and so is
+/// adding one that carries `#[serde(default)]`.
+///
+/// Adding a field *without* a default is not free, despite what the name
+/// tagging suggests: an old blob simply has no entry for it, and serde fails
+/// the whole decode rather than skipping it. That case needs
 /// `package::build::cas::object_store::CURRENT_IR_FORMAT_VERSION` bumped by
-/// hand (CBOR can't absorb that case for free; the bump makes any
-/// `.comline/` built under the old shape get wiped and rebuilt instead of
-/// misread).
+/// hand, same as *renaming* or *removing* an existing field - the bump makes
+/// any `.comline/` built under the old shape get wiped and rebuilt instead of
+/// misread.
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FrozenUnit {
@@ -136,13 +140,27 @@ pub enum FrozenUnit {
         imported_from: Option<String>,
         name: String,
         message: String,
-        fields: Vec<FrozenUnit>
+        fields: Vec<FrozenUnit>,
+        /// Where this `error` was written, when it was written *here*.
+        ///
+        /// `None` for a re-export slot (`imported_from: Some(_)`): that
+        /// declaration lives in another schema, so its span indexes another
+        /// file's source and underlining it would highlight an arbitrary
+        /// byte range of the wrong document. Also `None` for the
+        /// `<unresolved: Name>` placeholder a `throws` synthesises, which
+        /// was never written anywhere.
+        #[serde(default)]
+        span: Option<(usize, usize)>,
     },
     Validator {
         docstring: Option<String>,
         properties: Vec<FrozenUnit>,
         name: String,
-        expression_block: Box<FrozenUnit>
+        expression_block: Box<FrozenUnit>,
+        /// Always present - a `validator` is only ever frozen from a local
+        /// declaration, never re-exported the way an `error` is.
+        #[serde(default)]
+        span: (usize, usize),
     },
     /// A validator applied to a field via `@validators = [Name(k = v, ...)]`.
     /// One per call in the list; `args` holds a `Property { name, expression }`

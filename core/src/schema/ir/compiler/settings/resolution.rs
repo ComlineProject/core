@@ -28,7 +28,10 @@ pub fn check_settings_conflicts(
     // (and a single `unnamed` slot), so a second block with the same name
     // silently replaced the first and everything written in it was
     // discarded - no diagnostic anywhere.
-    let mut seen: Vec<Option<String>> = Vec::new();
+    // Name -> where the first block of that name was written, so the second
+    // can point back at it instead of describing a site the reader then has
+    // to go and find.
+    let mut seen: Vec<(Option<String>, (usize, usize))> = Vec::new();
 
     for decl in declarations {
         let Declaration::Settings(settings_def) = &decl.value else {
@@ -39,15 +42,17 @@ pub fn check_settings_conflicts(
             .map(|n| format!("settings block '{n}'"))
             .unwrap_or_else(|| "the unnamed settings block".to_string());
 
-        if seen.contains(&settings_def.name()) {
+        let name = settings_def.name();
+        if let Some((_, first)) = seen.iter().find(|(seen_name, _)| *seen_name == name) {
             errors.push(
                 Diagnostic::new(DUPLICATE_BLOCK, format!("Duplicate {label}"))
                     .with_context("declared twice in this schema".to_string())
                     .with_help("merge them - only the last one has any effect".to_string())
-                    .with_span(decl.span),
+                    .with_span(decl.span)
+                    .with_secondary_span(*first, format!("{label} declared here")),
             );
         }
-        seen.push(settings_def.name());
+        seen.push((name, decl.span));
 
         let entries: Vec<_> = settings_def
             .entries()
@@ -152,5 +157,54 @@ mod tests {
         let declarations = decls("settings Strict {\n    mode = nope\n}");
         let errors = check_settings_conflicts(&declarations).unwrap_err();
         assert!(errors[0].context.contains("Strict"));
+    }
+}
+
+#[cfg(test)]
+mod duplicate_block_tests {
+    use super::*;
+    use crate::schema::idl::grammar;
+
+    fn blocks(source: &str) -> Vec<Diagnostic> {
+        let document = grammar::parse(source).expect("source should parse");
+        check_settings_conflicts(&document.0).err().unwrap_or_default()
+    }
+
+    /// Like a duplicate declaration, a duplicate block is a two-site
+    /// problem: the second one is the error, the first is what it shadows.
+    #[test]
+    fn a_duplicate_named_block_points_back_at_the_first() {
+        let source = "settings Strict {\n    validators.allowed = true\n}\n\n\
+                      settings Strict {\n    validators.allowed = false\n}\n";
+        let errors = blocks(source);
+
+        assert_eq!(errors.len(), 1);
+        assert_eq!(errors[0].code.id, "settings::duplicate-block");
+
+        let (start, end) = errors[0].span.expect("spanned at the second block");
+        assert!(source[start..end].contains("false"), "the primary is the second block");
+
+        let (sec, label) = errors[0].secondary.as_ref().expect("the first block is named too");
+        assert!(source[sec.0..sec.1].contains("true"), "the secondary is the first block");
+        assert_eq!(label, "settings block 'Strict' declared here");
+    }
+
+    #[test]
+    fn the_unnamed_block_gets_the_same_treatment() {
+        let source = "settings {\n    validators.allowed = true\n}\n\n\
+                      settings {\n    validators.allowed = false\n}\n";
+        let errors = blocks(source);
+
+        assert_eq!(errors.len(), 1);
+        let (_, label) = errors[0].secondary.as_ref().expect("two sites");
+        assert_eq!(label, "the unnamed settings block declared here");
+    }
+
+    /// Two blocks with *different* names are the normal case.
+    #[test]
+    fn differently_named_blocks_are_fine() {
+        let source = "settings Strict {\n    validators.allowed = true\n}\n\n\
+                      settings Loose {\n    validators.allowed = false\n}\n";
+        assert!(blocks(source).is_empty());
     }
 }

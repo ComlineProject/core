@@ -37,6 +37,24 @@ impl SymbolType {
         }
     }
 
+    /// The keyword this kind is declared with - for a diagnostic label that
+    /// reads like the source it describes ("error 'Test'"), where
+    /// [`describe`](Self::describe)'s article would be wrong. `Import` has
+    /// none of its own; `use` is the line that brought it into scope.
+    pub const fn keyword(self) -> &'static str {
+        match self {
+            SymbolType::Struct => "struct",
+            SymbolType::Enum => "enum",
+            SymbolType::Protocol => "protocol",
+            SymbolType::Function => "function",
+            SymbolType::Constant => "const",
+            SymbolType::Import => "use",
+            SymbolType::Validator => "validator",
+            SymbolType::TypeAlias => "type",
+            SymbolType::Error => "error",
+        }
+    }
+
     /// How to name this kind in a diagnostic, with its article - "an error",
     /// "a protocol".
     pub const fn describe(self) -> &'static str {
@@ -54,8 +72,17 @@ impl SymbolType {
     }
 }
 
+/// What one declared name resolves to: its kind, and where it was written
+/// when that kind carries a span at all (`Validator` always does now;
+/// `Error` does unless it is a re-export of another schema's).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SymbolEntry {
+    pub kind: SymbolType,
+    pub span: Option<(usize, usize)>,
+}
+
 pub struct SymbolTable<'a> {
-    pub symbols: HashMap<&'a str, SymbolType>,
+    pub symbols: HashMap<&'a str, SymbolEntry>,
     /// Bare names a `use` brought into scope: the alias in `use ns::Name as X`,
     /// otherwise the trailing segment of `use ns::Name`. Kept apart from
     /// `symbols` so it never causes a "duplicate definition" and a real local
@@ -76,16 +103,24 @@ impl<'a> SymbolTable<'a> {
         self.bare_imports.insert(name);
     }
 
-    pub fn insert(&mut self, name: &'a str, kind: SymbolType) -> Result<(), SymbolType> {
+    /// Record `name`, or report what already holds it - kind *and* span, so
+    /// a duplicate-declaration diagnostic can point at both sites rather
+    /// than only at the one it tripped over.
+    pub fn insert(
+        &mut self,
+        name: &'a str,
+        kind: SymbolType,
+        span: Option<(usize, usize)>,
+    ) -> Result<(), SymbolEntry> {
         if let Some(existing) = self.symbols.get(name) {
             return Err(*existing);
         }
-        self.symbols.insert(name, kind);
+        self.symbols.insert(name, SymbolEntry { kind, span });
         Ok(())
     }
 
     pub fn get(&self, name: &str) -> Option<SymbolType> {
-        self.symbols.get(name).cloned()
+        self.symbols.get(name).map(|entry| entry.kind)
     }
 
     pub fn contains(&self, name: &str) -> bool {

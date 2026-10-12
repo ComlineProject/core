@@ -124,6 +124,18 @@ impl Diagnostic {
         self
     }
 
+    /// Like [`with_secondary_span`](Self::with_secondary_span), but for a
+    /// caller whose related site only sometimes has a span - the mirror of
+    /// [`maybe_span`](Self::maybe_span). A duplicate declaration is the
+    /// case in hand: both the offending declaration and the one it collides
+    /// with may be a kind that carries no span of its own.
+    pub fn maybe_secondary(self, span: Option<(usize, usize)>, label: impl Into<String>) -> Self {
+        match span {
+            Some(span) => self.with_secondary_span(span, label),
+            None => self,
+        }
+    }
+
     /// A settings-configured severity for this one diagnostic - see
     /// [`Self::severity_override`]'s own doc comment for why this doesn't
     /// just mutate `code`.
