@@ -113,8 +113,9 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         key: "timeout_ms",
         scope: AnnotationScope::Function,
         authority: AnnotationAuthority::Target,
-        description: "How long the client waits for the response before timing out. \
-                       Request/response calls only — a one-way call has nothing to wait for.",
+        description: "How long, in milliseconds, the client waits for the response before \
+                       timing out. Request/response calls only — a one-way call has nothing \
+                       to wait for.",
         default: "no timeout — waits indefinitely",
         value: ValueType::Integer,
         consumed_by: &["the generated Rust client (`comline-rust`)"],
