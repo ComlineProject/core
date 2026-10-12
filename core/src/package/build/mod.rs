@@ -288,6 +288,22 @@ fn interpret_schema_sources(
     for (namespace, source) in schemas {
         let name = format!("{}.{}", namespace.join("/"), SCHEMA_EXTENSION);
 
+        // Refused here, before anything is parsed, rather than at the
+        // generator - where it is already too late to say anything useful.
+        // `lib.ids` writes `src/lib.rs` straight over the crate root the Rust
+        // generator put there, losing the whole module tree silently, and
+        // `main.ids` writes a file Cargo treats as a binary target. Every
+        // schema reaches this function whatever its origin (a globbed `src/`
+        // tree, `PackageSources`, a dependency), so one check covers them all.
+        if let Some((segment, reason)) =
+            crate::package::layout::reserved_in_namespace(namespace)
+        {
+            bail!(
+                "schema '{name}' uses the reserved name '{segment}'\n  help: {}",
+                reason.help(),
+            )
+        }
+
         let mut codemap = crate::utils::codemap::CodeMap::new();
         codemap.insert_file(name.clone(), source.clone());
 

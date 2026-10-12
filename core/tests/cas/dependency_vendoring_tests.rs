@@ -37,7 +37,7 @@ fn write_consumer(dir: &Path, schema: &str) {
          }\n",
     )
     .unwrap();
-    fs::write(dir.join("src/main.ids"), schema).unwrap();
+    fs::write(dir.join("src/api.ids"), schema).unwrap();
 }
 
 fn root_tree(root: &Path) -> (ObjectStore, Tree) {

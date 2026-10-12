@@ -22,7 +22,7 @@ code_generation = {
 fn scaffold(root: &std::path::Path, config: &str) {
     fs::create_dir_all(root.join("src")).unwrap();
     fs::write(root.join("config.idp"), config).unwrap();
-    fs::write(root.join("src/main.ids"), "struct Ping {\n    seq: u32\n}\n").unwrap();
+    fs::write(root.join("src/api.ids"), "struct Ping {\n    seq: u32\n}\n").unwrap();
 }
 
 fn root_tree(root: &std::path::Path) -> (ObjectStore, Tree) {
