@@ -6,7 +6,7 @@
 //! `check_aliases`/`check_settings_enforcement`), same calling convention
 //! as its siblings here.
 
-use crate::diagnostics::{Diagnostic, DiagnosticCode, Severity};
+use crate::diagnostics::{Diagnostic, Severity};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::settings::effective::{
     effective_schema_settings, effective_schema_settings_spans, schema_settings,
@@ -118,6 +118,7 @@ fn malformed(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diagnostics::DiagnosticCode;
 
     fn nested(path: &[&str], leaf: SettingsValue) -> SettingsDict {
         let mut value = leaf;

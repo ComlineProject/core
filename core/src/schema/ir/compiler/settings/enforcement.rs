@@ -11,7 +11,7 @@
 //! benefit.
 
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
-use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
+use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::settings::effective::{
     effective_declaration_settings, effective_declaration_settings_spans,
     effective_schema_settings, effective_schema_settings_spans, schema_settings,
@@ -260,6 +260,7 @@ fn verdict(
 mod tests {
     use super::*;
     use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+    use crate::schema::ir::frozen::unit::ConfigValue;
 
     fn b(v: bool) -> SettingsValue {
         SettingsValue::Bool(v)
