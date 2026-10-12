@@ -155,6 +155,39 @@ impl NameKind {
     /// Every placeholder spelling, so a consumer can recognise one without
     /// hardcoding the list.
     pub const ALL_PLACEHOLDERS: &'static [&'static str] = &["<name>", "<code>"];
+
+    /// The kind a placeholder spelling stands for - the inverse of
+    /// [`NameKind::placeholder`].
+    pub fn from_placeholder(segment: &str) -> Option<NameKind> {
+        match segment {
+            "<name>" => Some(NameKind::Name),
+            "<code>" => Some(NameKind::CodeId),
+            _ => None,
+        }
+    }
+
+    /// Whether a value of this kind has to be written as a quoted segment
+    /// in a `.ids` dotted key.
+    ///
+    /// A diagnostic code id contains `::` and `-`, which are not
+    /// identifier characters, so `diagnostics."validation::x".level` is
+    /// the only spelling that parses. An editor inserting the unquoted
+    /// form produces a syntax error.
+    pub const fn quoted_in_ids(self) -> bool {
+        match self {
+            NameKind::Name => false,
+            NameKind::CodeId => true,
+        }
+    }
+
+    /// A short, human word for what fills this segment - for an editor
+    /// tab-stop's placeholder text.
+    pub const fn hint(self) -> &'static str {
+        match self {
+            NameKind::Name => "name",
+            NameKind::CodeId => "namespace::code",
+        }
+    }
 }
 
 /// Whether one segment of a displayed key pattern is a placeholder standing
@@ -982,6 +1015,24 @@ mod tests {
                 "diagnostics.<code>.level",
             ]
         );
+    }
+
+    #[test]
+    fn from_placeholder_round_trips_every_kind() {
+        // The editor builds a snippet tab-stop per placeholder, and needs
+        // the kind back to know whether to quote it. A new `NameKind`
+        // whose spelling is not mapped here fails rather than silently
+        // inserting an unquoted - and unparseable - key.
+        for spelling in NameKind::ALL_PLACEHOLDERS {
+            let kind = NameKind::from_placeholder(spelling)
+                .unwrap_or_else(|| panic!("{spelling} maps to no NameKind"));
+            assert_eq!(kind.placeholder(), *spelling);
+            assert!(!kind.hint().is_empty());
+        }
+        assert_eq!(NameKind::from_placeholder("allowed"), None);
+        // The one that motivated this: a code id cannot be written bare.
+        assert!(NameKind::CodeId.quoted_in_ids());
+        assert!(!NameKind::Name.quoted_in_ids());
     }
 
     #[test]
