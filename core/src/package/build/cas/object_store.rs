@@ -17,7 +17,13 @@ use std::path::{Path, PathBuf};
 /// do one of those; [`ensure_compatible_store`] then wipes any `.comline/`
 /// stamped with a different value instead of trying (and likely failing,
 /// or in the worst case silently misreading) to decode it.
-pub const CURRENT_IR_FORMAT_VERSION: u32 = 1;
+///
+/// History:
+/// - 1: CBOR, replacing bincode's position-based encoding.
+/// - 2: `FrozenUnit::Property`'s `expression: Option<String>` became
+///   `value: ConfigValue` - a field renamed *and* retyped, which is
+///   exactly the case name tagging cannot absorb.
+pub const CURRENT_IR_FORMAT_VERSION: u32 = 2;
 
 fn format_version_path(project_root: &Path) -> PathBuf {
     project_root.join(".comline/FORMAT_VERSION")

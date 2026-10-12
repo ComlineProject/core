@@ -10,6 +10,8 @@ use crate::package::config::ir::frozen::{
 
 // External Uses
 
+use crate::schema::ir::compiler::settings::conformance::check_settings_conformance;
+
 #[allow(unused)]
 pub fn interpret_node_into_frozen(
     context: &ProjectContext,
@@ -99,18 +101,27 @@ pub fn interpret_assignment(
                 match &node.value {
                     Value::Dictionary(items) => {
                         let dict = interpret_settings_dict(items)?;
-                        if let Err(errors) = crate::settings::merge::validate_mode_keys(&dict) {
-                            panic!(
-                                "invalid 'settings': {}",
-                                errors
-                                    .iter()
-                                    .map(|e| format!(
-                                        "'mode' at '{}' is {:?}, not the bare keyword `replace`",
-                                        e.path, e.found
-                                    ))
-                                    .collect::<Vec<_>>()
-                                    .join("; ")
-                            );
+                        // The same registry check the `.ids` path runs, so
+                        // an unrecognised key or wrongly-typed value in a
+                        // package manifest is caught too - it subsumes the
+                        // `mode`-only check that used to live here.
+                        //
+                        // `.idp` settings have no per-entry span tracking
+                        // yet, so these carry no span rather than a wrong
+                        // one. Returned as an error instead of panicking,
+                        // unlike this function's other arms.
+                        if let Err(diagnostics) = check_settings_conformance(
+                            &dict,
+                            &crate::settings::SettingsSpans::new(),
+                            "the package's 'settings'",
+                            None,
+                        ) {
+                            let joined = diagnostics
+                                .iter()
+                                .map(|d| format!("[{}] {}", d.code.id, d.message))
+                                .collect::<Vec<_>>()
+                                .join("; ");
+                            return Err(format!("invalid 'settings': {joined}").into());
                         }
                         vec![FrozenUnit::Settings(dict)]
                     }

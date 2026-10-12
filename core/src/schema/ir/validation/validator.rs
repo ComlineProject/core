@@ -4,9 +4,11 @@ use std::collections::{HashMap, HashSet};
 // Crate Uses
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
-use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
+use crate::schema::ir::frozen::unit::{ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::utils::text::{closest, levenshtein_distance};
+use crate::config_value::{self, ValueType};
+use crate::schema::idl::annotations;
 
 const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
 const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
@@ -28,6 +30,8 @@ const DEPRECATED_TYPE_USAGE: DiagnosticCode =
     DiagnosticCode::warning("validation::deprecated-type-usage");
 const DEPRECATED_MALFORMED_VALUE: DiagnosticCode =
     DiagnosticCode::error("validation::deprecated-malformed-value");
+const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::annotation-value-mismatch");
 
 
 
@@ -293,31 +297,31 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
                                     continue;
                                 }
 
-                                // value type vs the property's declared type
-                                let val = match arg {
-                                    FrozenUnit::Property {
-                                        expression: Some(v),
-                                        ..
-                                    } => v.as_str(),
-                                    _ => continue,
+                                // The argument's value against the
+                                // property's declared type. Both sides are
+                                // typed now: the value keeps the form it
+                                // was written in, and the declared type
+                                // maps onto the same vocabulary - so this
+                                // no longer re-parses rendered text to
+                                // guess a category.
+                                let FrozenUnit::Property { value: val, .. } = arg else {
+                                    continue;
                                 };
                                 let want = validator_fields
                                     .get(vname.as_str())
                                     .and_then(|fs| prop_field(fs, kw))
                                     .and_then(|f| match f {
                                         FrozenUnit::Field { kind_value, .. } => {
-                                            type_category(kind_value)
+                                            expected_value_type(kind_value)
                                         }
                                         _ => None,
                                     });
-                                if let (Some(want), Some(got)) =
-                                    (want, value_category(val))
-                                {
-                                    if want != got {
+                                if let Some(want) = want {
+                                    if let Some(mismatch) = argument_mismatch(&want, val) {
                                         errors.push(Diagnostic { code: VALIDATOR_ARGUMENT_TYPE_MISMATCH, help: None, secondary: None, severity_override: None,
                                             message: format!(
                                                 "validator '{}': argument '{}' expects {}, got {}",
-                                                vname, kw, want, got
+                                                vname, kw, mismatch.expected, mismatch.found
                                             ),
                                             context: field_ctx.clone(),
                                             span: Some(*span),
@@ -372,10 +376,86 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
         }
     }
 
+    check_annotation_values(units, &mut errors);
+
     if errors.is_empty() {
         Ok(warnings)
     } else {
         Err(errors)
+    }
+}
+
+/// Check every *known* annotation's value against the shape its registry
+/// entry declares. Core had no opinion on these at all before: both
+/// `@timeout_ms = "abc"` and `@framing = "nonsense"` compiled clean and
+/// were then silently dropped by whichever generator tried to read them.
+///
+/// Only keys in [`annotations::KNOWN_ANNOTATIONS`] are checked - `@key` is
+/// an open namespace by design, so an unrecognised one is not an error and
+/// has no declared shape to check against.
+fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, parameters, fields, span, .. } => {
+                check_params(parameters, &format!("struct '{name}'"), Some(*span), errors);
+                check_field_params(fields, errors);
+            }
+            // `FrozenUnit::Error` carries no span, so its own violations
+            // are spanless - the same gap the other passes here have.
+            FrozenUnit::Error { name, parameters, fields, .. } => {
+                check_params(parameters, &format!("error '{name}'"), None, errors);
+                check_field_params(fields, errors);
+            }
+            FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
+                check_params(parameters, &format!("protocol '{name}'"), Some(*span), errors);
+                for function in functions {
+                    if let FrozenUnit::Function { name: fname, parameters, span, .. } = function {
+                        check_params(
+                            parameters,
+                            &format!("protocol '{name}', function '{fname}'"),
+                            Some(*span),
+                            errors,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_field_params(fields: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    for field in fields {
+        if let FrozenUnit::Field { name, parameters, span, .. } = field {
+            check_params(parameters, &format!("field '{name}'"), Some(*span), errors);
+        }
+    }
+}
+
+fn check_params(
+    parameters: &[FrozenUnit],
+    context: &str,
+    span: Option<(usize, usize)>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    for param in parameters {
+        let FrozenUnit::Property { name, value } = param else {
+            continue;
+        };
+        let Some(info) = annotations::lookup(name) else {
+            continue;
+        };
+        if let Err(mismatch) = config_value::check(&info.value, value.form()) {
+            errors.push(
+                Diagnostic::new(
+                    ANNOTATION_VALUE_MISMATCH,
+                    format!("'@{name}' must be {}, got {}", mismatch.expected, mismatch.found),
+                )
+                .with_context(context.to_string())
+                .with_help(format!("'@{name}' takes {}", mismatch.expected))
+                .maybe_span(span),
+            );
+        }
     }
 }
 
@@ -540,28 +620,43 @@ fn prop_field<'a>(props: &'a [FrozenUnit], name: &str) -> Option<&'a FrozenUnit>
         .find(|p| matches!(p, FrozenUnit::Field { name: n, .. } if n == name))
 }
 
-/// Coarse category of an `@validators` keyword-argument literal, from its
-/// frozen text. `None` for identifier / `::`-path references (unresolved -
-/// nothing to check).
-fn value_category(text: &str) -> Option<&'static str> {
-    let t = text.trim();
-    if t.starts_with('"') || t.starts_with("f\"") {
-        Some("string")
-    } else if matches!(t, "true" | "false") {
-        Some("bool")
-    } else if t.parse::<i128>().is_ok() {
-        Some("integer")
-    } else {
-        None
+/// Whether a validator-call argument's value conflicts with the property's
+/// declared type.
+///
+/// A bare name or a `::`-path is a *reference* to something declared
+/// elsewhere (`Bounds(min = MIN)`), and this pass does not resolve those -
+/// so there is nothing to judge and no error to report. That has always
+/// been the behaviour; it used to fall out of the old text-sniffing
+/// returning "no category" for anything that wasn't an obvious literal,
+/// which quietly conflated "a reference" with "a type I don't handle".
+/// Stating it as its own case makes the intent explicit.
+fn argument_mismatch(
+    want: &ValueType,
+    val: &ConfigValue,
+) -> Option<crate::config_value::TypeMismatch> {
+    match val {
+        ConfigValue::Name(_) | ConfigValue::Path(_) | ConfigValue::Marker => None,
+        _ => config_value::check(want, val.form()).err(),
     }
 }
 
-/// Coarse category of a validator property's declared type. `None` for a
-/// custom (non-primitive) type.
-fn type_category(kind: &KindValue) -> Option<&'static str> {
-    let name = match kind {
-        KindValue::Primitive(Primitive::Boolean(_)) => "bool",
-        KindValue::Primitive(Primitive::String(_)) => "str",
+/// What a validator property's declared type accepts, in the shared
+/// configuration-value vocabulary.
+///
+/// Replaces a pair of functions that compared coarse category *strings*
+/// (`"bool"`/`"string"`/`"integer"`) - one deriving them by re-parsing the
+/// argument's already-rendered text, the other by mapping a `KindValue`
+/// through an intermediate type-name string. Both are gone: the argument
+/// keeps its written form, and this maps the declared type straight onto
+/// the same vocabulary that checks it.
+///
+/// `None` for a type this cannot express - a custom/namespaced type, a
+/// float, an array, a union - leaving the argument unchecked exactly as
+/// before, rather than guessing.
+fn expected_value_type(kind: &KindValue) -> Option<ValueType> {
+    match kind {
+        KindValue::Primitive(Primitive::Boolean(_)) => Some(ValueType::Bool),
+        KindValue::Primitive(Primitive::String(_)) => Some(ValueType::Str),
         KindValue::Primitive(
             Primitive::U8(_)
             | Primitive::U16(_)
@@ -573,16 +668,7 @@ fn type_category(kind: &KindValue) -> Option<&'static str> {
             | Primitive::S32(_)
             | Primitive::S64(_)
             | Primitive::S128(_),
-        ) => "u64",
-        KindValue::Namespaced(n, _) => n.as_str(),
-        _ => return None,
-    };
-    match name {
-        "bool" => Some("bool"),
-        "str" | "string" => Some("string"),
-        "u8" | "u16" | "u32" | "u64" | "u128" | "s8" | "s16" | "s32" | "s64" | "s128" => {
-            Some("integer")
-        }
+        ) => Some(ValueType::Integer),
         _ => None,
     }
 }

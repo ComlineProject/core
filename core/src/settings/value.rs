@@ -17,6 +17,24 @@ pub enum SettingsValue {
     Dict(SettingsDict),
 }
 
+impl std::fmt::Display for SettingsValue {
+    /// As the user would have written it, not as Rust debug-prints it.
+    ///
+    /// Anything shown to a user goes through this: a `Debug` dump leaks
+    /// the variant name, so a hover said `Bool(false)` and a diagnostic
+    /// said `Identifier("Tru")` where the source said `false` and `Tru`.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SettingsValue::Bool(b) => write!(f, "{b}"),
+            SettingsValue::Integer(i) => write!(f, "{i}"),
+            SettingsValue::Str(s) => write!(f, "{s:?}"),
+            // A bare keyword, so no quotes - that is the distinction.
+            SettingsValue::Identifier(id) => write!(f, "{id}"),
+            SettingsValue::Dict(_) => write!(f, "{{...}}"),
+        }
+    }
+}
+
 /// A `BTreeMap`, not a `HashMap`: this tree is serialized into CAS blobs,
 /// and deterministic iteration order is load-bearing for content-addressing
 /// (a `HashMap`'s iteration order isn't stable across runs, which would
@@ -149,5 +167,20 @@ mod tests {
     fn get_path_missing_top_level_key_is_none() {
         let d = SettingsDict::new();
         assert_eq!(d.get_path("a"), None);
+    }
+}
+
+#[cfg(test)]
+mod display_tests {
+    use super::*;
+
+    #[test]
+    fn values_render_as_written_not_as_rust_debug() {
+        assert_eq!(SettingsValue::Bool(false).to_string(), "false");
+        assert_eq!(SettingsValue::Integer(8).to_string(), "8");
+        assert_eq!(SettingsValue::Str("warn".into()).to_string(), "\"warn\"");
+        // The one that distinguishes a bare keyword from a string.
+        assert_eq!(SettingsValue::Identifier("replace".into()).to_string(), "replace");
+        assert_eq!(SettingsValue::Dict(SettingsDict::default()).to_string(), "{...}");
     }
 }

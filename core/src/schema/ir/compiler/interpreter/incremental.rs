@@ -3,7 +3,9 @@ use std::collections::HashMap;
 
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
-use crate::schema::idl::grammar::{self, Annotation, AnnotationValue, Declaration, UsePath};
+use crate::schema::idl::grammar::{
+    self, Annotation, AnnotationValue, Declaration, Expression, UsePath,
+};
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::import_resolver::{
@@ -12,7 +14,7 @@ use crate::schema::ir::compiler::import_resolver::{
 };
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
 use crate::schema::ir::compiler::Compile;
-use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 use crate::diagnostics::Diagnostic;
 
 // External Uses
@@ -489,14 +491,15 @@ fn frozen_error(
 
 /// Turn a declaration's annotations into frozen units, in source order.
 ///
-/// A bare marker `@key` (no `=value`) becomes one `FrozenUnit::Property { name,
-/// expression: None }`. A scalar `@key = value` becomes the same with
-/// `expression: Some(..)`. A list `@key = [Name(k = v, ...), ...]` (only
-/// `@validators` today) becomes one `FrozenUnit::ValidatorRef { name, args }`
-/// per call, keeping the applied name and its keyword arguments structured.
-/// `@deprecated` is the one other special case: it freezes to
-/// `FrozenUnit::Deprecated` from the real `Expression`, not a generic
-/// `Property`'s flattened text - see `deprecated_value`.
+/// A bare marker `@key` (no `=value`) becomes one `FrozenUnit::Property`
+/// carrying `ConfigValue::Marker`. A scalar `@key = value` becomes the same
+/// with the value's own typed form. A list `@key = [Name(k = v, ...), ...]`
+/// (only `@validators` today) becomes one `FrozenUnit::ValidatorRef { name,
+/// args }` per call, keeping the applied name and its keyword arguments
+/// structured. `@deprecated` is the one special case: it freezes to
+/// `FrozenUnit::Deprecated`, which carries its *semantics* (is-deprecated
+/// plus an optional message) rather than its syntax - see
+/// `deprecated_value`.
 fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
     let mut units = Vec::new();
     for a in annotations {
@@ -505,13 +508,13 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
             continue;
         }
         let Some(assignment) = &a.assignment else {
-            units.push(FrozenUnit::Property { name: a.key(), expression: None });
+            units.push(FrozenUnit::Property { name: a.key(), value: ConfigValue::Marker });
             continue;
         };
         match &assignment.value {
-            AnnotationValue::Scalar(_) => units.push(FrozenUnit::Property {
+            AnnotationValue::Scalar(expression) => units.push(FrozenUnit::Property {
                 name: a.key(),
-                expression: a.value(),
+                value: config_value_of(expression),
             }),
             AnnotationValue::List(list) => {
                 for call in &list.items {
@@ -522,7 +525,7 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
                             .iter()
                             .map(|arg| FrozenUnit::Property {
                                 name: arg.name.text.clone(),
-                                expression: Some(arg.value.as_text()),
+                                value: config_value_of(&arg.value),
                             })
                             .collect(),
                     });
@@ -531,6 +534,24 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
         }
     }
     units
+}
+
+/// One grammar `Expression` to its frozen, still-typed form. The single
+/// place that mapping happens, for both annotation values and validator
+/// call arguments - which previously took *different* text renderings of
+/// the same expression (`render` strips a string's quotes, `as_text` keeps
+/// them), so the two disagreed about what a value even was.
+fn config_value_of(expression: &Expression) -> ConfigValue {
+    use crate::schema::idl::grammar::BoolLiteral;
+    match expression {
+        Expression::Bool(BoolLiteral::True) => ConfigValue::Bool(true),
+        Expression::Bool(BoolLiteral::False) => ConfigValue::Bool(false),
+        Expression::Integer(i) => ConfigValue::Integer(i.value),
+        Expression::String(s) => ConfigValue::Str(s.value.clone()),
+        Expression::Identifier(i) => ConfigValue::Name(i.text.clone()),
+        Expression::Path(p) => ConfigValue::Path(p.text.clone()),
+        Expression::FString(f) => ConfigValue::FString(f.source()),
+    }
 }
 
 /// `@deprecated`'s value, read from the real `Expression` before it would

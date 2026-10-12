@@ -151,6 +151,54 @@ impl NameKind {
             NameKind::CodeId => "<code>",
         }
     }
+
+    /// Every placeholder spelling, so a consumer can recognise one without
+    /// hardcoding the list.
+    pub const ALL_PLACEHOLDERS: &'static [&'static str] = &["<name>", "<code>"];
+
+    /// The kind a placeholder spelling stands for - the inverse of
+    /// [`NameKind::placeholder`].
+    pub fn from_placeholder(segment: &str) -> Option<NameKind> {
+        match segment {
+            "<name>" => Some(NameKind::Name),
+            "<code>" => Some(NameKind::CodeId),
+            _ => None,
+        }
+    }
+
+    /// Whether a value of this kind has to be written as a quoted segment
+    /// in a `.ids` dotted key.
+    ///
+    /// A diagnostic code id contains `::` and `-`, which are not
+    /// identifier characters, so `diagnostics."validation::x".level` is
+    /// the only spelling that parses. An editor inserting the unquoted
+    /// form produces a syntax error.
+    pub const fn quoted_in_ids(self) -> bool {
+        match self {
+            NameKind::Name => false,
+            NameKind::CodeId => true,
+        }
+    }
+
+    /// A short, human word for what fills this segment - for an editor
+    /// tab-stop's placeholder text.
+    pub const fn hint(self) -> &'static str {
+        match self {
+            NameKind::Name => "name",
+            NameKind::CodeId => "namespace::code",
+        }
+    }
+}
+
+/// Whether one segment of a displayed key pattern is a placeholder standing
+/// in for a user-chosen name, rather than a literal the user must type.
+///
+/// The editor splits a pattern on `.` and needs to know which segments are
+/// holes - it used to test `segment == "<name>"`, which silently excluded
+/// `diagnostics.<code>.level` from both completion filtering and snippet
+/// tab-stops.
+pub fn is_placeholder(segment: &str) -> bool {
+    NameKind::ALL_PLACEHOLDERS.contains(&segment)
 }
 
 /// Whether a key may be scoped to a declaration site.
@@ -596,13 +644,14 @@ pub fn enters_known_group(segments: &[&str]) -> bool {
     let Some(first) = rest.first() else {
         return false;
     };
+    // Keyed on the *first* segment after any decl path, deliberately, not
+    // on the leaf. A reserved word nested inside an open-namespace subtree
+    // (`overrides.mode = replace`) is legitimate - `mode` is meaningful at
+    // any depth and `merge` honours it there - so an unrecognised subtree
+    // stays unjudged, exactly like any other open-namespace key.
     SHAPES.iter().any(|shape| match shape {
         Shape::Path(p) => p.group == *first,
         Shape::Reserved(r) => r.word == *first,
-    }) || SHAPES.iter().any(|shape| match shape {
-        // A trailing reserved word anywhere inside a recognised position.
-        Shape::Reserved(r) => segments.last() == Some(&r.word),
-        _ => false,
     })
 }
 
@@ -615,6 +664,11 @@ pub struct KeyDoc {
     /// What this key's value must be, so the editor can offer real values
     /// rather than assuming every key takes a boolean.
     pub value: ValueType,
+    /// Whether this key may be written prefixed with a declaration path
+    /// (`struct.field.validators.allowed`). `enforcement` has always
+    /// honoured those, but nothing told the editor they existed, so they
+    /// were never offered.
+    pub decl_scopable: bool,
 }
 
 /// Every recognised shape as a flat listing, for "what's configurable
@@ -629,13 +683,18 @@ pub fn listing() -> Vec<KeyDoc> {
                 summary: r.doc.summary,
                 description: r.doc.description,
                 value: r.value,
+                // A reserved word is legal in any dictionary at any
+                // depth, so there is no prefix to add.
+                decl_scopable: false,
             }),
             Shape::Path(p) => {
+                let decl_scopable = p.scoping == Scoping::DeclScopedThenGlobal;
                 out.push(KeyDoc {
                     key_pattern: p.pattern(false),
                     summary: p.doc.summary,
                     description: p.doc.description,
                     value: p.value,
+                    decl_scopable,
                 });
                 if p.coarse {
                     out.push(KeyDoc {
@@ -643,6 +702,7 @@ pub fn listing() -> Vec<KeyDoc> {
                         summary: p.doc.coarse_summary.unwrap_or(p.doc.summary),
                         description: p.doc.coarse_description.unwrap_or(p.doc.description),
                         value: p.value,
+                        decl_scopable,
                     });
                 }
             }
@@ -687,6 +747,10 @@ pub fn doc_for(m: &Match) -> KeyDoc {
         // this module's callers and the editor's.
         description: Box::leak(description.into_boxed_str()),
         value: *m.value_type(),
+        decl_scopable: match m.shape {
+            Shape::Reserved(_) => false,
+            Shape::Path(p) => p.scoping == Scoping::DeclScopedThenGlobal,
+        },
     }
 }
 
@@ -938,6 +1002,12 @@ mod tests {
         assert!(enters_known_group(&segs("mode")));
         assert!(enters_known_group(&segs("struct.mode")));
 
+        // A reserved word inside an open subtree is legitimate: `mode` is
+        // meaningful at any depth, and an unrecognised subtree is not
+        // core's to judge.
+        assert!(!enters_known_group(&segs("overrides.mode")));
+        assert!(!enters_known_group(&segs("my.custom.subtree.mode")));
+
         // Outside it - `settings` stays an open namespace at the top level.
         assert!(!enters_known_group(&segs("forbid_indexing")));
         assert!(!enters_known_group(&segs("max_depth")));
@@ -960,6 +1030,70 @@ mod tests {
                 "diagnostics.<code>.level",
             ]
         );
+    }
+
+    #[test]
+    fn the_listing_says_which_keys_take_a_declaration_prefix() {
+        // `enforcement` has always honoured `struct.field.validators.allowed`
+        // and friends; nothing told the editor they existed.
+        let listing = listing();
+        let scopable: Vec<&str> = listing
+            .iter()
+            .filter(|d| d.decl_scopable)
+            .map(|d| d.key_pattern.as_str())
+            .collect();
+        assert_eq!(
+            scopable,
+            vec![
+                "annotations.<name>.allowed",
+                "validators.<name>.allowed",
+                "validators.allowed",
+            ]
+        );
+        // `mode` is legal at any depth with no prefix of its own, and
+        // `diagnostics` is project-wide only.
+        for pattern in ["mode", "diagnostics.<code>.level"] {
+            let doc = listing.iter().find(|d| d.key_pattern == pattern).unwrap();
+            assert!(!doc.decl_scopable, "{pattern}");
+        }
+    }
+
+    #[test]
+    fn from_placeholder_round_trips_every_kind() {
+        // The editor builds a snippet tab-stop per placeholder, and needs
+        // the kind back to know whether to quote it. A new `NameKind`
+        // whose spelling is not mapped here fails rather than silently
+        // inserting an unquoted - and unparseable - key.
+        for spelling in NameKind::ALL_PLACEHOLDERS {
+            let kind = NameKind::from_placeholder(spelling)
+                .unwrap_or_else(|| panic!("{spelling} maps to no NameKind"));
+            assert_eq!(kind.placeholder(), *spelling);
+            assert!(!kind.hint().is_empty());
+        }
+        assert_eq!(NameKind::from_placeholder("allowed"), None);
+        // The one that motivated this: a code id cannot be written bare.
+        assert!(NameKind::CodeId.quoted_in_ids());
+        assert!(!NameKind::Name.quoted_in_ids());
+    }
+
+    #[test]
+    fn is_placeholder_covers_every_placeholder_a_shape_actually_uses() {
+        // The editor recognises holes in a pattern by this predicate, so
+        // the list must not fall behind the shapes. A new `NameKind`
+        // whose placeholder is not listed fails here rather than silently
+        // dropping that key from completion.
+        for shape in SHAPES {
+            if let Shape::Path(p) = shape {
+                assert!(
+                    is_placeholder(p.name.placeholder()),
+                    "{} uses an unlisted placeholder {:?}",
+                    p.id,
+                    p.name.placeholder()
+                );
+            }
+        }
+        assert!(!is_placeholder("allowed"));
+        assert!(!is_placeholder("annotations"));
     }
 
     #[test]

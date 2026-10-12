@@ -492,7 +492,7 @@ struct Message {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let errors = validate(&ir).unwrap_err();
-    assert!(errors.iter().any(|e| e.message.contains("argument 'min' expects integer, got string")), "got: {:?}", errors);
+    assert!(errors.iter().any(|e| e.message.contains("argument 'min' expects an integer, got \"three\"")), "got: {:?}", errors);
 }
 
 #[test]
@@ -507,7 +507,7 @@ struct Message {
 "#;
     let ir = IncrementalInterpreter::from_source(code);
     let errors = validate(&ir).unwrap_err();
-    assert!(errors.iter().any(|e| e.message.contains("argument 'on' expects bool, got integer")), "got: {:?}", errors);
+    assert!(errors.iter().any(|e| e.message.contains("argument 'on' expects a boolean (`true` or `false`), got 1")), "got: {:?}", errors);
 }
 
 #[test]
