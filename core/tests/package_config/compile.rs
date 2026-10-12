@@ -287,6 +287,44 @@ settings = {
 }
 
 #[test]
+fn a_bad_manifest_is_an_error_rather_than_a_panic() {
+    // Every one of these used to `panic!`, which in the language server
+    // meant the whole process died the moment a schema in the package was
+    // opened - the editor just lost its connection, with no diagnostic
+    // and nothing pointing at the manifest. A build is only marginally
+    // better off: a panic and a backtrace instead of an error.
+    let cases = [
+        // The one that actually bit: `std` is embedded, so it cannot be
+        // declared as a dependency.
+        ("dependencies = {\n    std = {}\n}\n", "reserved"),
+        ("specification_version = \"one\"\n", "specification_version"),
+        ("dependencies = 3\n", "dependencies"),
+        ("code_generation = 3\n", "code_generation"),
+        ("code_generation = {\n    languages = 3\n}\n", "languages"),
+        ("settings = 3\n", "settings"),
+        ("not_a_real_key = 3\n", "not a recognised"),
+    ];
+
+    for (fragment, expected) in cases {
+        let source = format!("congregation bad\n{fragment}");
+        let context = ProjectInterpreter::from_config_source(&source)
+            .unwrap_or_else(|e| panic!("{fragment:?} should still parse: {e}"));
+
+        let err = comline_core::package::config::ir::interpreter::interpret::interpret_context(
+            &context, None,
+        )
+        .err()
+        .unwrap_or_else(|| panic!("{fragment:?} should be an error, not accepted"));
+
+        let text = err.to_string();
+        assert!(
+            text.contains(expected),
+            "{fragment:?}: expected {expected:?} in {text:?}"
+        );
+    }
+}
+
+#[test]
 fn a_changed_settings_unit_does_not_bump_the_version() {
     use comline_core::package::build::VersionBump;
     use comline_core::package::config::ir::diff::analyze::analyze_config_changes;
