@@ -36,14 +36,12 @@ pub fn interpret_assignment(
     let result = match key_str.as_str() {
         "specification_version" => {
             let Value::Number(version) = &node.value else {
-                panic!(
-                    "'specification_version' should be a number, \
-                    got something else instead."
-                )
+                return Err("'specification_version' should be a number".into());
             };
 
-            // Should parse integer
-            let version_num: u8 = version.value.parse().expect("Invalid version number");
+            let version_num: u8 = version.value.parse().map_err(|_| {
+                format!("'specification_version' is not a valid version number: {}", version.value)
+            })?;
             vec![FrozenUnit::SpecificationVersion(version_num)]
         }
         /*
@@ -54,18 +52,20 @@ pub fn interpret_assignment(
         /*
         "schema_paths" => {
             let Value::List(paths) = &node.value else {
-                panic!("'schema_paths' should be a list of paths")
+                return Err("'schema_paths' should be a list of paths".into())
             };
 
             let mut solved = vec![];
             for path_val in &paths.items {
                 let Value::String(path) = path_val else {
-                    panic!("Expected path string")
+                    return Err("'schema_paths' entries should be path strings".into())
                 };
 
                 let schema_file = context.find_schema_by_filename(&path.value);
 
-                if schema_file.is_none() { panic!("No schema found with the path: '{}'", path.value) }
+                if schema_file.is_none() {
+                    return Err(format!("no schema found with the path '{}'", path.value).into());
+                }
 
                 solved.push(FrozenUnit::SchemaPath(path.value.clone()));
             }
@@ -75,21 +75,21 @@ pub fn interpret_assignment(
         */
         "code_generation" => {
             let Value::Dictionary(items) = &node.value else {
-                panic!("Expected dictionary for code_generation")
+                return Err("'code_generation' should be a dictionary".into())
             };
 
             interpret_assignment_code_generation(&items.assignments)?
         }
         "publish_registries" => {
             let Value::Dictionary(items) = &node.value else {
-                panic!("Expected dictionary for publish_registries")
+                return Err("'publish_registries' should be a dictionary".into())
             };
 
             interpret_assigment_publish_registries(&items.assignments)?
         }
         "dependencies" => {
             let Value::Dictionary(items) = &node.value else {
-                panic!("Expected dictionary for dependencies")
+                return Err("'dependencies' should be a dictionary".into())
             };
 
             interpret_assignment_dependencies(items)?
@@ -125,21 +125,20 @@ pub fn interpret_assignment(
                         }
                         vec![FrozenUnit::Settings(dict)]
                     }
-                    Value::Namespaced(ns) => panic!(
-                        "settings = {} is a cross-package reference, which needs a filesystem \
-                         build with dependency resolution — not available in this context",
-                        ns.value
-                    ),
-                    _ => panic!("'settings' should be a dictionary"),
+                    Value::Namespaced(ns) => {
+                        return Err(format!(
+                            "settings = {} is a cross-package reference, which needs a \
+                             filesystem build with dependency resolution — not available in \
+                             this context",
+                            ns.value
+                        )
+                        .into())
+                    }
+                    _ => return Err("'settings' should be a dictionary".into()),
                 }
             }
         }
-        any => {
-            // panic!("Assignment '{}' is not a valid assignment", any)
-            // Allow unknown assignments for now or warn?
-            // panic for now to match behavior
-            panic!("Assignment '{}' is not a valid assignment", any)
-        }
+        any => return Err(format!("'{any}' is not a recognised package-manifest key").into()),
     };
 
     Ok(result)
@@ -163,7 +162,7 @@ fn interpret_assignment_code_generation(
             "languages" => {
                 // Value should be Dictionary of Language -> Details
                 let Value::Dictionary(lang_dict) = &assignment.value else {
-                    panic!("languages must be a dictionary")
+                    return Err("'code_generation.languages' should be a dictionary".into())
                 };
 
                 for lang_assign in &lang_dict.assignments {
@@ -176,7 +175,10 @@ fn interpret_assignment_code_generation(
                     };
 
                     let Value::Dictionary(details) = &lang_assign.value else {
-                        panic!("Language details must be a dictionary")
+                        return Err(format!(
+                            "'code_generation.languages.{lang_name}' should be a dictionary"
+                        )
+                        .into())
                     };
 
                     // A declared language takes no options, it is just a
@@ -190,10 +192,11 @@ fn interpret_assignment_code_generation(
                             Key::VersionMeta(vm) => vm.value.as_str(),
                             Key::DependencyAddress(da) => da.value.as_str(),
                         };
-                        panic!(
+                        return Err(format!(
                             "`code_generation.languages.{lang_name}` takes no options \
                              (got `{detail_key}`); write `{lang_name} = {{}}`"
-                        );
+                        )
+                        .into());
                     }
 
                     languages.push(FrozenUnit::CodeGeneration(LanguageDetails {
@@ -201,7 +204,9 @@ fn interpret_assignment_code_generation(
                     }));
                 }
             }
-            other => panic!("Key not allowed here: {}", other),
+            other => {
+                return Err(format!("'{other}' is not allowed in 'code_generation'").into())
+            }
         }
     }
 
@@ -267,11 +272,16 @@ fn interpret_assigment_publish_registries(
                                 registry_kind = Some(RegistryKind::LocalStorage);
                                 url = Some(s.value.clone());
                             } else {
-                                panic!("URI should be a string")
+                                return Err("'uri' should be a string".into())
                             }
                         }
                         // method...
-                        other => panic!("Key not allowed here: {}", other),
+                        other => {
+                            return Err(format!(
+                                "'{other}' is not allowed in 'publish_registries'"
+                            )
+                            .into())
+                        }
                     }
                 }
 
@@ -283,7 +293,12 @@ fn interpret_assigment_publish_registries(
                     },
                 ))
             }
-            other => panic!("Invalid registry value: {:?}", other),
+            other => {
+                return Err(format!(
+                    "a publish registry should be a dictionary, got {other:?}"
+                )
+                .into())
+            }
         };
 
         targets.push(target);
@@ -304,10 +319,9 @@ fn interpret_assignment_dependencies(
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
     use crate::package::config::dependency::DependencyConfig;
 
-    let deps = match DependencyConfig::parse_dict(dict) {
-        Ok(deps) => deps,
-        Err(msg) => panic!("{msg}"),
-    };
+    let deps = DependencyConfig::parse_dict(dict).map_err(|msg| -> Box<dyn snafu::Error> {
+        msg.into()
+    })?;
 
     let mut names: Vec<&String> = deps.keys().collect();
     names.sort(); // deterministic freeze order regardless of HashMap iteration
@@ -361,7 +375,7 @@ fn interpret_settings_value(
         Value::Number(n) => SettingsValue::Integer(
             n.value
                 .parse()
-                .unwrap_or_else(|_| panic!("'{}' is not a valid settings integer", n.value)),
+                .map_err(|_| format!("'{}' is not a valid settings integer", n.value))?,
         ),
         Value::String(s) => SettingsValue::Str(strip_quotes(&s.value)),
         // A reserved bare keyword (`replace`) - `true`/`false` are now
@@ -369,11 +383,13 @@ fn interpret_settings_value(
         // this arm no longer needs (or has) a `true`/`false` special case.
         Value::Identifier(id) => SettingsValue::Identifier(id.value.clone()),
         Value::Dictionary(d) => SettingsValue::Dict(interpret_settings_dict(d)?),
-        other => panic!(
-            "a settings value must be a boolean, number, string, bare keyword, or nested \
-             dictionary; got {:?}",
-            other
-        ),
+        other => {
+            return Err(format!(
+                "a settings value must be a boolean, number, string, bare keyword, or \
+                 nested dictionary; got {other:?}"
+            )
+            .into())
+        }
     })
 }
 
