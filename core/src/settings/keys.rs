@@ -664,6 +664,11 @@ pub struct KeyDoc {
     /// What this key's value must be, so the editor can offer real values
     /// rather than assuming every key takes a boolean.
     pub value: ValueType,
+    /// Whether this key may be written prefixed with a declaration path
+    /// (`struct.field.validators.allowed`). `enforcement` has always
+    /// honoured those, but nothing told the editor they existed, so they
+    /// were never offered.
+    pub decl_scopable: bool,
 }
 
 /// Every recognised shape as a flat listing, for "what's configurable
@@ -678,13 +683,18 @@ pub fn listing() -> Vec<KeyDoc> {
                 summary: r.doc.summary,
                 description: r.doc.description,
                 value: r.value,
+                // A reserved word is legal in any dictionary at any
+                // depth, so there is no prefix to add.
+                decl_scopable: false,
             }),
             Shape::Path(p) => {
+                let decl_scopable = p.scoping == Scoping::DeclScopedThenGlobal;
                 out.push(KeyDoc {
                     key_pattern: p.pattern(false),
                     summary: p.doc.summary,
                     description: p.doc.description,
                     value: p.value,
+                    decl_scopable,
                 });
                 if p.coarse {
                     out.push(KeyDoc {
@@ -692,6 +702,7 @@ pub fn listing() -> Vec<KeyDoc> {
                         summary: p.doc.coarse_summary.unwrap_or(p.doc.summary),
                         description: p.doc.coarse_description.unwrap_or(p.doc.description),
                         value: p.value,
+                        decl_scopable,
                     });
                 }
             }
@@ -736,6 +747,10 @@ pub fn doc_for(m: &Match) -> KeyDoc {
         // this module's callers and the editor's.
         description: Box::leak(description.into_boxed_str()),
         value: *m.value_type(),
+        decl_scopable: match m.shape {
+            Shape::Reserved(_) => false,
+            Shape::Path(p) => p.scoping == Scoping::DeclScopedThenGlobal,
+        },
     }
 }
 
@@ -1015,6 +1030,32 @@ mod tests {
                 "diagnostics.<code>.level",
             ]
         );
+    }
+
+    #[test]
+    fn the_listing_says_which_keys_take_a_declaration_prefix() {
+        // `enforcement` has always honoured `struct.field.validators.allowed`
+        // and friends; nothing told the editor they existed.
+        let listing = listing();
+        let scopable: Vec<&str> = listing
+            .iter()
+            .filter(|d| d.decl_scopable)
+            .map(|d| d.key_pattern.as_str())
+            .collect();
+        assert_eq!(
+            scopable,
+            vec![
+                "annotations.<name>.allowed",
+                "validators.<name>.allowed",
+                "validators.allowed",
+            ]
+        );
+        // `mode` is legal at any depth with no prefix of its own, and
+        // `diagnostics` is project-wide only.
+        for pattern in ["mode", "diagnostics.<code>.level"] {
+            let doc = listing.iter().find(|d| d.key_pattern == pattern).unwrap();
+            assert!(!doc.decl_scopable, "{pattern}");
+        }
     }
 
     #[test]
