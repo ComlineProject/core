@@ -13,16 +13,16 @@ fn a_malformed_schema_reports_a_human_readable_error_not_a_debug_dump() {
     let source = "struct Greeting {\n    / name: string\n}\n";
 
     let err = PackageSources::new()
-        .schema(["main"], source)
+        .schema(["api"], source)
         .compile()
         .expect_err("a stray `/` must not parse");
 
     let message = format!("{err:#}");
     assert!(!message.contains("ParseError {"), "{message}");
     assert!(!message.contains("FailedNode("), "{message}");
-    assert!(message.contains("main.ids"), "{message}");
+    assert!(message.contains("api.ids"), "{message}");
     assert!(message.contains("unexpected token"), "{message}");
-    // A line:column-shaped location, e.g. "main.ids:2:5".
+    // A line:column-shaped location, e.g. "api.ids:2:5".
     assert!(message.contains(":2:"), "{message}");
 }
 

@@ -410,3 +410,58 @@ fn distinct_settings_blocks_are_still_fine() {
         .compile()
         .expect("one unnamed block plus distinct named blocks is the normal case");
 }
+
+/// A schema's filename becomes its namespace, and that namespace becomes a
+/// module name in every generated language. Some names don't survive the
+/// trip - `lib.ids` generated `src/lib.rs` straight over the Rust crate
+/// root, losing the whole module tree with no diagnostic anywhere.
+#[test]
+fn a_schema_named_after_a_target_module_is_rejected() {
+    for name in ["main", "lib", "mod", "index"] {
+        let err = PackageSources::new()
+            .schema([name], "struct Thing {\n    id: u64\n}\n")
+            .compile()
+            .err()
+            .unwrap_or_else(|| panic!("'{name}.ids' should be rejected"));
+        let text = err.to_string();
+        assert!(text.contains(&format!("schema '{name}.ids'")), "{name}: {text}");
+        assert!(text.contains("reserved name"), "{name}: {text}");
+        assert!(text.contains("module name in generated code"), "{name}: {text}");
+    }
+}
+
+/// The other half: a name the schema language itself has spoken for. No
+/// `use` could ever address `self.ids` - `use self::Thing` already means
+/// something else - so it gets its own explanation.
+#[test]
+fn a_schema_named_after_a_keyword_is_rejected() {
+    for name in ["self", "struct", "use", "str"] {
+        let err = PackageSources::new()
+            .schema([name], "struct Thing {\n    id: u64\n}\n")
+            .compile()
+            .err()
+            .unwrap_or_else(|| panic!("'{name}.ids' should be rejected"));
+        let text = err.to_string();
+        assert!(text.contains("keyword of the schema language"), "{name}: {text}");
+    }
+}
+
+/// A directory is as much a module as a file is: `main/foo.ids` needs a
+/// `src/main.rs` beside `src/main/foo.rs` in the generated crate.
+#[test]
+fn a_reserved_directory_segment_is_rejected_too() {
+    let err = PackageSources::new()
+        .schema(["main", "foo"], "struct Thing {\n    id: u64\n}\n")
+        .compile()
+        .err()
+        .expect("'main/foo.ids' should be rejected");
+    assert!(err.to_string().contains("reserved name 'main'"), "{err}");
+}
+
+#[test]
+fn an_ordinary_schema_name_still_builds() {
+    PackageSources::new()
+        .schema(["greeting"], "struct Thing {\n    id: u64\n}\n")
+        .compile()
+        .expect("'greeting.ids' is a perfectly good name");
+}

@@ -397,7 +397,7 @@ mod tests {
         )
         .unwrap();
         std::fs::write(
-            consumer_dir.join("src/main.ids"),
+            consumer_dir.join("src/api.ids"),
             "use shared_types::models::Thing\n\
              \n\
              struct Holder {\n    \
@@ -456,7 +456,7 @@ mod tests {
              settings = shared_types::settings::Strict\n",
         )
         .unwrap();
-        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+        std::fs::write(consumer_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n")
             .unwrap();
 
         let context = crate::package::build::compile_package(&consumer_dir)
@@ -483,7 +483,7 @@ mod tests {
              settings = nonexistent::settings::Strict\n",
         )
         .unwrap();
-        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+        std::fs::write(consumer_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n")
             .unwrap();
 
         let err = crate::package::build::compile_package(&consumer_dir)
@@ -514,7 +514,7 @@ mod tests {
              settings = shared_types::settings::Strict\n",
         )
         .unwrap();
-        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+        std::fs::write(consumer_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n")
             .unwrap();
 
         let err = crate::package::build::compile_package(&consumer_dir)
@@ -557,7 +557,7 @@ mod tests {
              settings = shared_types::settings::Strict\n",
         )
         .unwrap();
-        std::fs::write(consumer_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n")
+        std::fs::write(consumer_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n")
             .unwrap();
 
         let err = crate::package::build::compile_package(&consumer_dir)
@@ -588,7 +588,7 @@ mod tests {
              }\n",
         )
         .unwrap();
-        std::fs::write(a_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+        std::fs::write(a_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
         std::fs::write(
             b_dir.join("config.idp"),
             "congregation b\n\
@@ -601,7 +601,7 @@ mod tests {
              }\n",
         )
         .unwrap();
-        std::fs::write(b_dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+        std::fs::write(b_dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
 
         let err = crate::package::build::compile_package(&a_dir)
             .expect_err("A depends on B depends on A should be a clean error");
@@ -615,7 +615,7 @@ mod tests {
             format!("congregation {congregation_name}\nspecification_version = 1\n"),
         )
         .unwrap();
-        std::fs::write(dir.join("src/main.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+        std::fs::write(dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
     }
 
     fn path_dep(name: &str, path: &str, hash: Option<&str>) -> DependencyConfig {
