@@ -616,22 +616,69 @@ fn build_kind_value(
 
     let type_name = type_to_string(type_def);
 
+    // A `KindValue::Primitive` carries the declared type *and* the value, so
+    // the variant has to come from the declared type - never from the
+    // literal. Inferring it from the literal collapsed every unsigned width
+    // into `U64` and every signed one into `S64`, which is how
+    // `retries: u8 = 5` reached a generator as `u64`.
+    use crate::schema::idl::grammar::{BoolLiteral, Expression};
     match (type_name.as_str(), value) {
-        (
-            "u8" | "u16" | "u32" | "u64",
-            Some(crate::schema::idl::grammar::Expression::Integer(int_lit)),
-        ) => KindValue::Primitive(Primitive::U64(Some(int_lit.value() as u64))),
-        (
-            "s8" | "s16" | "s32" | "s64",
-            Some(crate::schema::idl::grammar::Expression::Integer(int_lit)),
-        ) => KindValue::Primitive(Primitive::S64(Some(int_lit.value()))),
-        ("bool", Some(_)) => KindValue::Primitive(Primitive::Boolean(Some(false))),
-        (
-            "str" | "string",
-            Some(crate::schema::idl::grammar::Expression::String(str_lit)),
-        ) => KindValue::Primitive(Primitive::String(Some(str_lit.value().to_string()))),
+        (name, Some(Expression::Integer(int_lit))) if is_integer_primitive(name) => {
+            match integer_primitive(name, int_lit.value()) {
+                Some(primitive) => KindValue::Primitive(primitive),
+                // Out of range for the width the author declared. Recorded as
+                // a marker rather than truncated, following the same
+                // encode-in-the-IR convention `<unresolved: _>` uses for an
+                // import that would not resolve: validation turns it into a
+                // real diagnostic, and nothing silently carries a wrong
+                // number forward.
+                None => KindValue::Namespaced(
+                    format!("{OUT_OF_RANGE_PREFIX}{}: {}>", name, int_lit.value()),
+                    None,
+                ),
+            }
+        }
+        ("bool", Some(Expression::Bool(lit))) => KindValue::Primitive(Primitive::Boolean(Some(
+            matches!(lit, BoolLiteral::True),
+        ))),
+        ("str" | "string", Some(Expression::String(str_lit))) => {
+            KindValue::Primitive(Primitive::String(Some(str_lit.value().to_string())))
+        }
         _ => KindValue::Namespaced(type_name, None),
     }
+}
+
+/// Marks a literal that does not fit the width its declaration named. The
+/// text after it is `<type>: <value>>`; [`crate::schema::ir::validation`]
+/// parses it back out to report the range error.
+pub(crate) const OUT_OF_RANGE_PREFIX: &str = "<out of range for ";
+
+fn is_integer_primitive(name: &str) -> bool {
+    matches!(
+        name,
+        "u8" | "u16" | "u32" | "u64" | "u128" | "s8" | "s16" | "s32" | "s64" | "s128"
+    )
+}
+
+/// The primitive for `name` holding `literal`, or `None` if it does not fit.
+///
+/// `IntegerLiteral` is lexed as `i64`, so a `u64`/`u128` value above
+/// `i64::MAX` cannot be written in the IDL at all today - that is a lexer
+/// limit, not one this function imposes.
+fn integer_primitive(name: &str, literal: i64) -> Option<Primitive> {
+    Some(match name {
+        "u8" => Primitive::U8(Some(u8::try_from(literal).ok()?)),
+        "u16" => Primitive::U16(Some(u16::try_from(literal).ok()?)),
+        "u32" => Primitive::U32(Some(u32::try_from(literal).ok()?)),
+        "u64" => Primitive::U64(Some(u64::try_from(literal).ok()?)),
+        "u128" => Primitive::U128(Some(u128::try_from(literal).ok()?)),
+        "s8" => Primitive::S8(Some(i8::try_from(literal).ok()?)),
+        "s16" => Primitive::S16(Some(i16::try_from(literal).ok()?)),
+        "s32" => Primitive::S32(Some(i32::try_from(literal).ok()?)),
+        "s64" => Primitive::S64(Some(literal)),
+        "s128" => Primitive::S128(Some(literal as i128)),
+        _ => return None,
+    })
 }
 
 fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {

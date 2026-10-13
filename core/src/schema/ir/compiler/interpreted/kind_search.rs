@@ -42,7 +42,7 @@ pub enum Primitive {
 
     // Float(f32), Double(f64),
 
-    #[strum(props(Name="", Description=""))]
+    #[strum(props(Name="string", Description="UTF-8 text, unbounded"))]
     String(Option<String>),
 
     #[strum(props(Name="", Description=""))]

@@ -6,12 +6,15 @@ use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use crate::schema::ir::compiler::interpreter::incremental::OUT_OF_RANGE_PREFIX;
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
 use crate::schema::idl::annotations;
 
 const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-declaration");
 const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
+const VALUE_OUT_OF_RANGE: DiagnosticCode =
+    DiagnosticCode::error("validation::value-out-of-range");
 const UNKNOWN_VALIDATOR_PROPERTY: DiagnosticCode =
     DiagnosticCode::error("validation::unknown-validator-property");
 const INVALID_VALIDATOR_REFERENCE: DiagnosticCode =
@@ -180,11 +183,18 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
             FrozenUnit::Constant { name, kind_value, span, .. } => {
                 // Constants usually primitive, but check if namespaced
                 if let KindValue::Namespaced(type_name, _) = kind_value {
-                     errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: None, secondary: None, severity_override: None,
-                        message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
-                        context: format!("Constant '{}'", name),
-                        span: Some(*span),
-                    });
+                    let context = format!("Constant '{name}'");
+                    // An out-of-range literal is not a named type, and saying
+                    // so sent the author looking for a type they never wrote.
+                    if let Some(diagnostic) = out_of_range(type_name, &context, Some(*span)) {
+                        errors.push(diagnostic);
+                    } else {
+                        errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: None, secondary: None, severity_override: None,
+                            message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
+                            context,
+                            span: Some(*span),
+                        });
+                    }
                 }
             }
             FrozenUnit::TypeAlias { name, target, span, .. } => {
@@ -574,12 +584,48 @@ fn deprecation_of(
     Ok(None)
 }
 
+/// The diagnostic for an out-of-range marker, or `None` if `type_name` is an
+/// ordinary type name.
+///
+/// The interpreter writes `<out of range for u8: 300>` into the type slot
+/// instead of truncating the value - the same encode-in-the-IR convention
+/// `<unresolved: _>` uses for an import - so this is where that becomes a
+/// message an author can act on.
+fn out_of_range(type_name: &str, context: &str, span: Option<(usize, usize)>) -> Option<Diagnostic> {
+    let rest = type_name
+        .strip_prefix(OUT_OF_RANGE_PREFIX)?
+        .strip_suffix('>')?;
+    let (declared, literal) = rest.split_once(": ")?;
+    let mut diagnostic = Diagnostic::new(
+        VALUE_OUT_OF_RANGE,
+        format!("the value {literal} does not fit in `{declared}`"),
+    )
+    .with_context(context.to_string())
+    .with_help(format!(
+        "either change the value to one `{declared}` can hold, or widen the \
+         declared type"
+    ));
+    if let Some(span) = span {
+        diagnostic = diagnostic.with_span(span);
+    }
+    Some(diagnostic)
+}
+
 fn validate_type(
     kind: &KindValue, symbols: &SymbolTable, deprecated: &HashMap<&str, Option<String>>,
     errors: &mut Vec<Diagnostic>, warnings: &mut Vec<Diagnostic>, context: &str, span: (usize, usize),
 ) {
     match kind {
         KindValue::Namespaced(type_name, _) => {
+            // A literal that did not fit the width its declaration named.
+            // The interpreter encodes it as a marker rather than truncating
+            // it; this is where it becomes a readable error instead of
+            // "unknown type `<out of range for u8: 300>`".
+            if let Some(diagnostic) = out_of_range(type_name, context, Some(span)) {
+                errors.push(diagnostic);
+                return;
+            }
+
             // Handle array syntax e.g. "User[]", "User[][]"
             let base_type = type_name.trim_end_matches("[]");
 
