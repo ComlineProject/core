@@ -9,6 +9,7 @@ mod ir_validation_tests {
     use super::*;
     use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
     use comline_core::schema::ir::compiler::Compile;
+    use comline_core::schema::ir::validation::validate;
 
     // These tests would ideally validate the actual IR content,
     // but since from_declarations -> (), we verify no panics occur
@@ -291,6 +292,152 @@ protocol P {\n    function get(u64) -> str ! Denied;\n}";
         assert_eq!(throws, &vec![1u16]);
     }
 
+    /// Every unsigned and signed width keeps its own primitive, rather than
+    /// collapsing into `U64`/`S64`. The collapse was invisible in core and
+    /// loud downstream: a generator renders the primitive's own name, so
+    /// `retries: u8 = 5` became `pub retries: u64`.
+    #[test]
+    fn a_default_keeps_the_width_its_field_declared() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+struct Widths {
+    a: u8 = 1
+    b: u16 = 2
+    c: u32 = 3
+    d: u64 = 4
+    e: s8 = -1
+    f: s16 = -2
+    g: s32 = -3
+    h: s64 = -4
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        let FrozenUnit::Struct { fields, .. } = &ir_units[0] else {
+            panic!("expected a struct");
+        };
+        let kinds: Vec<&KindValue> = fields
+            .iter()
+            .map(|f| match f {
+                FrozenUnit::Field { kind_value, .. } => kind_value,
+                _ => panic!("expected a field"),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &KindValue::Primitive(Primitive::U8(Some(1))),
+                &KindValue::Primitive(Primitive::U16(Some(2))),
+                &KindValue::Primitive(Primitive::U32(Some(3))),
+                &KindValue::Primitive(Primitive::U64(Some(4))),
+                &KindValue::Primitive(Primitive::S8(Some(-1))),
+                &KindValue::Primitive(Primitive::S16(Some(-2))),
+                &KindValue::Primitive(Primitive::S32(Some(-3))),
+                &KindValue::Primitive(Primitive::S64(Some(-4))),
+            ]
+        );
+    }
+
+    /// `= true` froze as `false`: the match arm took `Some(_)` and threw the
+    /// literal away. Silent, and it travelled into the IR hash.
+    #[test]
+    fn a_boolean_default_keeps_the_value_that_was_written() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let code = r#"
+struct Flags {
+    on: bool = true
+    off: bool = false
+}
+"#;
+        let ir_units = IncrementalInterpreter::from_source(code);
+        let FrozenUnit::Struct { fields, .. } = &ir_units[0] else {
+            panic!("expected a struct");
+        };
+        let kinds: Vec<&KindValue> = fields
+            .iter()
+            .map(|f| match f {
+                FrozenUnit::Field { kind_value, .. } => kind_value,
+                _ => panic!("expected a field"),
+            })
+            .collect();
+        assert_eq!(
+            kinds,
+            vec![
+                &KindValue::Primitive(Primitive::Boolean(Some(true))),
+                &KindValue::Primitive(Primitive::Boolean(Some(false))),
+            ]
+        );
+    }
+
+    /// `u128`/`s128` are primitives the grammar accepts, but no arm mapped
+    /// them, so they fell through to `Namespaced` and validation rejected a
+    /// legitimate declaration with "cannot be a named type 'u128'".
+    #[test]
+    fn a_128_bit_constant_is_a_primitive_not_a_named_type() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let ir_units = IncrementalInterpreter::from_source("const BIG: u128 = 7
+");
+        let FrozenUnit::Constant { kind_value, .. } = &ir_units[0] else {
+            panic!("expected a constant");
+        };
+        assert_eq!(*kind_value, KindValue::Primitive(Primitive::U128(Some(7))));
+        assert!(validate(&IncrementalInterpreter::from_source("const BIG: u128 = 7\n")).is_ok());
+    }
+
+    /// A value too large for the width it declares is refused, rather than
+    /// truncated into something the author never wrote. Narrowing the
+    /// variant to the declared type is what made this reachable: the old
+    /// `U64`-for-everything behaviour could hold any of them.
+    #[test]
+    fn a_value_too_large_for_its_declared_width_is_refused() {
+        let errors = validate(&IncrementalInterpreter::from_source("const SMALL: u8 = 300
+"))
+            .expect_err("300 does not fit in u8");
+        assert!(
+            errors[0].message.contains("does not fit in `u8`"),
+            "got: {}",
+            errors[0].message
+        );
+        assert!(
+            !errors[0].message.contains("named type"),
+            "an out-of-range value is not a named type: {}",
+            errors[0].message
+        );
+    }
+
+    /// The same check reaches a field default, not just a constant.
+    #[test]
+    fn an_out_of_range_field_default_is_refused() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "struct S {
+    small: u8 = 300
+}
+",
+        ))
+        .expect_err("300 does not fit in u8");
+        assert!(
+            errors.iter().any(|e| e.message.contains("does not fit in `u8`")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// `Primitive::String` reported its type name as the empty string, so a
+    /// generator asking the primitive for its name rendered `name: ;` -
+    /// output that does not parse in Rust or TypeScript.
+    #[test]
+    fn a_string_primitive_knows_its_own_type_name() {
+        use comline_core::schema::ir::compiler::interpreted::kind_search::Primitive;
+
+        assert_eq!(Primitive::String(None).name(), "string");
+        assert_eq!(Primitive::String(Some("x".into())).name(), "string");
+    }
+
     #[test]
     fn test_struct_field_default_values() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
@@ -315,9 +462,14 @@ struct Config {
                     comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
                         kind_value, ..
                     } => {
+                        // `u32`, not `u64`: the variant comes from the
+                        // declared type. This asserted `U64` until core
+                        // stopped inferring the variant from the literal -
+                        // which is what made `retries: u8 = 5` reach a
+                        // generator as `u64`.
                         assert_eq!(
                             *kind_value,
-                            KindValue::Primitive(Primitive::U64(Some(3)))
+                            KindValue::Primitive(Primitive::U32(Some(3)))
                         );
                     }
                     _ => panic!("Expected Field"),
