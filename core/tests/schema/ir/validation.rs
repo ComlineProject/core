@@ -237,6 +237,110 @@ error NotFoundError {
         assert_eq!(reexport.1.as_deref(), Some("<unresolved: NotFoundError>"));
     }
 
+    /// A `!` that names nothing used to compile clean and then make the
+    /// generators emit a variant referencing a type that was never declared.
+    #[test]
+    fn an_unresolved_throw_is_refused() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}\n",
+        ))
+        .expect_err("`NotFoundError` is not declared");
+        assert!(
+            errors.iter().any(|e| e.message.contains("no error named 'NotFoundError'")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// And it suggests the error the author probably meant.
+    #[test]
+    fn an_unresolved_throw_suggests_a_declared_error() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "error NotFound {\n    message = \"gone\"\n}\n\
+             protocol P {\n    function get(u64) -> str ! NotFoundd;\n}\n",
+        ))
+        .expect_err("`NotFoundd` is a typo");
+        assert!(
+            errors.iter().any(|e| e.message.contains("did you mean 'NotFound'?")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// Only an `error` has a slot in the schema's error space, so only an
+    /// `error` can be raised - a `struct` or `enum` has no ordinal to travel
+    /// as. This parsed happily before.
+    #[test]
+    fn throwing_something_that_is_not_an_error_is_refused() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "struct Thing {\n    id: u64\n}\n\
+             protocol P {\n    function get(u64) -> str ! Thing;\n}\n",
+        ))
+        .expect_err("`Thing` is a struct");
+        assert!(
+            errors.iter().any(|e| e.message.contains("'Thing' is a struct")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn an_enum_cannot_be_thrown_either() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "enum Colour {\n    Red\n}\n\
+             protocol P {\n    function get(u64) -> str ! Colour;\n}\n",
+        ))
+        .expect_err("`Colour` is an enum");
+        assert!(
+            errors.iter().any(|e| e.message.contains("'Colour' is an enum")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// `! A, A` would otherwise freeze a repeated ordinal and make a
+    /// generator emit the same enum variant twice.
+    #[test]
+    fn a_repeated_throw_is_refused() {
+        let errors = validate(&IncrementalInterpreter::from_source(
+            "error Denied {\n    message = \"no\"\n}\n\
+             protocol P {\n    function get(u64) -> str ! Denied, Denied;\n}\n",
+        ))
+        .expect_err("`Denied` is listed twice");
+        assert!(
+            errors.iter().any(|e| e.message.contains("raises 'Denied' more than once")),
+            "got: {:?}",
+            errors.iter().map(|e| &e.message).collect::<Vec<_>>()
+        );
+    }
+
+    /// The whole point of the grammar change: two declared errors on one
+    /// function, each with its own ordinal, in source order.
+    #[test]
+    fn several_throws_each_get_their_own_ordinal() {
+        use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+        let source = "error NotFound {\n    message = \"gone\"\n}\n\
+                      error Denied {\n    message = \"no\"\n}\n\
+                      protocol P {\n    function get(u64) -> str ! Denied, NotFound;\n}\n";
+        let ir_units = IncrementalInterpreter::from_source(source);
+        assert!(validate(&ir_units).is_ok(), "both errors are declared");
+
+        let FrozenUnit::Protocol { functions, .. } = ir_units
+            .iter()
+            .find(|u| matches!(u, FrozenUnit::Protocol { .. }))
+            .expect("a protocol")
+        else {
+            unreachable!()
+        };
+        let FrozenUnit::Function { throws, .. } = &functions[0] else {
+            panic!("expected a function");
+        };
+        // Declaration order gives the ordinals (NotFound 0, Denied 1); the
+        // `!` clause's own order is what the function records.
+        assert_eq!(throws, &vec![1u16, 0u16]);
+    }
+
     #[test]
     fn test_function_without_throws_still_empty_vec() {
         // A function with no throws clause still gets an empty Vec (now

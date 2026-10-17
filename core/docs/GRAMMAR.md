@@ -214,11 +214,31 @@ protocol UserService {
 }
 ```
 
+A function that can fail in more than one way lists them, comma-separated:
+
+```idl
+protocol UserService {
+    function get(u64) -> User ! NotFoundError, DeniedError;
+}
+```
+
 `! ErrorName` is a bare reference - the thrown error's fields aren't bound
 to any of the function's arguments (no `! NotFoundError(some.expr)` form
-yet), and the referenced name isn't checked against an actual declared
-`error` - a typo there compiles without complaint today. A function can
-declare at most one thrown error currently.
+yet).
+
+The name must resolve to an `error` declared here or brought in by a `use`.
+Three things are rejected at build:
+
+- a name that resolves to nothing (`validation::unresolved-throw`), which
+  suggests the closest declared error when the name looks like a typo
+- a name that resolves to something other than an `error` - a `struct`, an
+  `enum` (`validation::throw-not-an-error`). Only an `error` has a slot in
+  the schema's error space, so only an `error` has an ordinal to travel as,
+  and only an `error` carries the required `message`
+- the same error listed twice (`validation::duplicate-throw`)
+
+A bare `!` with no name after it, and a trailing comma, are both parse
+errors.
 
 ## Type System
 
@@ -379,11 +399,8 @@ protocol AuthService {
 **Not Yet Supported:**
 - Postfix optional type syntax (`Type?`) - the `optional` prefix keyword
   (`optional name: Type`) is supported (see Structs above)
-- Argument-binding on a `throws` clause (`! ErrorName(some.expr)`) - a
-  bare `! ErrorName` reference is supported (see Error Types above), and
-  a function can only declare one thrown error
-- Validating that a `! ErrorName` reference actually names a declared
-  `error` - it's captured as plain text today, not resolved
+- Argument-binding on a `throws` clause (`! ErrorName(some.expr)`) - bare
+  `! ErrorName` / `! A, B` references are supported (see Error Types above)
 
 **Coming Soon:**
 These features are planned for future releases.

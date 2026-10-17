@@ -388,12 +388,27 @@ pub mod grammar {
         pub segment: Identifier,
     }
 
-    /// `! ErrorName` on a function - bare reference only, no
-    /// argument-binding into the error's fields (out of scope for now).
+    /// `! ErrorName`, or `! A, B` for a function that can raise more than
+    /// one - bare references only, no argument-binding into the error's
+    /// fields (out of scope for now).
+    ///
+    /// `first` + `rest` rather than a `delimited` `Vec`, so a bare `!` with
+    /// no name after it is a parse error - same shape as `ArgumentList` and
+    /// `DottedPath`.
     #[derive(Debug, Clone)]
     pub struct Throws {
         #[rust_sitter::leaf(text = "!")]
         _bang: (),
+        pub first: Identifier,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<CommaErrorName>,
+    }
+
+    /// Comma followed by another thrown error name.
+    #[derive(Debug, Clone)]
+    pub struct CommaErrorName {
+        #[rust_sitter::leaf(text = ",")]
+        _comma: (),
         pub error_name: Identifier,
     }
 
@@ -1427,8 +1442,20 @@ pub mod grammar {
         pub fn return_type(&self) -> &Option<ReturnType> {
             &self.return_type
         }
-        pub fn throws(&self) -> Option<String> {
-            self.throws.as_ref().map(|t| t.error_name.text.clone())
+        /// Every error name in the `!` clause, in source order. Empty when
+        /// the function declares none.
+        pub fn throws(&self) -> Vec<String> {
+            self.throws.as_ref().map(Throws::names).unwrap_or_default()
+        }
+    }
+
+    impl Throws {
+        /// The clause's error names, in source order. Never empty - the
+        /// grammar requires at least one name after the `!`.
+        pub fn names(&self) -> Vec<String> {
+            let mut names = vec![self.first.text.clone()];
+            names.extend(self.rest.iter().map(|c| c.error_name.text.clone()));
+            names
         }
     }
 

@@ -6,7 +6,9 @@ use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
-use crate::schema::ir::compiler::interpreter::incremental::OUT_OF_RANGE_PREFIX;
+use crate::schema::ir::compiler::interpreter::incremental::{
+    NOT_AN_ERROR_PREFIX, OUT_OF_RANGE_PREFIX, UNRESOLVED_PREFIX,
+};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
 use crate::schema::idl::annotations;
@@ -36,6 +38,9 @@ const DEPRECATED_MALFORMED_VALUE: DiagnosticCode =
     DiagnosticCode::error("validation::deprecated-malformed-value");
 const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::annotation-value-mismatch");
+const UNRESOLVED_THROW: DiagnosticCode = DiagnosticCode::error("validation::unresolved-throw");
+const THROW_NOT_AN_ERROR: DiagnosticCode = DiagnosticCode::error("validation::throw-not-an-error");
+const DUPLICATE_THROW: DiagnosticCode = DiagnosticCode::error("validation::duplicate-throw");
 
 
 
@@ -432,6 +437,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
     }
 
     check_annotation_values(units, &mut errors);
+    validate_throws(units, &mut errors);
 
     if errors.is_empty() {
         Ok(warnings)
@@ -609,6 +615,102 @@ fn out_of_range(type_name: &str, context: &str, span: Option<(usize, usize)>) ->
         diagnostic = diagnostic.with_span(span);
     }
     Some(diagnostic)
+}
+
+/// Check every function's `! Name` clause.
+///
+/// Freeze resolves a throw to a schema-global ordinal before `validate` runs,
+/// so a bad name is not a name here any more - it is a placeholder
+/// [`FrozenUnit::Error`] carrying a marker in `imported_from`, the same
+/// encode-in-the-IR convention `out_of_range` reads. This is where those
+/// become messages, reported at the throwing function's span rather than the
+/// placeholder's (a re-export has no span of its own).
+fn validate_throws(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    // ordinal -> (name, `imported_from` marker if it is a placeholder)
+    let mut slots: HashMap<u16, (&str, Option<&str>)> = HashMap::new();
+    let mut real_errors: Vec<&str> = vec![];
+    for unit in units {
+        if let FrozenUnit::Error { ordinal, name, imported_from, .. } = unit {
+            let marker = imported_from.as_deref().filter(|from| {
+                from.starts_with(UNRESOLVED_PREFIX) || from.starts_with(NOT_AN_ERROR_PREFIX)
+            });
+            if marker.is_none() {
+                real_errors.push(name);
+            }
+            slots.insert(*ordinal, (name, marker));
+        }
+    }
+
+    for unit in units {
+        let FrozenUnit::Protocol { name: proto, functions, .. } = unit else {
+            continue;
+        };
+        for function in functions {
+            let FrozenUnit::Function { name: func, throws, span, .. } = function else {
+                continue;
+            };
+            let context = format!("Protocol '{proto}', function '{func}'");
+
+            let mut seen: HashSet<u16> = HashSet::new();
+            for ordinal in throws {
+                let Some((name, marker)) = slots.get(ordinal).copied() else {
+                    continue;
+                };
+
+                if !seen.insert(*ordinal) {
+                    errors.push(
+                        Diagnostic::new(
+                            DUPLICATE_THROW,
+                            format!("function '{func}' raises '{name}' more than once"),
+                        )
+                        .with_context(context.clone())
+                        .with_help("list each error once - `! A, B`, not `! A, A`")
+                        .with_span(*span),
+                    );
+                    continue;
+                }
+
+                let Some(marker) = marker else { continue };
+
+                if let Some(rest) = marker
+                    .strip_prefix(NOT_AN_ERROR_PREFIX)
+                    .and_then(|r| r.strip_suffix('>'))
+                {
+                    let kind = rest
+                        .split_once(": ")
+                        .map(|(_, k)| k)
+                        .unwrap_or("another declaration");
+                    errors.push(
+                        Diagnostic::new(
+                            THROW_NOT_AN_ERROR,
+                            format!("'{name}' is {kind}, so it cannot be raised"),
+                        )
+                        .with_context(context.clone())
+                        .with_help(
+                            "only an `error` declaration can follow `!` - it is what carries \
+                             the `message` and the wire ordinal a raised failure travels as",
+                        )
+                        .with_span(*span),
+                    );
+                    continue;
+                }
+
+                let mut message = format!("no error named '{name}' is in scope");
+                if let Some(suggestion) = closest(name, real_errors.iter().copied()) {
+                    message.push_str(&format!(" - did you mean '{suggestion}'?"));
+                }
+                errors.push(
+                    Diagnostic::new(UNRESOLVED_THROW, message)
+                        .with_context(context.clone())
+                        .with_help(
+                            "declare it with `error <Name> { message = \"...\" }`, or `use` the \
+                             schema that declares it",
+                        )
+                        .with_span(*span),
+                );
+            }
+        }
+    }
 }
 
 fn validate_type(
