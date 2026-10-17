@@ -158,6 +158,7 @@ const UNEXPECTED_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::unexpecte
 const MISSING_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::missing-token");
 const SYNTAX_ERROR: DiagnosticCode = DiagnosticCode::error("parse::syntax-error");
 const UNCLOSED_BRACKET: DiagnosticCode = DiagnosticCode::error("parse::unclosed-bracket");
+const MISSING_RETURN_TYPE: DiagnosticCode = DiagnosticCode::error("parse::missing-return-type");
 
 /// Collapse a grammar's raw `Vec<ParseError>` (both the `.ids` schema
 /// grammar and the `.idp` package-config grammar share this exact
@@ -202,22 +203,19 @@ fn deepest_span(err: &rust_sitter::errors::ParseError) -> (usize, usize) {
     }
 }
 
-/// Scan `source` for a `{` or `[` with no matching close by EOF, skipping
-/// string literals and `//`/`/* */` comments the same way both grammars'
-/// lexers do. An unclosed bracket makes every downstream rust-sitter parse
-/// error unreliable noise - once the parser can't find a matching close, it
-/// often gives up and wraps the *entire remaining document* in one
-/// `FailedNode` with no finer-grained position to offer
-/// ([`from_parse_errors`] has nothing to drill into in that case). This is
-/// usually the actual, fixable mistake, found independently of whatever
-/// (often whole-file-spanning) error the parser's own recovery produced.
-pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
+/// The bytes of `source` that are code, with their offsets: string
+/// literals and `//`/`/* */` comments are skipped the same way both
+/// grammars' lexers do. A string's opening `"` is kept, so a literal still
+/// counts as *something* where it appears; its contents and closing `"`
+/// are not.
+fn code_bytes(source: &str) -> Vec<(usize, u8)> {
     let bytes = source.as_bytes();
-    let mut stack: Vec<(usize, u8)> = Vec::new();
+    let mut out = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
         match bytes[i] {
             b'"' => {
+                out.push((i, b'"'));
                 i += 1;
                 while i < bytes.len() && bytes[i] != b'"' {
                     i += if bytes[i] == b'\\' { 2 } else { 1 };
@@ -237,13 +235,32 @@ pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
                 i += 2;
                 continue;
             }
-            b'{' | b'[' => stack.push((i, bytes[i])),
+            b => out.push((i, b)),
+        }
+        i += 1;
+    }
+    out
+}
+
+/// Scan `source` for a `{` or `[` with no matching close by EOF, skipping
+/// string literals and comments (see [`code_bytes`]). An unclosed bracket
+/// makes every downstream rust-sitter parse
+/// error unreliable noise - once the parser can't find a matching close, it
+/// often gives up and wraps the *entire remaining document* in one
+/// `FailedNode` with no finer-grained position to offer
+/// ([`from_parse_errors`] has nothing to drill into in that case). This is
+/// usually the actual, fixable mistake, found independently of whatever
+/// (often whole-file-spanning) error the parser's own recovery produced.
+pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
+    let mut stack: Vec<(usize, u8)> = Vec::new();
+    for (pos, b) in code_bytes(source) {
+        match b {
+            b'{' | b'[' => stack.push((pos, b)),
             b'}' | b']' => {
                 stack.pop();
             }
             _ => {}
         }
-        i += 1;
     }
     // The outermost unclosed bracket - the one to fix first.
     let (pos, ch) = *stack.first()?;
@@ -254,6 +271,49 @@ pub fn find_unclosed_bracket(source: &str) -> Option<Diagnostic> {
             .with_span((pos, pos + 1))
             .with_help(format!("add a matching `{close}` to close this block")),
     )
+}
+
+/// Every `->` in a `.ids` source with no type after it - the next code
+/// byte is a `!`, `;` or `}`, or there is none. The parser itself only
+/// reports an empty `FailedNode` over the `->` (or, when the `->` ends a
+/// block, over the whole file), which [`from_parse_errors`] can only turn
+/// into the generic "unrecognized or incomplete syntax". A function
+/// written up to its return type and no further is common enough while
+/// typing to deserve its own name.
+pub fn find_missing_return_types(source: &str) -> Vec<Diagnostic> {
+    let code = code_bytes(source);
+    let mut out = Vec::new();
+    for (k, window) in code.windows(2).enumerate() {
+        let [(pos, b'-'), (next, b'>')] = *window else { continue };
+        if next != pos + 1 {
+            continue;
+        }
+        let after = code[k + 2..].iter().map(|&(_, b)| b).find(|b| !b.is_ascii_whitespace());
+        if matches!(after, None | Some(b'!' | b';' | b'}')) {
+            out.push(
+                Diagnostic::new(MISSING_RETURN_TYPE, "missing return type after `->`")
+                    .with_context("expected a type after this")
+                    .with_span((pos, pos + 2))
+                    .with_help(
+                        "write the type it returns, `()` for an empty reply, \
+                         or remove the `->` for a one-way call",
+                    ),
+            );
+        }
+    }
+    out
+}
+
+/// The one diagnostic for a `.ids` schema that failed to parse: an
+/// unclosed bracket first (it makes everything after it noise), then a
+/// missing return type, then the parser's own most informative error.
+pub fn from_schema_parse_failure(
+    source: &str,
+    errors: &[rust_sitter::errors::ParseError],
+) -> Diagnostic {
+    find_unclosed_bracket(source)
+        .or_else(|| find_missing_return_types(source).into_iter().next())
+        .unwrap_or_else(|| from_parse_errors(errors))
 }
 
 #[allow(clippy::type_complexity)]
@@ -591,5 +651,56 @@ mod tests {
         assert_eq!(d.message, "unclosed `{`");
         let (start, _) = d.span.unwrap();
         assert_eq!(&source[start..start + 1], "{");
+    }
+
+    #[test]
+    fn an_arrow_followed_by_a_bang_is_a_missing_return_type() {
+        let source = "protocol P {\n    function greet(a: u8) -> ! E;\n}\n";
+        let found = find_missing_return_types(source);
+        assert_eq!(found.len(), 1);
+        let d = &found[0];
+        assert_eq!(d.code.id, "parse::missing-return-type");
+        assert_eq!(d.message, "missing return type after `->`");
+        let (start, end) = d.span.unwrap();
+        assert_eq!(&source[start..end], "->");
+    }
+
+    #[test]
+    fn an_arrow_followed_by_a_semicolon_brace_or_eof_is_a_missing_return_type() {
+        for source in [
+            "protocol P {\n    function f() -> ;\n}\n",
+            "protocol P {\n    function f() ->\n}\n",
+            "protocol P {\n    function f() ->",
+            "protocol P {\n    function f() -> /* soon */ ;\n}\n",
+        ] {
+            assert_eq!(find_missing_return_types(source).len(), 1, "{source:?}");
+        }
+    }
+
+    #[test]
+    fn an_arrow_with_a_type_after_it_is_fine() {
+        for source in [
+            "protocol P {\n    function f() -> u8 ! E;\n}\n",
+            "protocol P {\n    function f() -> ();\n}\n",
+            "protocol P {\n    function f() -> std::http::Response;\n}\n",
+            "protocol P {\n    function f() -> u8[];\n}\n",
+            "protocol P {\n    function f();\n}\n",
+        ] {
+            assert!(find_missing_return_types(source).is_empty(), "{source:?}");
+        }
+    }
+
+    #[test]
+    fn an_arrow_inside_a_comment_or_string_is_not_checked() {
+        let source = "// f() -> ;\nconst S: str = \"-> ;\"\n/* -> } */\n";
+        assert!(find_missing_return_types(source).is_empty());
+    }
+
+    #[test]
+    fn a_schema_parse_failure_names_the_missing_return_type() {
+        let source = "protocol P {\n    function greet(a: u8) -> ! E;\n}\n";
+        let errors = crate::schema::idl::grammar::parse(source).unwrap_err();
+        let d = from_schema_parse_failure(source, &errors);
+        assert_eq!(d.code.id, "parse::missing-return-type");
     }
 }

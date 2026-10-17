@@ -32,7 +32,7 @@ pub trait Compile {
                 Self::from_declarations(declarations)
             }
             Err(e) => {
-                let diagnostic = crate::diagnostics::from_parse_errors(&e);
+                let diagnostic = crate::diagnostics::from_schema_parse_failure(source, &e);
                 panic!("{}", crate::diagnostics::render(&diagnostic, "<source>", source));
             }
         }
