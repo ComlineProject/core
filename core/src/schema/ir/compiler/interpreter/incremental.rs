@@ -403,27 +403,42 @@ fn plan_error_space(
             continue;
         };
         for func in protocol.functions() {
-            let Some(name) = func.throws() else { continue };
-            if ordinals.contains_key(&name) {
-                continue;
+            for name in func.throws() {
+                if ordinals.contains_key(&name) {
+                    continue;
+                }
+                let ord = next;
+                next += 1;
+                ordinals.insert(name.clone(), ord);
+                reexports.push(
+                    resolve_foreign_error(&name, declarations, use_context, ord).unwrap_or_else(
+                        || {
+                            // It isn't a local `error` (those are already in
+                            // `ordinals`) and no `use` brought a foreign one
+                            // in. Either the name is declared here as
+                            // something else - a `struct`, an `enum` - or it
+                            // names nothing at all. The two deserve different
+                            // messages, so mark which it is and let
+                            // `validate` phrase it; see
+                            // `NOT_AN_ERROR_PREFIX` / `UNRESOLVED_PREFIX`.
+                            let marker = match local_declaration_kind(declarations, &name) {
+                                Some(kind) => format!("{NOT_AN_ERROR_PREFIX}{name}: {kind}>"),
+                                None => format!("{UNRESOLVED_PREFIX}{name}>"),
+                            };
+                            FrozenUnit::Error {
+                                docstring: None,
+                                parameters: vec![],
+                                ordinal: ord,
+                                imported_from: Some(marker),
+                                name: name.clone(),
+                                message: String::new(),
+                                fields: vec![],
+                                span: None,
+                            }
+                        },
+                    ),
+                );
             }
-            let ord = next;
-            next += 1;
-            ordinals.insert(name.clone(), ord);
-            reexports.push(
-                resolve_foreign_error(&name, declarations, use_context, ord).unwrap_or_else(|| {
-                    FrozenUnit::Error {
-                        docstring: None,
-                        parameters: vec![],
-                        ordinal: ord,
-                        imported_from: Some(format!("<unresolved: {name}>")),
-                        name: name.clone(),
-                        message: String::new(),
-                        fields: vec![],
-                        span: None,
-                    }
-                }),
-            );
         }
     }
 
@@ -652,6 +667,35 @@ fn build_kind_value(
 /// text after it is `<type>: <value>>`; [`crate::schema::ir::validation`]
 /// parses it back out to report the range error.
 pub(crate) const OUT_OF_RANGE_PREFIX: &str = "<out of range for ";
+
+/// Marks a `! Name` that resolved to nothing at all - frozen into the
+/// placeholder error's `imported_from`, which `validate` turns into a
+/// diagnostic. Same trick as [`OUT_OF_RANGE_PREFIX`]: freeze cannot report,
+/// so it records.
+pub(crate) const UNRESOLVED_PREFIX: &str = "<unresolved: ";
+
+/// Marks a `! Name` that names a declaration in this schema which is not an
+/// `error` - a `struct`, an `enum`. Only an `error` has a slot in the schema's
+/// error space, so nothing else can be raised.
+pub(crate) const NOT_AN_ERROR_PREFIX: &str = "<not an error: ";
+
+/// What this schema declares `name` as, if it declares it at all - the words
+/// an author would recognise, article included so a diagnostic reads
+/// "is an enum" rather than "is a enum".
+fn local_declaration_kind(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    name: &str,
+) -> Option<&'static str> {
+    declarations.iter().find_map(|decl| match &decl.value {
+        Declaration::Struct(d) if d.name() == name => Some("a struct"),
+        Declaration::Enum(d) if d.name() == name => Some("an enum"),
+        Declaration::Const(d) if d.name() == name => Some("a constant"),
+        Declaration::Protocol(d) if d.name() == name => Some("a protocol"),
+        Declaration::Validator(d) if d.name() == name => Some("a validator"),
+        Declaration::TypeAlias(d) if d.name() == name => Some("a type alias"),
+        _ => None,
+    })
+}
 
 fn is_integer_primitive(name: &str) -> bool {
     matches!(

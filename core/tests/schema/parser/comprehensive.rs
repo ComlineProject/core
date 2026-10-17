@@ -313,6 +313,28 @@ struct AllTypes {
     }
 
     #[test]
+    fn test_function_with_several_throws() {
+        let code = "protocol P {\n    function get(u64) -> str ! NotFound, Denied;\n}";
+        assert!(grammar::parse(code).is_ok());
+
+        let three = "protocol P {\n    function get(u64) -> str ! A, B, C;\n}";
+        assert!(grammar::parse(three).is_ok());
+    }
+
+    #[test]
+    fn test_throws_clause_needs_at_least_one_name() {
+        // A bare `!` names nothing - `first` is not optional.
+        let code = "protocol P {\n    function get(u64) -> str !;\n}";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn test_throws_clause_rejects_a_trailing_comma() {
+        let code = "protocol P {\n    function get(u64) -> str ! A,;\n}";
+        assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
     fn test_function_without_throws_still_parses() {
         // Regression: throws is optional, a plain function is unaffected.
         let code = "protocol P {\n    function get(u64) -> str;\n}";
