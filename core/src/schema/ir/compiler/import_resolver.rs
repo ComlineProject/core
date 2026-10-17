@@ -385,7 +385,7 @@ impl ImportResolver {
             match crate::schema::idl::grammar::parse(&source) {
                 Ok(doc) => Ok(doc),
                 Err(errors) => {
-                    let diagnostic = crate::diagnostics::from_parse_errors(&errors);
+                    let diagnostic = crate::diagnostics::from_schema_parse_failure(&source, &errors);
                     Err(crate::diagnostics::render(&diagnostic, &path.to_string_lossy(), &source))
                 }
             }
