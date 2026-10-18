@@ -65,6 +65,13 @@ pub trait ImportLookup {
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>>;
     /// What an imported `type` alias stands for.
     fn alias_target(&self, name: &str) -> Option<TypeRef>;
+    /// Whether `name`'s import is only a stand-in: an editor that reports a
+    /// missing `use` itself adds an import for the name, so core doesn't also
+    /// call it an unknown type - but nothing is in scope behind it, and no
+    /// check should be judged against it. `comline build` has none.
+    fn is_stand_in(&self, _name: &str) -> bool {
+        false
+    }
 }
 
 /// The lookup for a schema validated on its own: no imports known.
@@ -354,15 +361,9 @@ pub fn validate_with(
                 continue;
             };
 
-            // Imports are keyed by their full `a::b::Name` path (or a
-            // `a::b::*` glob); the other schema isn't loaded here, so any
-            // import that could supply `vname` means we can't judge it.
-            let maybe_imported = symbols.symbols.iter().any(|(k, v)| {
-                v.kind == SymbolType::Import
-                    && (*k == vname
-                        || k.ends_with(&format!("::{vname}"))
-                        || k.ends_with("::*"))
-            });
+            // The other schema isn't loaded here, so any import that could
+            // supply `vname` means we can't judge it.
+            let maybe_imported = could_be_imported(&symbols, vname);
 
             let field_ctx = site.context.clone();
 
@@ -587,6 +588,11 @@ fn check_validator_targets(
     for site in validated_sites(units) {
         let (field_written, span) = (site.ty, &site.span);
         let field_resolved = resolve(field_written);
+        // An unknown type is already reported; matching a validator against
+        // it would only add a second error about the same mistake.
+        if names_unknown(&field_resolved, symbols, imports) {
+            continue;
+        }
 
         for param in site.parameters {
             let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
@@ -596,7 +602,7 @@ fn check_validator_targets(
             // an unknown name by pass 2.5 - neither has anything to match.
             let targets: Vec<(TypeRef, TypeRef)> = match local_targets.get(vname.as_str()) {
                 Some(pairs) => pairs.clone(),
-                None if matches!(symbols.get(vname), None | Some(SymbolType::Import)) => {
+                None if could_be_imported(symbols, vname) => {
                     match imports.validator_targets(vname) {
                         Some(t) => t.into_iter().map(|w| (w.clone(), w)).collect(),
                         None => continue,
@@ -717,6 +723,40 @@ fn check_misplaced_validators(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>
     }
 }
 
+/// Whether `ty` still names something neither declared here nor imported -
+/// or imported only as a [stand-in](ImportLookup::is_stand_in) - after alias
+/// resolution.
+fn names_unknown(ty: &TypeRef, symbols: &SymbolTable, imports: &dyn ImportLookup) -> bool {
+    match ty {
+        TypeRef::Named(name) => {
+            (symbols.get(name).is_none() && !could_be_imported(symbols, name))
+                || imports.is_stand_in(name)
+        }
+        TypeRef::Array { element, .. } => names_unknown(element, symbols, imports),
+        TypeRef::Union(members) => members.iter().any(|m| names_unknown(m, symbols, imports)),
+        TypeRef::Primitive(_) | TypeRef::Unit => false,
+    }
+}
+
+/// Whether one of this schema's `use`s could bring `name` into scope.
+/// Imports are keyed by their full `a::b::Name` path, a `a::b::*` glob, or
+/// a whole namespace (`a::b`, then written `a::b::Name`).
+///
+/// Only such a name is put to an [`ImportLookup`]. A name nothing imports is
+/// unknown, whatever a lookup could find for it elsewhere in the project -
+/// asking anyway is how the editor once checked a validator's targets while
+/// also reporting the validator unknown.
+fn could_be_imported(symbols: &SymbolTable, name: &str) -> bool {
+    matches!(symbols.get(name), Some(SymbolType::Import))
+        || symbols.symbols.iter().any(|(k, v)| {
+            v.kind == SymbolType::Import
+                && (*k == name
+                    || k.ends_with(&format!("::{name}"))
+                    || k.ends_with("::*")
+                    || name.starts_with(&format!("{k}::")))
+        })
+}
+
 /// `ty` with every alias replaced by what it stands for, all the way down:
 /// `type Name = string` makes `Name[]` resolve to `string[]`. Local aliases
 /// first; a name this schema doesn't declare goes to `imports`. Bounded, so
@@ -739,9 +779,7 @@ fn resolve_type(
         }
         ty.map_named(&mut |name| match local_aliases.get(name) {
             Some(target) => Some(go(target, local_aliases, symbols, imports, depth + 1)),
-            None if matches!(symbols.get(name), None | Some(SymbolType::Import)) => {
-                imports.alias_target(name)
-            }
+            None if could_be_imported(symbols, name) => imports.alias_target(name),
             None => None,
         })
     }
