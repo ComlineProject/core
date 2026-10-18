@@ -8,5 +8,6 @@ pub mod config_in_commit_tests;
 pub mod refs_tests;
 pub mod span_hash_sensitivity_tests;
 pub mod schema_ir_hash_tests;
+pub mod ir_roundtrip_tests;
 #[cfg(feature = "deps")]
 pub mod dependency_vendoring_tests;
