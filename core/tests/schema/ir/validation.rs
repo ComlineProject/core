@@ -167,7 +167,7 @@ const MAX: u32 = 10
         let code = r#"
 /// Thrown when a user can't be found.
 error NotFoundError {
-    message = "{self.id} was not found"
+    message = f"{self.id} was not found"
     id: u64
 }
 "#;
@@ -196,13 +196,20 @@ error NotFoundError {
 
     #[test]
     fn test_error_message_escaped_braces_round_trip() {
-        let code = "error E {\n    message = \"code: {{404}}\"\n}";
-        let ir_units = IncrementalInterpreter::from_source(code);
-        match &ir_units[0] {
-            comline_core::schema::ir::frozen::unit::FrozenUnit::Error { message, .. } => {
-                assert_eq!(message, "code: {404}");
+        // The template keeps `{{` / `}}`, so a literal brace never reads as a
+        // placeholder - in an f-string as written, in a plain string because
+        // every brace there is literal.
+        for (code, template) in [
+            ("error E {\n    message = f\"code: {{404}} for {self.id}\"\n    id: u64\n}", "code: {{404}} for {self.id}"),
+            ("error E {\n    message = \"code: {404}\"\n}", "code: {{404}}"),
+        ] {
+            let ir_units = IncrementalInterpreter::from_source(code);
+            match &ir_units[0] {
+                comline_core::schema::ir::frozen::unit::FrozenUnit::Error { message, .. } => {
+                    assert_eq!(message, template, "{code}");
+                }
+                _ => panic!("Expected Error"),
             }
-            _ => panic!("Expected Error"),
         }
     }
 

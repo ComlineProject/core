@@ -520,7 +520,7 @@ fn an_imported_validators_arguments_are_checked() {
 #[test]
 fn an_imported_validator_without_a_default_needs_its_argument() {
     let rules = "validator AtLeast for u32 {\n    min: u32\n    validate {\n        \
-                 assert(value >= params.min, \"{value.name} is too small\")\n    }\n}\n";
+                 assert(value >= params.min, f\"{value.name} is too small\")\n    }\n}\n";
     let build = |call: &str| {
         PackageSources::new()
             .schema(["rules"], rules)
@@ -545,7 +545,7 @@ fn an_imported_validator_without_a_default_needs_its_argument() {
 #[test]
 fn an_imported_alias_resolves_before_matching() {
     let types = "type AccountName = string\ntype Count = u32\n\n\
-                 validator NonEmpty for string {\n    validate {\n        assert(value.length > 0, \"{value.name} is empty\")\n    }\n}\n";
+                 validator NonEmpty for string {\n    validate {\n        assert(value.length > 0, f\"{value.name} is empty\")\n    }\n}\n";
     PackageSources::new()
         .schema(["types"], types)
         .schema(

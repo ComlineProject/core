@@ -13,8 +13,8 @@ validator StringBounds for string {
 
     validate {
         assert(value.length >= params.min_chars,
-               "{value.name} must be at least {params.min_chars} characters")
+               f"{value.name} must be at least {params.min_chars} characters")
         assert(value.length <= params.max_chars,
-               "{value.name} must be at most {params.max_chars} characters")
+               f"{value.name} must be at most {params.max_chars} characters")
     }
 }

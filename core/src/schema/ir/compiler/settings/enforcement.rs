@@ -304,6 +304,8 @@ mod tests {
         FrozenUnit::Error {
             docstring: None, parameters, ordinal: 0, imported_from: None,
             name: name.to_string(), message: "msg".to_string(), fields, span: Some((0, 1)),
+            message_span: None,
+            uninterpolated: vec![],
         }
     }
 
@@ -511,6 +513,8 @@ mod tests {
         let units = vec![FrozenUnit::Error {
             docstring, parameters, ordinal, name, message, fields,
             imported_from: Some("other".to_string()), span: None,
+            message_span: None,
+            uninterpolated: vec![],
         }];
         let errors = check_settings_enforcement(&units, &package, &SettingsSpans::new()).unwrap_err();
         assert_eq!(errors.len(), 1);

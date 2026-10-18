@@ -337,7 +337,7 @@ fn test_validator_reference_on_error_field() {
 struct Message { body: string }
 
 error NotFound {
-    message = "{self.name} missing"
+    message = f"{self.name} missing"
 
     @validators = [Missing()]
     name: string
@@ -457,7 +457,7 @@ fn test_validate_block_params_resolve() {
 validator StringBounds for string {
     min_chars: u32 = 0
     validate {
-        assert(value.length >= params.min_chars, "{value.name} too short")
+        assert(value.length >= params.min_chars, f"{value.name} too short")
     }
 }
 "#;
@@ -471,7 +471,7 @@ fn test_validate_block_unknown_param_fails() {
 validator StringBounds for string {
     min_chars: u32 = 0
     validate {
-        assert(value.length >= params.min_char, "{value.name} too short")
+        assert(value.length >= params.min_char, f"{value.name} too short")
     }
 }
 "#;
@@ -727,7 +727,7 @@ fn validation_errors(code: &str) -> Vec<comline_core::diagnostics::Diagnostic> {
     validate(&ir).err().unwrap_or_default()
 }
 
-const STRING_BOUNDS: &str = "validator StringBounds for string {\n    min_chars: u32 = 0\n    validate {\n        assert(value.length >= params.min_chars, \"{value.name} is too short\")\n    }\n}\n";
+const STRING_BOUNDS: &str = "validator StringBounds for string {\n    min_chars: u32 = 0\n    validate {\n        assert(value.length >= params.min_chars, f\"{value.name} is too short\")\n    }\n}\n";
 
 #[test]
 fn a_validator_without_for_is_rejected() {
@@ -778,7 +778,7 @@ fn a_validator_on_an_array_checks_the_array_not_its_elements() {
 
 #[test]
 fn a_validator_can_name_several_targets() {
-    let range = "validator Range for u8, u32 {\n    min: u32 = 0\n    validate {\n        assert(value >= params.min, \"{value.name} is too small\")\n    }\n}\n";
+    let range = "validator Range for u8, u32 {\n    min: u32 = 0\n    validate {\n        assert(value >= params.min, f\"{value.name} is too small\")\n    }\n}\n";
     let ok = format!("{range}struct S {{\n    @validators = [Range(min = 1)]\n    n: u32\n}}\n");
     assert!(validation_errors(&ok).is_empty(), "{:?}", validation_errors(&ok));
 
@@ -812,28 +812,63 @@ fn validation_warnings(code: &str) -> Vec<comline_core::diagnostics::Diagnostic>
 
 #[test]
 fn a_validator_without_asserts_warns_once() {
-    // No `validate` block, and an empty one: both pass every value. Its
-    // property is unused too, but that's the same omission.
-    for code in [
-        "validator Positive for u8 {\n    floor: u8 = 0\n}\n",
-        "validator Positive for u8 {\n    floor: u8 = 0\n    validate {\n    }\n}\n",
-    ] {
-        let warnings = validation_warnings(code);
-        assert_eq!(warnings.len(), 1, "{code:?}: {warnings:?}");
-        assert_eq!(warnings[0].code.id, "validation::validator-checks-nothing");
-        assert_eq!(warnings[0].message, "validator 'Positive' checks nothing: it has no `assert`");
-        assert!(warnings[0].span.is_some());
-        // `value.length` would itself be an error for a `u8`.
-        let help = warnings[0].help.as_deref().unwrap();
-        assert!(help.contains("assert(value > 0,") && !help.contains("length"), "{help}");
-    }
+    // Its property is unused too, but that's the same omission.
+    let warnings = validation_warnings("validator Positive for u8 {\n    floor: u8 = 0\n}\n");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].code.id, "validation::validator-checks-nothing");
+    assert_eq!(warnings[0].message, "validator 'Positive' checks nothing: it has no `validate` block");
+    assert!(warnings[0].span.is_some());
+    // `value.length` would itself be an error for a `u8`.
+    let help = warnings[0].help.as_deref().unwrap();
+    assert!(help.contains("assert(value > 0, f\"") && !help.contains("length"), "{help}");
+
     let text = validation_warnings("validator Named for string {\n}\n");
     assert!(text[0].help.as_deref().unwrap().contains("value.length > 0"), "{text:?}");
 }
 
 #[test]
+fn an_empty_validate_block_is_where_the_warning_points() {
+    let code = "validator Positive for u8 {\n    floor: u8 = 0\n    validate {\n    }\n}\n";
+    let warnings = validation_warnings(code);
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(
+        warnings[0].message,
+        "validator 'Positive' checks nothing: its `validate` block has no `assert`"
+    );
+    let (start, end) = warnings[0].span.unwrap();
+    assert_eq!(&code[start..end], "validate {\n    }");
+    // ...and names the validator as well.
+    let ((start, _), label) = warnings[0].secondary.clone().unwrap();
+    assert!(code[start..].starts_with("validator Positive"));
+    assert_eq!(label, "validator 'Positive'");
+}
+
+#[test]
+fn a_placeholder_in_a_plain_message_warns_at_the_message() {
+    // Only an f-string interpolates.
+    let code = "error Missing {\n    message = \"{self.id} is missing\"\n    id: u64\n}\n\nvalidator Short for string {\n    validate {\n        assert(value.length < 9, \"{value.name} is long\")\n    }\n}\n";
+    let warnings = validation_warnings(code);
+    let ids: Vec<_> = warnings.iter().map(|w| w.code.id).collect();
+    assert_eq!(ids, ["validation::message-not-interpolated"; 2], "{warnings:?}");
+    assert_eq!(warnings[0].message, "`{self.id}` is printed as written: only an f-string interpolates");
+    let spanned: Vec<&str> = warnings.iter().map(|w| { let (s, e) = w.span.unwrap(); &code[s..e] }).collect();
+    assert_eq!(spanned, ["\"{self.id} is missing\"", "\"{value.name} is long\""]);
+}
+
+#[test]
+fn literal_braces_are_not_placeholders() {
+    // An f-string's escapes, and braces around something that isn't a path.
+    let code = "error A {\n    message = f\"{{self.id}} is literal\"\n}\n\nerror B {\n    message = \"a {} or { b }\"\n}\n";
+    assert!(validation_warnings(code).is_empty());
+    // An escaped `{{params.x}}` doesn't count as reading the property.
+    let code = "validator V for u8 {\n    x: u8 = 0\n    validate {\n        assert(value > 0, f\"{{params.x}}\")\n    }\n}\n";
+    let ids: Vec<_> = validation_warnings(code).iter().map(|w| w.code.id).collect();
+    assert_eq!(ids, ["validation::validator-property-unused"]);
+}
+
+#[test]
 fn a_property_no_assert_reads_warns_at_the_property() {
-    let code = "validator Bounds for u32 {\n    min: u32 = 0\n    max: u32 = 9\n    label: string = \"x\"\n    validate {\n        assert(value >= params.min, \"{value.name} is below {params.label}\")\n    }\n}\n";
+    let code = "validator Bounds for u32 {\n    min: u32 = 0\n    max: u32 = 9\n    label: string = \"x\"\n    validate {\n        assert(value >= params.min, f\"{value.name} is below {params.label}\")\n    }\n}\n";
     let warnings = validation_warnings(code);
     // `min` is in the condition and `label` in the message; `max` is nowhere.
     assert_eq!(warnings.len(), 1, "{warnings:?}");

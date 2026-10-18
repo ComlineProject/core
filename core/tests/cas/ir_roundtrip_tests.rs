@@ -31,7 +31,7 @@ validator Range for u8, u32 {
     min: u32 = 0
     max: u32 = 100
     validate {
-        assert(value >= params.min and value <= params.max, "{value.name} is out of range")
+        assert(value >= params.min and value <= params.max, f"{value.name} is out of range")
     }
 }
 

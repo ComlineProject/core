@@ -274,7 +274,7 @@ struct AllTypes {
     #[test]
     fn test_error_with_fields() {
         let code = r#"error NotFoundError {
-    message = "{self.id} was not found"
+    message = f"{self.id} was not found"
     id: u64
 }"#;
         assert!(grammar::parse(code).is_ok());
@@ -349,24 +349,32 @@ struct AllTypes {
 
     #[test]
     fn test_interpolated_message_multi_segment_path() {
-        let code = "error E {\n    message = \"{self.field.nested} bad\"\n}";
+        let code = "error E {\n    message = f\"{self.field.nested} bad\"\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_interpolated_message_escaped_braces() {
-        let code = "error E {\n    message = \"code: {{404}}\"\n}";
+        let code = "error E {\n    message = f\"code: {{404}}\"\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_interpolated_message_unescaped_non_path_brace_is_a_parse_error() {
-        // Confirms escaping is actually required, not accidentally
-        // optional - "404" isn't a valid placeholder path (identifiers
-        // can't start with a digit), and a single (non-doubled) brace is
-        // always a placeholder attempt, never silently literal.
-        let code = "error E {\n    message = \"code: {404}\"\n}";
+        // In an f-string escaping is required, not accidentally optional -
+        // "404" isn't a valid placeholder path (identifiers can't start
+        // with a digit), and a single brace is always a placeholder attempt.
+        let code = "error E {\n    message = f\"code: {404}\"\n}";
         assert!(grammar::parse(code).is_err());
+    }
+
+    #[test]
+    fn a_plain_message_takes_any_brace_as_text() {
+        // Only an f-string interpolates; a plain string's braces are text.
+        for message in ["\"code: {404}\"", "\"{value.name} is empty\"", "\"{\""] {
+            let code = format!("error E {{\n    message = {message}\n}}");
+            assert!(grammar::parse(&code).is_ok(), "{code}");
+        }
     }
 
     #[test]

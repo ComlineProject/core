@@ -122,7 +122,7 @@ fn width_and_length_changes_are_breaking() {
 fn an_assert_condition_freezes_as_a_tree() {
     let units = IncrementalInterpreter::from_source(
         "validator Range for u32 {\n    min: u32 = 0\n    validate {\n        \
-         assert(value >= params.min and value < 100, \"{value.name} is out of range\")\n    }\n}\n",
+         assert(value >= params.min and value < 100, f\"{value.name} is out of range\")\n    }\n}\n",
     );
     let FrozenUnit::Validator { expression_block, .. } = &units[0] else { panic!() };
     let FrozenUnit::ExpressionBlock { asserts } = &**expression_block else { panic!() };
