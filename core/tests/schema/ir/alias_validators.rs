@@ -4,7 +4,8 @@
 use comline_core::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
 use comline_core::schema::ir::compiler::Compile;
 use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
-use comline_core::schema::ir::validation::validate;
+use comline_core::schema::ir::frozen::types::{PrimitiveType, TypeRef};
+use comline_core::schema::ir::validation::{validate, validate_with, ImportLookup};
 
 const BOUNDS: &str = "validator Bounds for string {\n    max: u32 = 10\n    validate {\n        \
                       assert(value.length <= params.max, \"{value.name} is too long\")\n    }\n}\n";
@@ -85,4 +86,50 @@ fn a_deprecated_alias_warns_where_it_is_used() {
     let warnings = validate(&units).expect("deprecation is a warning, not an error");
     let messages: Vec<&str> = warnings.iter().map(|w| w.message.as_str()).collect();
     assert_eq!(messages, ["'Nick' is deprecated: use Handle"]);
+}
+
+/// A lookup that knows every name, imported or not - the way the editor's
+/// project-wide search does. Only what a `use` brings in may be asked.
+struct Everything;
+
+impl ImportLookup for Everything {
+    fn validator_targets(&self, _: &str) -> Option<Vec<TypeRef>> {
+        Some(vec![TypeRef::Primitive(PrimitiveType::String)])
+    }
+    fn alias_target(&self, _: &str) -> Option<TypeRef> {
+        Some(TypeRef::Primitive(PrimitiveType::String))
+    }
+}
+
+fn messages_with(code: &str, imports: &dyn ImportLookup) -> Vec<String> {
+    validate_with(&IncrementalInterpreter::from_source(code), imports)
+        .err()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|e| e.message)
+        .collect()
+}
+
+#[test]
+fn a_validator_nothing_imports_is_unknown_and_nothing_more() {
+    let code = "@validators = [StringBounds()]\ntype FixedNum = u8[2]\n";
+    assert_eq!(messages_with(code, &Everything), ["Unknown validator 'StringBounds'"]);
+
+    // Imported, the lookup is asked - and its targets do apply.
+    let code = format!("use std::validators::StringBounds\n\n{code}");
+    assert_eq!(
+        messages_with(&code, &Everything),
+        ["validator 'StringBounds' applies to `string`, not `u8[2]`"]
+    );
+}
+
+#[test]
+fn an_alias_nothing_imports_is_not_resolved_through_the_lookup() {
+    // `Name` is unknown here; the lookup would call it a `string`, which
+    // would make `for u32` a mismatch on top of the unknown type.
+    let code = "validator Positive for u32 {\n    validate {\n        assert(value > 0, \"{value.name}\")\n    }\n}\n\
+                struct S {\n    @validators = [Positive()]\n    n: Name\n}\n";
+    let errors = messages_with(code, &Everything);
+    assert!(errors.iter().all(|m| !m.contains("applies to")), "{errors:?}");
+    assert!(errors.iter().any(|m| m.contains("Unknown type 'Name'")), "{errors:?}");
 }
