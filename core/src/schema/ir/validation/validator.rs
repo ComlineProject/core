@@ -41,6 +41,8 @@ const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
 const UNRESOLVED_THROW: DiagnosticCode = DiagnosticCode::error("validation::unresolved-throw");
 const THROW_NOT_AN_ERROR: DiagnosticCode = DiagnosticCode::error("validation::throw-not-an-error");
 const DUPLICATE_THROW: DiagnosticCode = DiagnosticCode::error("validation::duplicate-throw");
+const MISPLACED_VALIDATORS: DiagnosticCode =
+    DiagnosticCode::error("validation::misplaced-validators");
 const VALIDATOR_MISSING_TARGET: DiagnosticCode =
     DiagnosticCode::error("validation::validator-missing-target");
 const VALIDATOR_TARGET_MISMATCH: DiagnosticCode =
@@ -177,14 +179,15 @@ pub fn validate_with(
             );
         }
 
-        // Deprecation tracking stays struct-only. Which kinds are usable in
-        // a type position is `SymbolType::usable_as_type`'s business now,
-        // but a *usage site* is still only reachable for a struct: a
+        // Deprecation is tracked for structs and type aliases - the kinds
+        // whose *usage site* is a type position this pass reaches. A
         // function's `! Name` throws is already an ordinal by the time
         // `validate` runs (`interpreter::incremental` resolves it), so
         // `@deprecated` on an error, a protocol, a field, or a function
         // parses fine and has nothing for this check to flag.
-        if let FrozenUnit::Struct { parameters, .. } = unit {
+        if let FrozenUnit::Struct { parameters, .. } | FrozenUnit::TypeAlias { parameters, .. } =
+            unit
+        {
             match deprecation_of(parameters, span) {
                 Ok(Some(message)) => {
                     deprecated.insert(name, message);
@@ -270,7 +273,8 @@ pub fn validate_with(
         }
     }
 
-    // Pass 2.5: every `@validators = [Name(...)]` on a struct/error field must
+    // Pass 2.5: every `@validators = [Name(...)]` on a struct/error field or a
+    // `type` alias must
     // name a declared `validator`, and (for locally declared ones) its keyword
     // arguments must be that validator's properties.
     let validator_fields: HashMap<&str, &[FrozenUnit]> = units
@@ -343,136 +347,121 @@ pub fn validate_with(
         }
     }
 
-    for unit in units {
-        let (owner_kind, owner_name, fields) = match unit {
-            FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),
-            FrozenUnit::Error { name, fields, .. } => ("Error", name, fields),
-            _ => continue,
-        };
-        for field in fields {
-            let FrozenUnit::Field { name: field_name, parameters, span, .. } = field else {
+    for site in validated_sites(units) {
+        let span = &site.span;
+        for param in site.parameters {
+            let FrozenUnit::ValidatorRef { name: vname, args } = param else {
                 continue;
             };
-            for param in parameters {
-                let FrozenUnit::ValidatorRef { name: vname, args } = param else {
-                    continue;
-                };
 
-                // Imports are keyed by their full `a::b::Name` path (or a
-                // `a::b::*` glob); the other schema isn't loaded here, so any
-                // import that could supply `vname` means we can't judge it.
-                let maybe_imported = symbols.symbols.iter().any(|(k, v)| {
-                    v.kind == SymbolType::Import
-                        && (*k == vname
-                            || k.ends_with(&format!("::{vname}"))
-                            || k.ends_with("::*"))
-                });
+            // Imports are keyed by their full `a::b::Name` path (or a
+            // `a::b::*` glob); the other schema isn't loaded here, so any
+            // import that could supply `vname` means we can't judge it.
+            let maybe_imported = symbols.symbols.iter().any(|(k, v)| {
+                v.kind == SymbolType::Import
+                    && (*k == vname
+                        || k.ends_with(&format!("::{vname}"))
+                        || k.ends_with("::*"))
+            });
 
-                let field_ctx =
-                    format!("{} '{}', field '{}'", owner_kind, owner_name, field_name);
+            let field_ctx = site.context.clone();
 
-                match symbols.get(vname.as_str()) {
-                    Some(SymbolType::Validator) => {
-                        // Locally declared - check the keyword arguments.
-                        if let Some(props) = validator_props.get(vname.as_str()) {
-                            let mut seen: Vec<&str> = Vec::new();
-                            for arg in args {
-                                let FrozenUnit::Property { name: kw, .. } = arg else {
-                                    continue;
-                                };
-                                if seen.contains(&kw.as_str()) {
-                                    errors.push(Diagnostic { code: DUPLICATE_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
+            match symbols.get(vname.as_str()) {
+                Some(SymbolType::Validator) => {
+                    // Locally declared - check the keyword arguments.
+                    if let Some(props) = validator_props.get(vname.as_str()) {
+                        let mut seen: Vec<&str> = Vec::new();
+                        for arg in args {
+                            let FrozenUnit::Property { name: kw, .. } = arg else {
+                                continue;
+                            };
+                            if seen.contains(&kw.as_str()) {
+                                errors.push(Diagnostic { code: DUPLICATE_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
+                                    message: format!(
+                                        "duplicate argument '{}' to validator '{}'",
+                                        kw, vname
+                                    ),
+                                    context: field_ctx.clone(),
+                                    span: Some(*span),
+                                });
+                                continue;
+                            }
+                            seen.push(kw.as_str());
+                            if !props.contains(&kw.as_str()) {
+                                let mut message = format!(
+                                    "validator '{}' has no argument '{}'",
+                                    vname, kw
+                                );
+                                if let Some(s) = closest(kw, props.iter().copied()) {
+                                    message.push_str(
+                                        &format!(" - did you mean '{}'?", s),
+                                    );
+                                }
+                                errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
+                                    message,
+                                    context: field_ctx.clone(),
+                                    span: Some(*span),
+                                });
+                                continue;
+                            }
+
+                            // The argument's value against the
+                            // property's declared type. Both sides are
+                            // typed now: the value keeps the form it
+                            // was written in, and the declared type
+                            // maps onto the same vocabulary - so this
+                            // no longer re-parses rendered text to
+                            // guess a category.
+                            let FrozenUnit::Property { value: val, .. } = arg else {
+                                continue;
+                            };
+                            let want = validator_fields
+                                .get(vname.as_str())
+                                .and_then(|fs| prop_field(fs, kw))
+                                .and_then(|f| match f {
+                                    FrozenUnit::Field { ty, .. } => expected_value_type(ty),
+                                    _ => None,
+                                });
+                            if let Some(want) = want {
+                                if let Some(mismatch) = argument_mismatch(&want, val) {
+                                    errors.push(Diagnostic { code: VALIDATOR_ARGUMENT_TYPE_MISMATCH, help: None, secondary: None, severity_override: None,
                                         message: format!(
-                                            "duplicate argument '{}' to validator '{}'",
-                                            kw, vname
+                                            "validator '{}': argument '{}' expects {}, got {}",
+                                            vname, kw, mismatch.expected, mismatch.found
                                         ),
                                         context: field_ctx.clone(),
                                         span: Some(*span),
                                     });
-                                    continue;
-                                }
-                                seen.push(kw.as_str());
-                                if !props.contains(&kw.as_str()) {
-                                    let mut message = format!(
-                                        "validator '{}' has no argument '{}'",
-                                        vname, kw
-                                    );
-                                    if let Some(s) = closest(kw, props.iter().copied()) {
-                                        message.push_str(
-                                            &format!(" - did you mean '{}'?", s),
-                                        );
-                                    }
-                                    errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
-                                        message,
-                                        context: field_ctx.clone(),
-                                        span: Some(*span),
-                                    });
-                                    continue;
-                                }
-
-                                // The argument's value against the
-                                // property's declared type. Both sides are
-                                // typed now: the value keeps the form it
-                                // was written in, and the declared type
-                                // maps onto the same vocabulary - so this
-                                // no longer re-parses rendered text to
-                                // guess a category.
-                                let FrozenUnit::Property { value: val, .. } = arg else {
-                                    continue;
-                                };
-                                let want = validator_fields
-                                    .get(vname.as_str())
-                                    .and_then(|fs| prop_field(fs, kw))
-                                    .and_then(|f| match f {
-                                        FrozenUnit::Field { ty, .. } => expected_value_type(ty),
-                                        _ => None,
-                                    });
-                                if let Some(want) = want {
-                                    if let Some(mismatch) = argument_mismatch(&want, val) {
-                                        errors.push(Diagnostic { code: VALIDATOR_ARGUMENT_TYPE_MISMATCH, help: None, secondary: None, severity_override: None,
-                                            message: format!(
-                                                "validator '{}': argument '{}' expects {}, got {}",
-                                                vname, kw, mismatch.expected, mismatch.found
-                                            ),
-                                            context: field_ctx.clone(),
-                                            span: Some(*span),
-                                        });
-                                    }
                                 }
                             }
                         }
                     }
-                    Some(other) if other != SymbolType::Import => {
-                        errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None, severity_override: None,
-                            message: format!("'{}' is not a validator", vname),
-                            context: format!(
-                                "{} '{}', field '{}'",
-                                owner_kind, owner_name, field_name
-                            ),
-                            span: Some(*span),
-                        });
+                }
+                Some(other) if other != SymbolType::Import => {
+                    errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None, severity_override: None,
+                        message: format!("'{}' is not a validator", vname),
+                        context: field_ctx.clone(),
+                        span: Some(*span),
+                    });
+                }
+                _ if maybe_imported => {}
+                _ => {
+                    let mut message = format!("Unknown validator '{}'", vname);
+                    if let Some(s) = suggest_similar_name(vname, &symbols) {
+                        message.push_str(&format!(" - did you mean '{}'?", s));
                     }
-                    _ if maybe_imported => {}
-                    _ => {
-                        let mut message = format!("Unknown validator '{}'", vname);
-                        if let Some(s) = suggest_similar_name(vname, &symbols) {
-                            message.push_str(&format!(" - did you mean '{}'?", s));
-                        }
-                        errors.push(Diagnostic { code: UNKNOWN_VALIDATOR, help: None, secondary: None, severity_override: None,
-                            message,
-                            context: format!(
-                                "{} '{}', field '{}'",
-                                owner_kind, owner_name, field_name
-                            ),
-                            span: Some(*span),
-                        });
-                    }
+                    errors.push(Diagnostic { code: UNKNOWN_VALIDATOR, help: None, secondary: None, severity_override: None,
+                        message,
+                        context: field_ctx.clone(),
+                        span: Some(*span),
+                    });
                 }
             }
-        }
+    }
     }
 
     check_validator_targets(units, &symbols, imports, &mut errors);
+    check_misplaced_validators(units, &mut errors);
 
     // Pass 3: Cycle Detection (Structs)
     let unit_map: HashMap<&str, &FrozenUnit> = units.iter().filter_map(|u| match u {
@@ -595,57 +584,135 @@ fn check_validator_targets(
         local_targets.insert(name.as_str(), pairs);
     }
 
-    for unit in units {
-        let (owner_kind, owner_name, fields) = match unit {
-            FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),
-            FrozenUnit::Error { name, fields, .. } => ("Error", name, fields),
-            _ => continue,
-        };
-        for field in fields {
-            let FrozenUnit::Field { name: field_name, parameters, ty: field_written, span, .. } =
-                field
-            else {
+    for site in validated_sites(units) {
+        let (field_written, span) = (site.ty, &site.span);
+        let field_resolved = resolve(field_written);
+
+        for param in site.parameters {
+            let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
                 continue;
             };
-            let field_resolved = resolve(field_written);
+            // A local validator without targets was reported above, and
+            // an unknown name by pass 2.5 - neither has anything to match.
+            let targets: Vec<(TypeRef, TypeRef)> = match local_targets.get(vname.as_str()) {
+                Some(pairs) => pairs.clone(),
+                None if matches!(symbols.get(vname), None | Some(SymbolType::Import)) => {
+                    match imports.validator_targets(vname) {
+                        Some(t) => t.into_iter().map(|w| (w.clone(), w)).collect(),
+                        None => continue,
+                    }
+                }
+                None => continue,
+            };
+            if targets.is_empty() || targets.iter().any(|(_, r)| *r == field_resolved) {
+                continue;
+            }
+            let applies_to = targets
+                .iter()
+                .map(|(w, _)| format!("`{w}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let mut found = format!("`{field_written}`");
+            if field_resolved != *field_written {
+                found.push_str(&format!(" (`{field_resolved}`)"));
+            }
+            errors.push(
+                Diagnostic::new(
+                    VALIDATOR_TARGET_MISMATCH,
+                    format!("validator '{vname}' applies to {applies_to}, not {found}"),
+                )
+                .with_context(site.context.clone())
+                .with_span(*span),
+            );
+    }
+    }
+}
 
-            for param in parameters {
-                let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
-                    continue;
-                };
-                // A local validator without targets was reported above, and
-                // an unknown name by pass 2.5 - neither has anything to match.
-                let targets: Vec<(TypeRef, TypeRef)> = match local_targets.get(vname.as_str()) {
-                    Some(pairs) => pairs.clone(),
-                    None if matches!(symbols.get(vname), None | Some(SymbolType::Import)) => {
-                        match imports.validator_targets(vname) {
-                            Some(t) => t.into_iter().map(|w| (w.clone(), w)).collect(),
-                            None => continue,
+/// One place `@validators` may be written: a struct or error field, or a
+/// `type` alias (whose checks then run wherever the alias is used). `ty` is
+/// what the validators check - the field's type, or the alias's target.
+struct ValidatedSite<'a> {
+    context: String,
+    parameters: &'a [FrozenUnit],
+    ty: &'a TypeRef,
+    span: (usize, usize),
+}
+
+fn validated_sites(units: &[FrozenUnit]) -> Vec<ValidatedSite<'_>> {
+    let mut sites = Vec::new();
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, fields, .. } | FrozenUnit::Error { name, fields, .. } => {
+                let kind = if matches!(unit, FrozenUnit::Struct { .. }) { "Struct" } else { "Error" };
+                for field in fields {
+                    if let FrozenUnit::Field { name: field_name, parameters, ty, span, .. } = field {
+                        sites.push(ValidatedSite {
+                            context: format!("{kind} '{name}', field '{field_name}'"),
+                            parameters,
+                            ty,
+                            span: *span,
+                        });
+                    }
+                }
+            }
+            FrozenUnit::TypeAlias { name, parameters, target, span, .. } => {
+                sites.push(ValidatedSite {
+                    context: format!("Type alias '{name}'"),
+                    parameters,
+                    ty: target,
+                    span: *span,
+                });
+            }
+            _ => {}
+        }
+    }
+    sites
+}
+
+/// `@validators` anywhere but a [`validated_sites`] entry checks nothing -
+/// a struct, error, protocol or function has no single value to check - so
+/// it's an error rather than a silent no-op.
+fn check_misplaced_validators(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    let mut report = |context: String, span: Option<(usize, usize)>| {
+        let diagnostic = Diagnostic::new(
+            MISPLACED_VALIDATORS,
+            "`@validators` goes on a field or a `type` alias".to_string(),
+        )
+        .with_context(context);
+        let diagnostic = match span {
+            Some(span) => diagnostic.with_span(span),
+            None => diagnostic,
+        };
+        errors.push(
+            diagnostic.with_help(
+                "move it onto the field to check, or onto a `type` alias used where the \
+                 check should apply"
+                    .to_string(),
+            ),
+        );
+    };
+    let has_refs = |ps: &[FrozenUnit]| ps.iter().any(|p| matches!(p, FrozenUnit::ValidatorRef { .. }));
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, parameters, span, .. } if has_refs(parameters) => {
+                report(format!("Struct '{name}'"), Some(*span))
+            }
+            FrozenUnit::Error { name, parameters, span, .. } if has_refs(parameters) => {
+                report(format!("Error '{name}'"), *span)
+            }
+            FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
+                if has_refs(parameters) {
+                    report(format!("Protocol '{name}'"), Some(*span));
+                }
+                for function in functions {
+                    if let FrozenUnit::Function { name: f, parameters, span, .. } = function {
+                        if has_refs(parameters) {
+                            report(format!("Protocol '{name}', function '{f}'"), Some(*span));
                         }
                     }
-                    None => continue,
-                };
-                if targets.is_empty() || targets.iter().any(|(_, r)| *r == field_resolved) {
-                    continue;
                 }
-                let applies_to = targets
-                    .iter()
-                    .map(|(w, _)| format!("`{w}`"))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let mut found = format!("`{field_written}`");
-                if field_resolved != *field_written {
-                    found.push_str(&format!(" (`{field_resolved}`)"));
-                }
-                errors.push(
-                    Diagnostic::new(
-                        VALIDATOR_TARGET_MISMATCH,
-                        format!("validator '{vname}' applies to {applies_to}, not {found}"),
-                    )
-                    .with_context(format!("{owner_kind} '{owner_name}', field '{field_name}'"))
-                    .with_span(*span),
-                );
             }
+            _ => {}
         }
     }
 }
@@ -682,6 +749,11 @@ fn resolve_type(
 }
 
 /// Whether `value.length` means something for this (resolved) type.
+///
+/// What it means is fixed here, for every target to emit the same way: a
+/// `string`'s length counts Unicode scalar values (Rust's
+/// `.chars().count()`, not its UTF-8 byte length, and not JavaScript's
+/// UTF-16 `.length`); an array's counts its elements.
 fn has_length(resolved: &TypeRef) -> bool {
     resolved.is_array() || *resolved == TypeRef::Primitive(PrimitiveType::String)
 }
@@ -717,6 +789,9 @@ fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
                         );
                     }
                 }
+            }
+            FrozenUnit::TypeAlias { name, parameters, span, .. } => {
+                check_params(parameters, &format!("type alias '{name}'"), Some(*span), errors);
             }
             _ => {}
         }

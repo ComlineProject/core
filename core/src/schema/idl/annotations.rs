@@ -30,7 +30,8 @@ use crate::config_value::{StrVariant, ValueType};
 
 /// Which declaration an `@key=value` annotation attaches to. The grammar
 /// permits annotations on a `struct`, an `error`, a `Field`, a `protocol`,
-/// and a `Function` (`grammar.rs`); `Leading` covers the first three — a
+/// a `Function` and a `type` alias (`grammar.rs`); `Leading` covers the
+/// first three — a
 /// struct's, an error's, and a protocol's own annotation sit in the same
 /// "top level, right before the keyword" position, indistinguishable
 /// without looking past the cursor at text that doesn't exist yet.
@@ -38,6 +39,9 @@ use crate::config_value::{StrVariant, ValueType};
 pub enum AnnotationScope {
     /// Top level, before `struct`, `error`, or `protocol`.
     Leading,
+    /// Top level, before `type`. The same position as [`Self::Leading`];
+    /// an editor that can see the keyword after it can tell them apart.
+    TypeAlias,
     /// Inside a `struct`/`error` body, before a field.
     Field,
     /// Inside a `protocol` body, before a function.
@@ -81,7 +85,8 @@ const FRAMINGS: &[StrVariant] = &[
 /// Everything known about one `@key`.
 pub struct AnnotationInfo {
     pub key: &'static str,
-    pub scope: AnnotationScope,
+    /// Every scope it's valid in.
+    pub scopes: &'static [AnnotationScope],
     pub authority: AnnotationAuthority,
     /// One-line summary of what it does.
     pub description: &'static str,
@@ -102,16 +107,17 @@ pub struct AnnotationInfo {
 pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
     AnnotationInfo {
         key: "validators",
-        scope: AnnotationScope::Field,
+        scopes: &[AnnotationScope::Field, AnnotationScope::TypeAlias],
         authority: AnnotationAuthority::Core,
-        description: "Attaches one or more named validators to this field.",
+        description: "Attaches one or more named validators to this field, or to this \
+                       type alias (checked wherever the alias is used).",
         default: "no validators run",
         value: ValueType::ValidatorList,
         consumed_by: &["`comline build`'s validation pass"],
     },
     AnnotationInfo {
         key: "timeout_ms",
-        scope: AnnotationScope::Function,
+        scopes: &[AnnotationScope::Function],
         authority: AnnotationAuthority::Target,
         description: "How long, in milliseconds, the client waits for the response before \
                        timing out. Request/response calls only — a one-way call has nothing \
@@ -122,7 +128,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
     },
     AnnotationInfo {
         key: "idempotent",
-        scope: AnnotationScope::Function,
+        scopes: &[AnnotationScope::Function],
         authority: AnnotationAuthority::Advisory,
         description: "Marks that calling this function twice has the same effect as calling \
                        it once — safe to retry.",
@@ -132,7 +138,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
     },
     AnnotationInfo {
         key: "framing",
-        scope: AnnotationScope::Leading,
+        scopes: &[AnnotationScope::Leading],
         authority: AnnotationAuthority::Target,
         description: "The wire framing the generated client/server use for this protocol. \
                        No effect on a struct.",
@@ -142,7 +148,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
     },
     AnnotationInfo {
         key: "settings",
-        scope: AnnotationScope::Universal,
+        scopes: &[AnnotationScope::Universal],
         authority: AnnotationAuthority::Core,
         description: "Opts a declaration into a named `settings NAME { ... }` preset declared \
                        in this schema, merged onto whatever settings already apply to it.",
@@ -152,9 +158,9 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
     },
     AnnotationInfo {
         key: "deprecated",
-        scope: AnnotationScope::Leading,
+        scopes: &[AnnotationScope::Leading, AnnotationScope::TypeAlias],
         authority: AnnotationAuthority::Core,
-        description: "Marks a struct as deprecated. Referencing it from a field, a function \
+        description: "Marks a struct or a type alias as deprecated. Referencing it from a field, a function \
                        argument/return, or a type alias target is a warning, naming this \
                        declaration and (if given) the message. Parses on an error, a protocol, \
                        a field, or a function too, but nothing warns on those yet - none of \
@@ -206,7 +212,7 @@ pub fn lookup(key: &str) -> Option<&'static AnnotationInfo> {
 pub fn for_scope(scope: AnnotationScope) -> impl Iterator<Item = &'static AnnotationInfo> {
     KNOWN_ANNOTATIONS
         .iter()
-        .filter(move |a| a.scope == scope || a.scope == AnnotationScope::Universal)
+        .filter(move |a| a.scopes.iter().any(|&s| s == scope || s == AnnotationScope::Universal))
 }
 
 #[cfg(test)]
@@ -230,6 +236,10 @@ mod tests {
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
         // framing, deprecated (both Leading), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Leading).count(), 3);
+        // validators, deprecated, plus settings (Universal).
+        let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
+        alias.sort();
+        assert_eq!(alias, ["deprecated", "settings", "validators"]);
     }
 
     #[test]
@@ -277,6 +287,7 @@ mod tests {
     fn universal_scope_matches_every_scope() {
         for scope in [
             AnnotationScope::Leading,
+            AnnotationScope::TypeAlias,
             AnnotationScope::Field,
             AnnotationScope::Function,
         ] {

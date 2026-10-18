@@ -341,6 +341,7 @@ impl IncrementalInterpreter {
                     // emit the declaration itself.
                     frozen_units.push(FrozenUnit::TypeAlias {
                         docstring: alias.docstring(),
+                        parameters: annotation_units(&alias.annotations()),
                         name: alias.name(),
                         target: TypeRef::from_grammar(alias.target_type()),
                         span,
