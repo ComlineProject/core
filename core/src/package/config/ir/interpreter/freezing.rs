@@ -4,7 +4,7 @@
 use crate::package::config::idl::grammar::{Assignment, BooleanLiteral, Key, Value};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::{
-    Dependency, FrozenUnit, FrozenWhole, LanguageDetails, PublishRegistry, RegistryKind,
+    Dependency, FrozenUnit, LanguageDetails, PublishRegistry, RegistryKind,
 };
 // use crate::utils::codemap::Span;
 
@@ -44,11 +44,6 @@ pub fn interpret_assignment(
             })?;
             vec![FrozenUnit::SpecificationVersion(version_num)]
         }
-        /*
-        "schemas_source_path" => {
-            todo!()
-        }
-        */
         /*
         "schema_paths" => {
             let Value::List(paths) = &node.value else {
@@ -391,12 +386,4 @@ fn interpret_settings_value(
             .into())
         }
     })
-}
-
-#[allow(unused)]
-pub fn into_frozen_whole(
-    context: &ProjectContext,
-    interpreted: Vec<FrozenUnit>,
-) -> Result<FrozenWhole, Box<dyn snafu::Error>> {
-    todo!()
 }

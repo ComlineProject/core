@@ -61,12 +61,6 @@ impl ProjectContext {
         self.schema_contexts.push(context);
     }
     
-    /*
-    pub(crate) fn sanitize_units(self) {
-        todo!()
-    }
-    */
-    
     pub(crate) fn find_schema_by_import(
         &self, import: &str
     ) -> Option<&Rc<RefCell<SchemaContext>>> {
@@ -128,12 +122,6 @@ impl ProjectContext {
         }
 
         None
-    }
-    */
-
-    /*
-    pub(crate) fn find_schema_context(&self, sub_namespace: &str) -> Option<Rc<SchemaContext>> {
-        todo!()
     }
     */
 

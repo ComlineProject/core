@@ -63,7 +63,6 @@ pub fn interpret_context(
     }
 
     Ok(interpreted)
-    // freezing::into_frozen_whole(&context, interpreted)
 }
 
 /// Resolves a `settings = <dep>::settings::<name>` reference — decision 5 of
