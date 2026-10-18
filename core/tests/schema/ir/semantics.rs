@@ -804,3 +804,50 @@ fn an_unknown_value_accessor_is_rejected() {
     let errors = validation_errors(code);
     assert_eq!(errors[0].message, "validator 'Sized': `value` has no accessor `size`");
 }
+
+fn validation_warnings(code: &str) -> Vec<comline_core::diagnostics::Diagnostic> {
+    let ir = IncrementalInterpreter::from_source(code);
+    validate(&ir).expect("warnings only")
+}
+
+#[test]
+fn a_validator_without_asserts_warns_once() {
+    // No `validate` block, and an empty one: both pass every value. Its
+    // property is unused too, but that's the same omission.
+    for code in [
+        "validator Positive for u8 {\n    floor: u8 = 0\n}\n",
+        "validator Positive for u8 {\n    floor: u8 = 0\n    validate {\n    }\n}\n",
+    ] {
+        let warnings = validation_warnings(code);
+        assert_eq!(warnings.len(), 1, "{code:?}: {warnings:?}");
+        assert_eq!(warnings[0].code.id, "validation::validator-checks-nothing");
+        assert_eq!(warnings[0].message, "validator 'Positive' checks nothing: it has no `assert`");
+        assert!(warnings[0].span.is_some());
+    }
+}
+
+#[test]
+fn a_property_no_assert_reads_warns_at_the_property() {
+    let code = "validator Bounds for u32 {\n    min: u32 = 0\n    max: u32 = 9\n    label: string = \"x\"\n    validate {\n        assert(value >= params.min, \"{value.name} is below {params.label}\")\n    }\n}\n";
+    let warnings = validation_warnings(code);
+    // `min` is in the condition and `label` in the message; `max` is nowhere.
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert_eq!(warnings[0].code.id, "validation::validator-property-unused");
+    assert_eq!(warnings[0].message, "validator 'Bounds': property 'max' is never used");
+    let (start, end) = warnings[0].span.unwrap();
+    assert!(code[start..end].starts_with("max: u32"), "{:?}", &code[start..end]);
+}
+
+#[test]
+fn a_bad_reference_in_validate_points_at_the_validator() {
+    // These carried no span, so the editor had nowhere to put them.
+    let code = "validator Short for string {\n    max: u32 = 9\n    validate {\n        assert(value.length <= params.mx, \"too long\")\n        assert(other.length > 0, \"empty\")\n    }\n}\n";
+    let errors = validation_errors(code);
+    let ids: Vec<_> = errors.iter().map(|e| e.code.id).collect();
+    assert!(ids.contains(&"validation::unknown-validator-property"), "{errors:?}");
+    assert!(ids.contains(&"validation::invalid-validator-reference"), "{errors:?}");
+    for e in &errors {
+        let (start, _) = e.span.unwrap_or_else(|| panic!("no span: {e:?}"));
+        assert!(code[start..].starts_with("validator Short"), "{e:?}");
+    }
+}

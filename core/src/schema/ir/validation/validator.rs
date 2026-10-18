@@ -51,6 +51,10 @@ const VALIDATOR_TARGET_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::validator-target-mismatch");
 const VALIDATOR_ACCESSOR_UNSUPPORTED: DiagnosticCode =
     DiagnosticCode::error("validation::validator-accessor-unsupported");
+const VALIDATOR_CHECKS_NOTHING: DiagnosticCode =
+    DiagnosticCode::warning("validation::validator-checks-nothing");
+const VALIDATOR_PROPERTY_UNUSED: DiagnosticCode =
+    DiagnosticCode::warning("validation::validator-property-unused");
 
 /// What validation needs to know about names a schema imports but whose
 /// declarations aren't among its own units. Resolution is left to the
@@ -310,7 +314,7 @@ pub fn validate_with(
     // Pass 2.6: a `validate {}` block references only `value.*` and this
     // validator's own `params.*`.
     for unit in units {
-        let FrozenUnit::Validator { name: vname, expression_block, .. } = unit else {
+        let FrozenUnit::Validator { name: vname, expression_block, span: vspan, .. } = unit else {
             continue;
         };
         let props = validator_props
@@ -344,7 +348,7 @@ pub fn validate_with(
                                 errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_PROPERTY, help: None, secondary: None, severity_override: None,
                                     message,
                                     context: vctx.clone(),
-                                    span: None,
+                                    span: Some(*vspan),
                                 });
                             }
                         }
@@ -356,9 +360,70 @@ pub fn validate_with(
                             vname, other
                         ),
                         context: vctx.clone(),
-                        span: None,
+                        span: Some(*vspan),
                     }),
                 }
+            }
+        }
+    }
+
+    // Pass 2.7: a validator that checks nothing, and properties nothing
+    // reads. Both build, so both warn: the first passes every value, the
+    // second can be set in a call and has no effect.
+    for unit in units {
+        let FrozenUnit::Validator { name, properties, expression_block, span, .. } = unit else {
+            continue;
+        };
+        let asserts: &[FrozenUnit] = match &**expression_block {
+            FrozenUnit::ExpressionBlock { asserts } => asserts,
+            _ => &[],
+        };
+        if asserts.is_empty() {
+            // Its properties are unused too, but that's the same omission:
+            // one warning, not one per property.
+            warnings.push(
+                Diagnostic::new(
+                    VALIDATOR_CHECKS_NOTHING,
+                    format!("validator '{name}' checks nothing: it has no `assert`"),
+                )
+                .with_context(format!("Validator '{name}'"))
+                .with_span(*span)
+                .with_help(
+                    "add a `validate` block with an assert, e.g. \
+                     `validate { assert(value.length > 0, \"{value.name} is empty\") }`",
+                ),
+            );
+            continue;
+        }
+        let used: HashSet<&str> = asserts
+            .iter()
+            .flat_map(|a| match a {
+                FrozenUnit::Assert { references, message, .. } => references
+                    .iter()
+                    .map(String::as_str)
+                    .chain(message_placeholders(message))
+                    .collect::<Vec<_>>(),
+                _ => Vec::new(),
+            })
+            .filter_map(|path| path.strip_prefix("params."))
+            .map(|rest| rest.split('.').next().unwrap_or(rest))
+            .collect();
+        for property in properties {
+            let FrozenUnit::Field { name: prop, span: prop_span, .. } = property else {
+                continue;
+            };
+            if !used.contains(prop.as_str()) {
+                warnings.push(
+                    Diagnostic::new(
+                        VALIDATOR_PROPERTY_UNUSED,
+                        format!("validator '{name}': property '{prop}' is never used"),
+                    )
+                    .with_context(format!("Validator '{name}'"))
+                    .with_span(*prop_span)
+                    .with_help(format!(
+                        "read it as `params.{prop}` in an assert or its message, or remove it"
+                    )),
+                );
             }
         }
     }
@@ -449,6 +514,14 @@ pub fn validate_with(
 /// or imported through `imports`): a `u8` field doesn't take a `for u32`
 /// validator, and a validator on `string[]` checks the array, not each
 /// element. `optional` is already outside the field's frozen type.
+/// The `{path}` placeholders in an assert's message template.
+fn message_placeholders(message: &str) -> impl Iterator<Item = &str> {
+    message
+        .split('{')
+        .skip(1)
+        .filter_map(|part| part.split_once('}').map(|(path, _)| path.trim()))
+}
+
 fn check_validator_targets(
     units: &[FrozenUnit],
     symbols: &SymbolTable,
