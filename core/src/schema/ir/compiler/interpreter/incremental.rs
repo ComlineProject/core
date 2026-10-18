@@ -531,6 +531,8 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
                 for call in &list.items {
                     units.push(FrozenUnit::ValidatorRef {
                         name: call.name.text.clone(),
+                        span: call.name.span,
+                        arg_spans: call.args().iter().map(|arg| arg.name.span).collect(),
                         args: call
                             .args()
                             .iter()

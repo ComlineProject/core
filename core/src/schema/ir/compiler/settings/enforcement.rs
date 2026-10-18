@@ -284,7 +284,7 @@ mod tests {
     }
 
     fn validator_ref(name: &str) -> FrozenUnit {
-        FrozenUnit::ValidatorRef { name: name.to_string(), args: vec![] }
+        FrozenUnit::ValidatorRef { name: name.to_string(), args: vec![], span: (0, 0), arg_spans: vec![] }
     }
 
     fn a_struct(name: &str, parameters: Vec<FrozenUnit>, fields: Vec<FrozenUnit>) -> FrozenUnit {
