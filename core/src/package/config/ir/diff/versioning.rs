@@ -2,7 +2,7 @@
 
 // Crate Uses
 use crate::package::config::ir::diff::Differ;
-use crate::package::config::ir::frozen::{Dependency, FrozenUnit};
+use crate::package::config::ir::frozen::Dependency;
 
 // External Uses
 
@@ -43,23 +43,3 @@ impl Differ for Versioning {
     }
 }
 
-pub fn change() {
-    // use semver::Version;
-    // version: Version,
-}
-
-
-#[allow(unused)]
-pub fn version_from(nodes: &[FrozenUnit]) -> Result<&String, ()> {
-    /*
-    for node in nodes {
-        match node {
-            _ => {}
-        }
-    }
-
-    Err(())
-    */
-
-    todo!()
-}
