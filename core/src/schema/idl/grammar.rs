@@ -544,12 +544,12 @@ pub mod grammar {
 
     // ===== Validator Definition =====
 
-    /// Validator: validator NAME { property* }
+    /// Validator: validator NAME for TYPE[, TYPE]* { property* validate? }
     ///
-    /// A named, parameterised field check. Phase 1: the declaration and its
-    /// typed properties parse and freeze. The `validate { ... }` block (the
-    /// assert expression language) is not in the grammar yet - see the
-    /// validators design note.
+    /// A named, parameterised field check, and the type(s) it applies to.
+    /// `for` is required, but optional here: a validator written without
+    /// one parses, so validation can say what's missing instead of the
+    /// parser's generic "unrecognized syntax".
     #[derive(Debug, Clone)]
     pub struct Validator {
         #[rust_sitter::repeat(non_empty = false)]
@@ -557,6 +557,8 @@ pub mod grammar {
         #[rust_sitter::leaf(text = "validator")]
         _validator: (),
         pub name: Identifier,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub targets: Option<ValidatorTargets>,
         #[rust_sitter::leaf(text = "{")]
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
@@ -565,6 +567,24 @@ pub mod grammar {
         pub validate: Option<ValidateBlock>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
+    }
+
+    /// `for string` / `for u8, u16, u32` - the types a validator applies to.
+    #[derive(Debug, Clone)]
+    pub struct ValidatorTargets {
+        #[rust_sitter::leaf(text = "for")]
+        _for: (),
+        pub first: rust_sitter::Spanned<Type>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub rest: Vec<CommaValidatorTarget>,
+    }
+
+    /// Comma followed by another validator target type.
+    #[derive(Debug, Clone)]
+    pub struct CommaValidatorTarget {
+        #[rust_sitter::leaf(text = ",")]
+        _comma: (),
+        pub target: rust_sitter::Spanned<Type>,
     }
 
     /// `name: Type [= default]` - a validator's configuration parameter. Same
@@ -1279,6 +1299,15 @@ pub mod grammar {
         }
         pub fn properties(&self) -> &Vec<rust_sitter::Spanned<ValidatorProperty>> {
             &self.properties
+        }
+        /// The types after `for`, in order. Empty when `for` was left out.
+        pub fn targets(&self) -> Vec<&Type> {
+            match &self.targets {
+                Some(t) => std::iter::once(&t.first.value)
+                    .chain(t.rest.iter().map(|r| &r.target.value))
+                    .collect(),
+                None => Vec::new(),
+            }
         }
         /// One `(condition text, message template, member paths)` per assert in
         /// the `validate` block. Empty when there is no block.

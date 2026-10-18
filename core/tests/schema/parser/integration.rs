@@ -296,12 +296,12 @@ struct Message { body: string }
 
     #[test]
     fn test_validator_declaration() {
-        assert!(grammar::parse("validator V {}").is_ok());
-        assert!(grammar::parse("validator V { a: u32 b: string = \"x\" }").is_ok());
+        assert!(grammar::parse("validator V for string {}").is_ok());
+        assert!(grammar::parse("validator V for string { a: u32 b: string = \"x\" }").is_ok());
 
         let code = r#"
 /// bounds
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     max_chars: u32 = 1024
 }
@@ -326,13 +326,13 @@ struct Message { body: string }
     #[test]
     fn test_validate_block() {
         assert!(grammar::parse(
-            r#"validator V { x: u32 validate { assert(value.n >= params.x, "small") } }"#
+            r#"validator V for string { x: u32 validate { assert(value.n >= params.x, "small") } }"#
         )
         .is_ok());
 
         // and / or chain, string operand, multiple asserts
         let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min: u32 = 0
     validate {
         assert(value.length > params.max or value.length < params.min, "{value.name} out of range")
@@ -374,7 +374,7 @@ struct Message {
         // `::`-separated paths as const / default values
         assert!(grammar::parse("const MIN_LEN: u32 = u32::MIN").is_ok());
         assert!(grammar::parse("struct S { name: string = pkg::mod::DEFAULT }").is_ok());
-        assert!(grammar::parse("validator V { min: u32 = u32::MIN }").is_ok());
+        assert!(grammar::parse("validator V for string { min: u32 = u32::MIN }").is_ok());
         assert!(grammar::parse("@retries = core::defaults::MAX\nstruct S { x: u32 }").is_ok());
 
         // bare identifiers and literals still work (no `::` -> not a path)

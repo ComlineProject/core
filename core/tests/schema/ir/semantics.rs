@@ -299,7 +299,7 @@ fn test_union_field_with_unknown_member_fails() {
 #[test]
 fn test_field_validator_reference_resolves() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
 }
 
@@ -315,7 +315,7 @@ struct Message {
 #[test]
 fn test_field_validator_reference_unknown_fails() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
 }
 
@@ -382,7 +382,7 @@ struct Message {
 #[test]
 fn test_validator_kwargs_ok() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     max_chars: u32 = 1024
 }
@@ -399,7 +399,7 @@ struct Message {
 #[test]
 fn test_validator_unknown_kwarg_fails_with_suggestion() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     max_chars: u32 = 1024
 }
@@ -419,7 +419,7 @@ struct Message {
 #[test]
 fn test_validator_duplicate_kwarg_fails() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
 }
 
@@ -452,7 +452,7 @@ struct Message {
 #[test]
 fn test_validate_block_params_resolve() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     validate {
         assert(value.length >= params.min_chars, "{value.name} too short")
@@ -466,7 +466,7 @@ validator StringBounds {
 #[test]
 fn test_validate_block_unknown_param_fails() {
     let code = r#"
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     validate {
         assert(value.length >= params.min_char, "{value.name} too short")
@@ -484,7 +484,7 @@ validator StringBounds {
 #[test]
 fn test_validate_block_bad_root_fails() {
     let code = r#"
-validator V {
+validator V for string {
     n: u32 = 0
     validate {
         assert(field.length >= params.n, "bad")
@@ -501,7 +501,7 @@ validator V {
 #[test]
 fn test_validator_kwarg_type_ok() {
     let code = r#"
-validator Bounds {
+validator Bounds for string {
     min: u32 = 0
     strict: bool = false
     label: string = "x"
@@ -519,7 +519,7 @@ struct Message {
 #[test]
 fn test_validator_kwarg_string_for_int_fails() {
     let code = r#"
-validator Bounds { min: u32 = 0 }
+validator Bounds for string { min: u32 = 0 }
 
 struct Message {
     @validators = [Bounds(min = "three")]
@@ -534,7 +534,7 @@ struct Message {
 #[test]
 fn test_validator_kwarg_int_for_bool_fails() {
     let code = r#"
-validator Flag { on: bool = false }
+validator Flag for string { on: bool = false }
 
 struct Message {
     @validators = [Flag(on = 1)]
@@ -551,7 +551,7 @@ fn test_validator_kwarg_reference_value_not_type_checked() {
     // a bare identifier value is unresolved - can't judge its type.
     let code = r#"
 const MIN: u32 = 3
-validator Bounds { min: u32 = 0 }
+validator Bounds for string { min: u32 = 0 }
 
 struct Message {
     @validators = [Bounds(min = MIN)]
@@ -718,4 +718,87 @@ protocol Svc {
     assert_eq!(warnings.len(), 1);
     assert_eq!(warnings[0].message, "'Old' is deprecated");
     assert!(warnings[0].context.contains("Svc") && warnings[0].context.contains("get"));
+}
+
+fn validation_errors(code: &str) -> Vec<comline_core::diagnostics::Diagnostic> {
+    let ir = IncrementalInterpreter::from_source(code);
+    validate(&ir).err().unwrap_or_default()
+}
+
+const STRING_BOUNDS: &str = "validator StringBounds for string {\n    min_chars: u32 = 0\n    validate {\n        assert(value.length >= params.min_chars, \"{value.name} is too short\")\n    }\n}\n";
+
+#[test]
+fn a_validator_without_for_is_rejected() {
+    let errors = validation_errors("validator Loose {\n    n: u32 = 0\n}\n");
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].code.id, "validation::validator-missing-target");
+    assert_eq!(errors[0].message, "validator 'Loose' must name the type it checks");
+    assert_eq!(
+        errors[0].help.as_deref(),
+        Some("add `for` and the type after its name, e.g. `validator Loose for string`")
+    );
+}
+
+#[test]
+fn a_validator_on_a_field_of_another_type_is_rejected() {
+    let code = format!("{STRING_BOUNDS}struct S {{\n    @validators = [StringBounds(min_chars = 1)]\n    n: s32\n}}\n");
+    let errors = validation_errors(&code);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].code.id, "validation::validator-target-mismatch");
+    assert_eq!(errors[0].message, "validator 'StringBounds' applies to `string`, not `s32`");
+    assert_eq!(errors[0].context, "Struct 'S', field 'n'");
+}
+
+#[test]
+fn a_matching_field_passes_including_optional_and_aliased_ones() {
+    let code = format!(
+        "{STRING_BOUNDS}type Name = string\n\
+         struct S {{\n    @validators = [StringBounds(min_chars = 1)]\n    a: string\n\
+         @validators = [StringBounds(min_chars = 1)]\n    optional b: string\n\
+         @validators = [StringBounds(min_chars = 1)]\n    c: Name\n}}\n"
+    );
+    assert!(validation_errors(&code).is_empty(), "{:?}", validation_errors(&code));
+}
+
+#[test]
+fn a_mismatch_through_an_alias_names_what_it_resolves_to() {
+    let code = format!("{STRING_BOUNDS}type Count = u32\nstruct S {{\n    @validators = [StringBounds()]\n    c: Count\n}}\n");
+    let errors = validation_errors(&code);
+    assert_eq!(errors[0].message, "validator 'StringBounds' applies to `string`, not `Count` (`u32`)");
+}
+
+#[test]
+fn a_validator_on_an_array_checks_the_array_not_its_elements() {
+    let code = format!("{STRING_BOUNDS}struct S {{\n    @validators = [StringBounds()]\n    names: string[]\n}}\n");
+    let errors = validation_errors(&code);
+    assert_eq!(errors[0].message, "validator 'StringBounds' applies to `string`, not `string[]`");
+}
+
+#[test]
+fn a_validator_can_name_several_targets() {
+    let range = "validator Range for u8, u32 {\n    min: u32 = 0\n    validate {\n        assert(value >= params.min, \"{value.name} is too small\")\n    }\n}\n";
+    let ok = format!("{range}struct S {{\n    @validators = [Range(min = 1)]\n    n: u32\n}}\n");
+    assert!(validation_errors(&ok).is_empty(), "{:?}", validation_errors(&ok));
+
+    let bad = format!("{range}struct S {{\n    @validators = [Range(min = 1)]\n    n: s8\n}}\n");
+    assert_eq!(
+        validation_errors(&bad)[0].message,
+        "validator 'Range' applies to `u8`, `u32`, not `s8`"
+    );
+}
+
+#[test]
+fn value_length_needs_a_target_with_a_length() {
+    let code = "validator Positive for u32 {\n    validate {\n        assert(value.length > 0, \"x\")\n    }\n}\n";
+    let errors = validation_errors(code);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].code.id, "validation::validator-accessor-unsupported");
+    assert_eq!(errors[0].message, "validator 'Positive': `value.length` is not defined for `u32`");
+}
+
+#[test]
+fn an_unknown_value_accessor_is_rejected() {
+    let code = "validator Sized for string {\n    validate {\n        assert(value.size > 0, \"x\")\n    }\n}\n";
+    let errors = validation_errors(code);
+    assert_eq!(errors[0].message, "validator 'Sized': `value` has no accessor `size`");
 }

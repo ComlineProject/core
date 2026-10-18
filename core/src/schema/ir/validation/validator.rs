@@ -41,10 +41,54 @@ const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
 const UNRESOLVED_THROW: DiagnosticCode = DiagnosticCode::error("validation::unresolved-throw");
 const THROW_NOT_AN_ERROR: DiagnosticCode = DiagnosticCode::error("validation::throw-not-an-error");
 const DUPLICATE_THROW: DiagnosticCode = DiagnosticCode::error("validation::duplicate-throw");
+const VALIDATOR_MISSING_TARGET: DiagnosticCode =
+    DiagnosticCode::error("validation::validator-missing-target");
+const VALIDATOR_TARGET_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::validator-target-mismatch");
+const VALIDATOR_ACCESSOR_UNSUPPORTED: DiagnosticCode =
+    DiagnosticCode::error("validation::validator-accessor-unsupported");
+
+/// What validation needs to know about names a schema imports but whose
+/// declarations aren't among its own units. Resolution is left to the
+/// caller, the same split as `size.rs`'s `SizeLookup`: a build answers from
+/// its `ProjectContext`, the language server from its project, and plain
+/// [`validate`] answers nothing - an imported name stays unchecked, as it
+/// always was.
+///
+/// Types are answered as the text a frozen type carries (`string`,
+/// `u8[]`), already resolved through aliases in the schema that declares
+/// them.
+pub trait ImportLookup {
+    /// The `for` targets of an imported validator, as written or qualified
+    /// (`StringBounds`, `validators::StringBounds`).
+    fn validator_targets(&self, name: &str) -> Option<Vec<String>>;
+    /// What an imported `type` alias stands for.
+    fn alias_target(&self, name: &str) -> Option<String>;
+}
+
+/// The lookup for a schema validated on its own: no imports known.
+pub struct NoImports;
+
+impl ImportLookup for NoImports {
+    fn validator_targets(&self, _: &str) -> Option<Vec<String>> {
+        None
+    }
+    fn alias_target(&self, _: &str) -> Option<String> {
+        None
+    }
+}
 
 
 
 pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>> {
+    validate_with(units, &NoImports)
+}
+
+/// [`validate`], with `imports` answering for names this schema imports.
+pub fn validate_with(
+    units: &[FrozenUnit],
+    imports: &dyn ImportLookup,
+) -> Result<Vec<Diagnostic>, Vec<Diagnostic>> {
     let mut errors = vec![];
     let mut warnings = vec![];
     let mut symbols = SymbolTable::new();
@@ -421,6 +465,8 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
         }
     }
 
+    check_validator_targets(units, &symbols, imports, &mut errors);
+
     // Pass 3: Cycle Detection (Structs)
     let unit_map: HashMap<&str, &FrozenUnit> = units.iter().filter_map(|u| match u {
         FrozenUnit::Struct { name, .. } => Some((name.as_str(), u)),
@@ -444,6 +490,222 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
     } else {
         Err(errors)
     }
+}
+
+/// Every validator names the type(s) it applies to (`for ...`), its
+/// `value.*` accessors exist on those types, and every field it's applied
+/// to has one of them. Matching is exact after resolving aliases (local,
+/// or imported through `imports`): a `u8` field doesn't take a `for u32`
+/// validator, and a validator on `string[]` checks the array, not each
+/// element. `optional` is already outside the field's frozen type.
+fn check_validator_targets(
+    units: &[FrozenUnit],
+    symbols: &SymbolTable,
+    imports: &dyn ImportLookup,
+    errors: &mut Vec<Diagnostic>,
+) {
+    let local_aliases: HashMap<&str, String> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::TypeAlias { name, target, .. } => {
+                Some((name.as_str(), kind_type_name(target)?))
+            }
+            _ => None,
+        })
+        .collect();
+    let resolve = |written: &str| resolve_type(written, &local_aliases, symbols, imports);
+
+    // `(as written, resolved)` per target, for each local validator that has
+    // any.
+    let mut local_targets: HashMap<&str, Vec<(String, String)>> = HashMap::new();
+    for unit in units {
+        let FrozenUnit::Validator { name, targets, expression_block, span, .. } = unit else {
+            continue;
+        };
+        if targets.is_empty() {
+            errors.push(
+                Diagnostic::new(
+                    VALIDATOR_MISSING_TARGET,
+                    format!("validator '{name}' must name the type it checks"),
+                )
+                .with_context(format!("Validator '{name}'"))
+                .with_span(*span)
+                .with_help(format!(
+                    "add `for` and the type after its name, e.g. `validator {name} for string`"
+                )),
+            );
+            continue;
+        }
+        let pairs: Vec<(String, String)> = targets
+            .iter()
+            .filter_map(kind_type_name)
+            .map(|written| {
+                let resolved = resolve(&written);
+                (written, resolved)
+            })
+            .collect();
+
+        if let FrozenUnit::ExpressionBlock { asserts } = &**expression_block {
+            let mut reported = HashSet::new();
+            let references = asserts.iter().flat_map(|a| match a {
+                FrozenUnit::Assert { references, .. } => references.as_slice(),
+                _ => &[],
+            });
+            for path in references {
+                let mut segs = path.split('.');
+                if segs.next() != Some("value") {
+                    continue;
+                }
+                match segs.next() {
+                    None | Some("name") => {}
+                    Some("length") => {
+                        for (written, resolved) in &pairs {
+                            if !has_length(resolved) && reported.insert(format!("length {written}")) {
+                                errors.push(
+                                    Diagnostic::new(
+                                        VALIDATOR_ACCESSOR_UNSUPPORTED,
+                                        format!(
+                                            "validator '{name}': `value.length` is not defined for `{written}`"
+                                        ),
+                                    )
+                                    .with_context(format!("Validator '{name}'"))
+                                    .with_span(*span)
+                                    .with_help("`value.length` exists for `string` and arrays"),
+                                );
+                            }
+                        }
+                    }
+                    Some(other) => {
+                        if reported.insert(other.to_string()) {
+                            errors.push(
+                                Diagnostic::new(
+                                    VALIDATOR_ACCESSOR_UNSUPPORTED,
+                                    format!("validator '{name}': `value` has no accessor `{other}`"),
+                                )
+                                .with_context(format!("Validator '{name}'"))
+                                .with_span(*span)
+                                .with_help(
+                                    "available: `value`, `value.length` (`string` and arrays), `value.name`",
+                                ),
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        local_targets.insert(name.as_str(), pairs);
+    }
+
+    for unit in units {
+        let (owner_kind, owner_name, fields) = match unit {
+            FrozenUnit::Struct { name, fields, .. } => ("Struct", name, fields),
+            FrozenUnit::Error { name, fields, .. } => ("Error", name, fields),
+            _ => continue,
+        };
+        for field in fields {
+            let FrozenUnit::Field { name: field_name, parameters, kind_value, span, .. } = field
+            else {
+                continue;
+            };
+            let Some(field_written) = kind_type_name(kind_value) else {
+                continue;
+            };
+            let field_resolved = resolve(&field_written);
+
+            for param in parameters {
+                let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
+                    continue;
+                };
+                // A local validator without targets was reported above, and
+                // an unknown name by pass 2.5 - neither has anything to match.
+                let targets: Vec<(String, String)> = match local_targets.get(vname.as_str()) {
+                    Some(pairs) => pairs.clone(),
+                    None if matches!(symbols.get(vname), None | Some(SymbolType::Import)) => {
+                        match imports.validator_targets(vname) {
+                            Some(t) => t.into_iter().map(|w| (w.clone(), w)).collect(),
+                            None => continue,
+                        }
+                    }
+                    None => continue,
+                };
+                if targets.is_empty() || targets.iter().any(|(_, r)| *r == field_resolved) {
+                    continue;
+                }
+                let applies_to = targets
+                    .iter()
+                    .map(|(w, _)| format!("`{w}`"))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let mut found = format!("`{field_written}`");
+                if field_resolved != field_written {
+                    found.push_str(&format!(" (`{field_resolved}`)"));
+                }
+                errors.push(
+                    Diagnostic::new(
+                        VALIDATOR_TARGET_MISMATCH,
+                        format!("validator '{vname}' applies to {applies_to}, not {found}"),
+                    )
+                    .with_context(format!("{owner_kind} '{owner_name}', field '{field_name}'"))
+                    .with_span(*span),
+                );
+            }
+        }
+    }
+}
+
+/// The type a frozen `KindValue` spells (`string`, `User[]`,
+/// `union(u8 string)`), or `None` for an enum-variant value.
+fn kind_type_name(kind: &KindValue) -> Option<String> {
+    match kind {
+        KindValue::Namespaced(name, _) => Some(name.clone()),
+        KindValue::Primitive(p) => Some(p.name().to_string()),
+        KindValue::Union(members) => {
+            let names = members.iter().map(kind_type_name).collect::<Option<Vec<_>>>()?;
+            Some(format!("union({})", names.join(" ")))
+        }
+        KindValue::Unit => Some("()".to_string()),
+        KindValue::EnumVariant(..) => None,
+    }
+}
+
+/// `written` with every alias replaced by what it stands for, keeping array
+/// dimensions: `type Name = string` makes `Name[]` resolve to `string[]`.
+/// Local aliases first; a name this schema doesn't declare goes to
+/// `imports`. Bounded, so a cycle (already reported by alias resolution)
+/// can't hang it.
+fn resolve_type(
+    written: &str,
+    local_aliases: &HashMap<&str, String>,
+    symbols: &SymbolTable,
+    imports: &dyn ImportLookup,
+) -> String {
+    let mut base = written.to_string();
+    let mut dims = 0;
+    for _ in 0..32 {
+        while let Some(inner) = base.strip_suffix("[]") {
+            base = inner.to_string();
+            dims += 1;
+        }
+        let next = match local_aliases.get(base.as_str()) {
+            Some(target) => Some(target.clone()),
+            None if !is_primitive(&base)
+                && matches!(symbols.get(&base), None | Some(SymbolType::Import)) =>
+            {
+                imports.alias_target(&base)
+            }
+            None => None,
+        };
+        match next {
+            Some(target) => base = target,
+            None => break,
+        }
+    }
+    base + &"[]".repeat(dims)
+}
+
+/// Whether `value.length` means something for this (resolved) type.
+fn has_length(resolved: &str) -> bool {
+    resolved == "string" || resolved.ends_with("[]")
 }
 
 /// Check every *known* annotation's value against the shape its registry
