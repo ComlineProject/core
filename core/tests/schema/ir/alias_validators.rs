@@ -163,3 +163,38 @@ fn a_stand_in_import_is_not_judged_against_a_validator() {
         ["validator 'Positive' applies to `u32`, not `Name`"]
     );
 }
+
+#[test]
+fn a_bare_validator_name_is_a_call_with_no_arguments() {
+    let units = IncrementalInterpreter::from_source(&format!(
+        "{BOUNDS}@validators = [Bounds, Bounds(max = 5)]\ntype AccountName = string\n"
+    ));
+    let parameters = units
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::TypeAlias { name, parameters, .. } if name == "AccountName" => Some(parameters),
+            _ => None,
+        })
+        .expect("the alias");
+    assert_eq!(
+        *parameters,
+        [
+            FrozenUnit::ValidatorRef { name: "Bounds".to_string(), args: vec![] },
+            FrozenUnit::ValidatorRef {
+                name: "Bounds".to_string(),
+                args: vec![FrozenUnit::Property { name: "max".to_string(), value: ConfigValue::Integer(5) }],
+            },
+        ]
+    );
+    assert!(validate(&units).is_ok());
+}
+
+#[test]
+fn a_bare_validator_name_still_needs_its_required_arguments() {
+    let code = "validator Range for u32 {\n    min: u32\n    validate {\n        \
+                assert(value >= params.min, \"{value.name}\")\n    }\n}\n\
+                @validators = [Range]\ntype Count = u32\n";
+    assert_eq!(messages(code), ["validator 'Range' is missing argument 'min'"]);
+    // Written out, it's fine - and so is leaving out one with a default.
+    assert!(messages(&code.replace("[Range]", "[Range(min = 1)]")).is_empty());
+}

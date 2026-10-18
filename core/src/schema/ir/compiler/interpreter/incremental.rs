@@ -544,7 +544,7 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
                     units.push(FrozenUnit::ValidatorRef {
                         name: call.name.text.clone(),
                         args: call
-                            .args
+                            .args()
                             .iter()
                             .map(|arg| FrozenUnit::Property {
                                 name: arg.name.text.clone(),

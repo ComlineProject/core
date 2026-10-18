@@ -25,6 +25,8 @@ const DUPLICATE_VALIDATOR_ARGUMENT: DiagnosticCode =
     DiagnosticCode::error("validation::duplicate-validator-argument");
 const UNKNOWN_VALIDATOR_ARGUMENT: DiagnosticCode =
     DiagnosticCode::error("validation::unknown-validator-argument");
+const MISSING_VALIDATOR_ARGUMENT: DiagnosticCode =
+    DiagnosticCode::error("validation::missing-validator-argument");
 const VALIDATOR_ARGUMENT_TYPE_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::validator-argument-type-mismatch");
 const NOT_A_VALIDATOR: DiagnosticCode = DiagnosticCode::error("validation::not-a-validator");
@@ -430,6 +432,21 @@ pub fn validate_with(
                                             "validator '{}': argument '{}' expects {}, got {}",
                                             vname, kw, mismatch.expected, mismatch.found
                                         ),
+                                        context: field_ctx.clone(),
+                                        span: Some(*span),
+                                    });
+                                }
+                            }
+                        }
+
+                        // Every property without a default has to be given
+                        // - a bare `Name` gives none.
+                        let fields = validator_fields.get(vname.as_str()).copied().unwrap_or_default();
+                        for field in fields {
+                            if let FrozenUnit::Field { name: prop, default: None, .. } = field {
+                                if !seen.contains(&prop.as_str()) {
+                                    errors.push(Diagnostic { code: MISSING_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
+                                        message: format!("validator '{}' is missing argument '{}'", vname, prop),
                                         context: field_ctx.clone(),
                                         span: Some(*span),
                                     });
