@@ -200,6 +200,11 @@ pub enum FrozenUnit {
     /// codegen path changes.
     TypeAlias {
         docstring: Option<String>,
+        /// The alias's annotations (`@validators`, `@deprecated`), frozen
+        /// as a field's are. Its validators are stored here once, not
+        /// copied onto each use; a generator resolves them per use.
+        #[serde(default)]
+        parameters: Vec<FrozenUnit>,
         name: String,
         target: TypeRef,
         span: (usize, usize),

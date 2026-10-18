@@ -6,3 +6,4 @@ pub mod stdlib;
 pub mod examples_compile;
 pub mod diagnostics;
 pub mod structured_types;
+pub mod alias_validators;

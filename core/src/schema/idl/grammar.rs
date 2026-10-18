@@ -222,11 +222,14 @@ pub mod grammar {
     /// Type alias: type NAME = TYPE — fully transparent (Rust's `type`, not
     /// a newtype wrapper). Freezes to its own `FrozenUnit::TypeAlias`, and a
     /// use of it freezes to `TypeRef::Named(NAME)`, so the alias's name
-    /// reaches the generators.
+    /// reaches the generators. `@validators` on an alias apply wherever it
+    /// is used, as part of the containing value's checks.
     #[derive(Debug, Clone)]
     pub struct TypeAlias {
         #[rust_sitter::repeat(non_empty = false)]
         pub docstring: Option<Docstring>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Option<Annotations>,
         #[rust_sitter::leaf(text = "type")]
         _type: (),
         pub name: Identifier,
@@ -1087,6 +1090,12 @@ pub mod grammar {
     impl TypeAlias {
         pub fn docstring(&self) -> Option<String> {
             self.docstring.as_ref().map(|d| d.joined())
+        }
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
         }
         pub fn name(&self) -> String {
             self.name.text.clone()
