@@ -15,6 +15,8 @@ use crate::schema::ir::context::SchemaContext;
 use crate::utils::text::closest;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::schema::ir::frozen::types::TypeRef;
+use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::compiler::interpreter::incremental::freeze_validator_properties;
 use crate::schema::ir::validation::ImportLookup;
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
@@ -475,6 +477,30 @@ pub fn declared_validator_targets(
     })
 }
 
+/// The properties of the validator `name` declared in `declarations`, frozen
+/// as its own schema freezes them, with that schema's own aliases resolved in
+/// their types (the importing schema can't see them). `None` when it declares
+/// no such validator.
+pub fn declared_validator_properties(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    name: &str,
+) -> Option<Vec<FrozenUnit>> {
+    declarations.iter().find_map(|decl| match &decl.value {
+        Declaration::Validator(v) if v.name() == name => Some(
+            freeze_validator_properties(v)
+                .into_iter()
+                .map(|mut field| {
+                    if let FrozenUnit::Field { ty, .. } = &mut field {
+                        *ty = resolve_local_aliases(declarations, ty);
+                    }
+                    field
+                })
+                .collect(),
+        ),
+        _ => None,
+    })
+}
+
 /// What the `type` alias `name` declared in `declarations` stands for, with
 /// that schema's own aliases resolved. `None` when it declares no such alias.
 pub fn declared_alias_target(
@@ -546,6 +572,12 @@ impl ImportLookup for ProjectImports<'_> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
         declared_alias_target(&schema.declarations, &bare)
+    }
+
+    fn validator_properties(&self, name: &str) -> Option<Vec<FrozenUnit>> {
+        let (schema, bare) = self.declaring_schema(name)?;
+        let schema = schema.borrow();
+        declared_validator_properties(&schema.declarations, &bare)
     }
 }
 

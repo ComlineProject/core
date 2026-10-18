@@ -491,6 +491,50 @@ fn an_imported_validator_is_checked_against_the_field_type() {
         .expect("StringBounds on a string field builds");
 }
 
+/// An imported validator's arguments are checked against its declaration,
+/// the same as a local one's.
+#[test]
+fn an_imported_validators_arguments_are_checked() {
+    let fails = |field: &str| {
+        PackageSources::new()
+            .schema(["api"], &format!("use std::validators::StringBounds\n\nstruct S {{\n    {field}\n    n: string\n}}\n"))
+            .compile()
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default()
+    };
+
+    let text = fails("@validators = [StringBounds(max_char = 3)]");
+    assert!(text.contains("validator 'StringBounds' has no argument 'max_char' - did you mean 'max_chars'?"), "{text}");
+
+    let text = fails("@validators = [StringBounds(min_chars = \"3\")]");
+    assert!(text.contains("validator 'StringBounds': argument 'min_chars' expects"), "{text}");
+
+    let text = fails("@validators = [StringBounds(min_chars = 1, min_chars = 2)]");
+    assert!(text.contains("duplicate argument 'min_chars' to validator 'StringBounds'"), "{text}");
+
+    // Both of std's properties have defaults: bare is fine.
+    assert_eq!(fails("@validators = [StringBounds]"), "");
+}
+
+#[test]
+fn an_imported_validator_without_a_default_needs_its_argument() {
+    let rules = "validator AtLeast for u32 {\n    min: u32\n    validate {\n        \
+                 assert(value >= params.min, \"{value.name} is too small\")\n    }\n}\n";
+    let build = |call: &str| {
+        PackageSources::new()
+            .schema(["rules"], rules)
+            .schema(["api"], &format!("use rules::AtLeast\n\nstruct S {{\n    @validators = [{call}]\n    n: u32\n}}\n"))
+            .compile()
+            .err()
+            .map(|e| e.to_string())
+            .unwrap_or_default()
+    };
+    let text = build("AtLeast");
+    assert!(text.contains("validator 'AtLeast' is missing argument 'min'"), "{text}");
+    assert_eq!(build("AtLeast(min = 1)"), "");
+}
+
 /// Both the validator and the alias a field uses can come from another
 /// schema of the same package.
 #[test]
