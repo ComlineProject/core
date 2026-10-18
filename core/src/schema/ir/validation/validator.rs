@@ -65,6 +65,13 @@ pub trait ImportLookup {
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>>;
     /// What an imported `type` alias stands for.
     fn alias_target(&self, name: &str) -> Option<TypeRef>;
+    /// Whether `name`'s import is only a stand-in: an editor that reports a
+    /// missing `use` itself adds an import for the name, so core doesn't also
+    /// call it an unknown type - but nothing is in scope behind it, and no
+    /// check should be judged against it. `comline build` has none.
+    fn is_stand_in(&self, _name: &str) -> bool {
+        false
+    }
 }
 
 /// The lookup for a schema validated on its own: no imports known.
@@ -583,7 +590,7 @@ fn check_validator_targets(
         let field_resolved = resolve(field_written);
         // An unknown type is already reported; matching a validator against
         // it would only add a second error about the same mistake.
-        if names_unknown(&field_resolved, symbols) {
+        if names_unknown(&field_resolved, symbols, imports) {
             continue;
         }
 
@@ -716,13 +723,17 @@ fn check_misplaced_validators(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>
     }
 }
 
-/// Whether `ty` still names something neither declared here nor imported,
-/// after alias resolution.
-fn names_unknown(ty: &TypeRef, symbols: &SymbolTable) -> bool {
+/// Whether `ty` still names something neither declared here nor imported -
+/// or imported only as a [stand-in](ImportLookup::is_stand_in) - after alias
+/// resolution.
+fn names_unknown(ty: &TypeRef, symbols: &SymbolTable, imports: &dyn ImportLookup) -> bool {
     match ty {
-        TypeRef::Named(name) => symbols.get(name).is_none() && !could_be_imported(symbols, name),
-        TypeRef::Array { element, .. } => names_unknown(element, symbols),
-        TypeRef::Union(members) => members.iter().any(|m| names_unknown(m, symbols)),
+        TypeRef::Named(name) => {
+            (symbols.get(name).is_none() && !could_be_imported(symbols, name))
+                || imports.is_stand_in(name)
+        }
+        TypeRef::Array { element, .. } => names_unknown(element, symbols, imports),
+        TypeRef::Union(members) => members.iter().any(|m| names_unknown(m, symbols, imports)),
         TypeRef::Primitive(_) | TypeRef::Unit => false,
     }
 }

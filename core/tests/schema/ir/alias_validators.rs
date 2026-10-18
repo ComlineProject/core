@@ -133,3 +133,33 @@ fn an_alias_nothing_imports_is_not_resolved_through_the_lookup() {
     assert!(errors.iter().all(|m| !m.contains("applies to")), "{errors:?}");
     assert!(errors.iter().any(|m| m.contains("Unknown type 'Name'")), "{errors:?}");
 }
+
+/// The editor's stand-in import for a missing `use`: present so core doesn't
+/// call the type unknown, but nothing to judge a validator against.
+struct StandIn;
+
+impl ImportLookup for StandIn {
+    fn validator_targets(&self, _: &str) -> Option<Vec<TypeRef>> {
+        None
+    }
+    fn alias_target(&self, _: &str) -> Option<TypeRef> {
+        None
+    }
+    fn is_stand_in(&self, name: &str) -> bool {
+        name == "Name"
+    }
+}
+
+#[test]
+fn a_stand_in_import_is_not_judged_against_a_validator() {
+    let code = "use rules::Name\n\nvalidator Positive for u32 {\n    validate {\n        \
+                assert(value > 0, \"{value.name}\")\n    }\n}\n\
+                struct S {\n    @validators = [Positive()]\n    n: Name\n}\n";
+    assert_eq!(messages_with(code, &StandIn), Vec::<String>::new());
+    // A real import the lookup knows nothing about is still judged: a `u32`
+    // validator on an imported struct is a mistake `comline build` reports.
+    assert_eq!(
+        messages_with(code, &comline_core::schema::ir::validation::NoImports),
+        ["validator 'Positive' applies to `u32`, not `Name`"]
+    );
+}
