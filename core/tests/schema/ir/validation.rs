@@ -19,7 +19,7 @@ mod ir_validation_tests {
         let code = r#"
 struct TestStruct {
     id: u64
-    name: str
+    name: string
     count: u32
     active: bool
 }
@@ -47,7 +47,7 @@ struct TestStruct {
 struct User {
     /// The user's unique id.
     id: u64
-    name: str
+    name: string
 }
 "#;
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -111,7 +111,7 @@ struct StringBounds {
 /// A user service.
 protocol UserService {
     /// Get a user by id.
-    function get(u64) -> str;
+    function get(u64) -> string;
 }
 "#;
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -213,7 +213,7 @@ error NotFoundError {
         // `NotFoundError` is neither declared locally nor imported: it still
         // gets a stable ordinal (0), and an `<unresolved: ...>` re-export slot
         // is appended so the ordinal has a home in the IR.
-        let code = "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}";
+        let code = "protocol P {\n    function get(u64) -> string ! NotFoundError;\n}";
         let ir_units = IncrementalInterpreter::from_source(code);
 
         let FrozenUnit::Protocol { functions, .. } = &ir_units[0] else {
@@ -242,7 +242,7 @@ error NotFoundError {
     #[test]
     fn an_unresolved_throw_is_refused() {
         let errors = validate(&IncrementalInterpreter::from_source(
-            "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}\n",
+            "protocol P {\n    function get(u64) -> string ! NotFoundError;\n}\n",
         ))
         .expect_err("`NotFoundError` is not declared");
         assert!(
@@ -257,7 +257,7 @@ error NotFoundError {
     fn an_unresolved_throw_suggests_a_declared_error() {
         let errors = validate(&IncrementalInterpreter::from_source(
             "error NotFound {\n    message = \"gone\"\n}\n\
-             protocol P {\n    function get(u64) -> str ! NotFoundd;\n}\n",
+             protocol P {\n    function get(u64) -> string ! NotFoundd;\n}\n",
         ))
         .expect_err("`NotFoundd` is a typo");
         assert!(
@@ -274,7 +274,7 @@ error NotFoundError {
     fn throwing_something_that_is_not_an_error_is_refused() {
         let errors = validate(&IncrementalInterpreter::from_source(
             "struct Thing {\n    id: u64\n}\n\
-             protocol P {\n    function get(u64) -> str ! Thing;\n}\n",
+             protocol P {\n    function get(u64) -> string ! Thing;\n}\n",
         ))
         .expect_err("`Thing` is a struct");
         assert!(
@@ -288,7 +288,7 @@ error NotFoundError {
     fn an_enum_cannot_be_thrown_either() {
         let errors = validate(&IncrementalInterpreter::from_source(
             "enum Colour {\n    Red\n}\n\
-             protocol P {\n    function get(u64) -> str ! Colour;\n}\n",
+             protocol P {\n    function get(u64) -> string ! Colour;\n}\n",
         ))
         .expect_err("`Colour` is an enum");
         assert!(
@@ -304,7 +304,7 @@ error NotFoundError {
     fn a_repeated_throw_is_refused() {
         let errors = validate(&IncrementalInterpreter::from_source(
             "error Denied {\n    message = \"no\"\n}\n\
-             protocol P {\n    function get(u64) -> str ! Denied, Denied;\n}\n",
+             protocol P {\n    function get(u64) -> string ! Denied, Denied;\n}\n",
         ))
         .expect_err("`Denied` is listed twice");
         assert!(
@@ -322,7 +322,7 @@ error NotFoundError {
 
         let source = "error NotFound {\n    message = \"gone\"\n}\n\
                       error Denied {\n    message = \"no\"\n}\n\
-                      protocol P {\n    function get(u64) -> str ! Denied, NotFound;\n}\n";
+                      protocol P {\n    function get(u64) -> string ! Denied, NotFound;\n}\n";
         let ir_units = IncrementalInterpreter::from_source(source);
         assert!(validate(&ir_units).is_ok(), "both errors are declared");
 
@@ -345,7 +345,7 @@ error NotFoundError {
     fn test_function_without_throws_still_empty_vec() {
         // A function with no throws clause still gets an empty Vec (now
         // Vec<u16>, resolved from the `! Name` references).
-        let code = "protocol P {\n    function get(u64) -> str;\n}";
+        let code = "protocol P {\n    function get(u64) -> string;\n}";
         let ir_units = IncrementalInterpreter::from_source(code);
         match &ir_units[0] {
             comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { functions, .. } => {
@@ -370,7 +370,7 @@ error NotFoundError {
         let code = "\
 error Missing {\n    message = \"gone\"\n}\n\
 error Denied {\n    message = \"no\"\n}\n\
-protocol P {\n    function get(u64) -> str ! Denied;\n}";
+protocol P {\n    function get(u64) -> string ! Denied;\n}";
         let ir_units = IncrementalInterpreter::from_source(code);
 
         // Declaration order: Missing = 0, Denied = 1.
@@ -549,9 +549,9 @@ struct Flags {
         let code = r#"
 struct Config {
     retries: u32 = 3
-    label: str = "default"
+    label: string = "default"
     timeout: s64 = -1
-    name: str
+    name: string
 }
 "#;
         let parsed = grammar::parse(code);
@@ -608,7 +608,7 @@ struct Config {
                     } => {
                         assert_eq!(
                             *kind_value,
-                            KindValue::Namespaced("str".to_string(), None)
+                            KindValue::Namespaced("string".to_string(), None)
                         );
                     }
                     _ => panic!("Expected Field"),
@@ -648,10 +648,10 @@ enum Color {
     fn test_function_arguments_mapping() {
         let code = r#"
 protocol TestService {
-    function noArgs() -> str;
+    function noArgs() -> string;
     function oneArg(u64) -> bool;
-    function twoArgs(str, u32) -> s64;
-    function manyArgs(u8, u16, u32, u64, str, bool) -> str;
+    function twoArgs(string, u32) -> s64;
+    function manyArgs(u8, u16, u32, u64, string, bool) -> string;
 }
 "#;
         let parsed = grammar::parse(code);
@@ -676,8 +676,8 @@ protocol TestService {
     fn test_function_argument_names() {
         let code = r#"
 protocol TestService {
-    function bareArgs(u64, str) -> bool;
-    function namedArgs(id: u64, name: str) -> bool;
+    function bareArgs(u64, string) -> bool;
+    function namedArgs(id: u64, name: string) -> bool;
 }
 "#;
         let parsed = grammar::parse(code);
@@ -716,9 +716,9 @@ protocol TestService {
         let code = r#"
 protocol ReturnTypes {
     function getU64() -> u64;
-    function getStr() -> str;
+    function getStr() -> string;
     function getBool() -> bool;
-    function getArray() -> str[];
+    function getArray() -> string[];
     function noReturn(u64);
 }
 "#;
@@ -745,7 +745,7 @@ const I8_MIN: s8 = -128
 const I8_MAX: s8 = 127
 const BOOL_TRUE: bool = true
 const BOOL_FALSE: bool = false
-const STR_VAL: str = "hello"
+const STR_VAL: string = "hello"
 "#;
         let parsed = grammar::parse(code);
         assert!(parsed.is_ok());
@@ -795,7 +795,7 @@ protocol Service {
     fn test_mixed_array_types() {
         let code = r#"
 struct ArrayTest {
-    dynamic: str[]
+    dynamic: string[]
     fixed: u8[256]
     nested: u32[][]
     custom_array: Inner[]
@@ -825,7 +825,7 @@ struct Inner {
         let code = r#"
 import std
 
-const VERSION: str = "1.0"
+const VERSION: string = "1.0"
 const MAX: u32 = 1000
 
 enum Status {
@@ -855,7 +855,7 @@ protocol API {
         let code = r#"
 import std
 
-const API_VERSION: str = "2.0"
+const API_VERSION: string = "2.0"
 const MAX_USERS: u32 = 10000
 const TIMEOUT_MS: s32 = 5000
 
@@ -873,25 +873,25 @@ enum MessageType {
 }
 
 struct Address {
-    street: str
-    city: str
-    country: str
+    street: string
+    city: string
+    country: string
 }
 
 struct User {
     id: u64
-    username: str
-    email: str
+    username: string
+    email: string
     role: UserRole
     address: Address
-    tags: str[]
+    tags: string[]
 }
 
 struct Message {
     id: u64
     sender_id: u64
     type: MessageType
-    content: str
+    content: string
     timestamp: u64
 }
 
@@ -902,15 +902,15 @@ struct Conversation {
 }
 
 protocol UserService {
-    function createUser(str, str, UserRole) -> u64;
+    function createUser(string, string, UserRole) -> u64;
     function getUser(u64) -> User;
-    function updateUser(u64, str) -> bool;
+    function updateUser(u64, string) -> bool;
     function deleteUser(u64) -> bool;
     function listUsers(u32, u32) -> User[];
 }
 
 protocol MessagingService {
-    function sendMessage(u64, u64, MessageType, str) -> u64;
+    function sendMessage(u64, u64, MessageType, string) -> u64;
     function getConversation(u64) -> Conversation;
     function markAsRead(u64) -> bool;
 }
@@ -1004,7 +1004,7 @@ mod duplicate_declaration_diagnostics {
 
     #[test]
     fn a_struct_and_an_error_name_both_sites() {
-        let code = "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n";
+        let code = "struct Test {\n    a: string\n}\n\nerror Test {\n    message = \"\"\n}\n";
         let errors = validate(&IncrementalInterpreter::from_source(code)).unwrap_err();
 
         assert_eq!(errors.len(), 1);
@@ -1051,7 +1051,7 @@ mod duplicate_declaration_diagnostics {
     #[test]
     fn a_validator_colliding_with_a_struct_is_spanned() {
         let code = concat!(
-            "struct Bounded {\n    a: str\n}\n\n",
+            "struct Bounded {\n    a: string\n}\n\n",
             "validator Bounded {\n    min: u32 = 1\n\n    validate {\n",
             "        assert(value.length >= params.min, \"too short\")\n    }\n}\n",
         );
@@ -1067,7 +1067,7 @@ mod duplicate_declaration_diagnostics {
     /// beside a `struct Test` generates nothing and collides with nothing.
     #[test]
     fn a_settings_preset_may_share_a_name() {
-        let code = "struct Test {\n    a: str\n}\n\nsettings Test {\n    validators.allowed = true\n}\n";
+        let code = "struct Test {\n    a: string\n}\n\nsettings Test {\n    validators.allowed = true\n}\n";
         validate(&IncrementalInterpreter::from_source(code))
             .expect("a settings preset shares no namespace with a struct");
     }
@@ -1077,7 +1077,7 @@ mod duplicate_declaration_diagnostics {
     /// from another schema.
     #[test]
     fn a_namespace_qualifies_both_sites() {
-        let code = "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n";
+        let code = "struct Test {\n    a: string\n}\n\nerror Test {\n    message = \"\"\n}\n";
         let mut units = IncrementalInterpreter::from_source(code);
         units.insert(0, FrozenUnit::Namespace("test::main".to_string()));
 

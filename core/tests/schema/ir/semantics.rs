@@ -11,7 +11,7 @@ struct User {
 }
 
 struct User {
-    name: str
+    name: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -96,17 +96,53 @@ struct Foo {
 }
 
 #[test]
+fn removed_str_type_points_to_string() {
+    for code in [
+        "struct Foo {\n    name: str\n}\n",
+        "struct Foo {\n    names: str[]\n}\n",
+        "protocol P {\n    function f(str) -> str;\n}\n",
+    ] {
+        let ir = IncrementalInterpreter::from_source(code);
+        let errors = validate(&ir).unwrap_err();
+        assert!(errors[0].message.contains("Unknown type 'str'"), "{code}: {errors:?}");
+        assert_eq!(
+            errors[0].help.as_deref(),
+            Some("`str` was removed; use `string`"),
+            "{code}"
+        );
+    }
+}
+
+#[test]
+fn rust_spelling_of_the_text_type_points_to_string() {
+    let code = "struct Foo {\n    name: String\n}\n";
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors[0].message.contains("Unknown type 'String'"));
+    assert_eq!(errors[0].help.as_deref(), Some("the text type is spelled `string`"));
+}
+
+#[test]
+fn a_str_constant_is_rejected() {
+    let code = "const NAME: str = \"x\"\n";
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    assert!(errors[0].message.contains("'str'"), "{errors:?}");
+    assert_eq!(errors[0].help.as_deref(), Some("`str` was removed; use `string`"));
+}
+
+#[test]
 fn test_valid_schema_passes() {
     let code = r#"
 struct Author {
     id: u64
-    name: str
+    name: string
 }
 
 struct Post {
     id: u64
     author: Author
-    comments: str[]
+    comments: string[]
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -207,7 +243,7 @@ fn test_duplicate_definition_error_has_span() {
 }
 
 struct User {
-    name: str
+    name: string
 }
 ";
     let ir = IncrementalInterpreter::from_source(code);
@@ -216,7 +252,7 @@ struct User {
     let span = errors[0].span.expect("duplicate-definition error should carry a span");
     // The span should point at the second (duplicate) `struct User` declaration.
     assert_eq!(&code[span.0..span.1], "struct User {
-    name: str
+    name: string
 }");
 }
 
@@ -237,7 +273,7 @@ fn test_unknown_type_error_has_span() {
 #[test]
 fn test_union_field_with_valid_members_passes() {
     let code = "struct Response {
-    status: union(str u32)
+    status: union(string u32)
 }
 ";
     let ir = IncrementalInterpreter::from_source(code);
@@ -249,7 +285,7 @@ fn test_union_field_with_valid_members_passes() {
 #[test]
 fn test_union_field_with_unknown_member_fails() {
     let code = "struct Response {
-    status: union(str MissingType)
+    status: union(string MissingType)
 }
 ";
     let ir = IncrementalInterpreter::from_source(code);
@@ -269,7 +305,7 @@ validator StringBounds {
 
 struct Message {
     @validators = [StringBounds(min_chars = 3)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -285,7 +321,7 @@ validator StringBounds {
 
 struct Message {
     @validators = [StringBonds(min_chars = 3)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -298,13 +334,13 @@ struct Message {
 #[test]
 fn test_validator_reference_on_error_field() {
     let code = r#"
-struct Message { body: str }
+struct Message { body: string }
 
 error NotFound {
     message = "{self.name} missing"
 
     @validators = [Missing()]
-    name: str
+    name: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -319,7 +355,7 @@ struct Helper { x: u32 }
 
 struct Message {
     @validators = [Helper()]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -336,7 +372,7 @@ import std::validators::string_bounds::StringBounds
 
 struct Message {
     @validators = [StringBounds(min_chars = 3)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -353,7 +389,7 @@ validator StringBounds {
 
 struct Message {
     @validators = [StringBounds(min_chars = 3, max_chars = 12)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -370,7 +406,7 @@ validator StringBounds {
 
 struct Message {
     @validators = [StringBounds(min_char = 3)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -389,7 +425,7 @@ validator StringBounds {
 
 struct Message {
     @validators = [StringBounds(min_chars = 3, min_chars = 5)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -406,7 +442,7 @@ import std::validators::string_bounds::StringBounds
 
 struct Message {
     @validators = [StringBounds(nonsense = 3)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -468,12 +504,12 @@ fn test_validator_kwarg_type_ok() {
 validator Bounds {
     min: u32 = 0
     strict: bool = false
-    label: str = "x"
+    label: string = "x"
 }
 
 struct Message {
     @validators = [Bounds(min = 3, strict = true, label = "body")]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -487,7 +523,7 @@ validator Bounds { min: u32 = 0 }
 
 struct Message {
     @validators = [Bounds(min = "three")]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -502,7 +538,7 @@ validator Flag { on: bool = false }
 
 struct Message {
     @validators = [Flag(on = 1)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -519,7 +555,7 @@ validator Bounds { min: u32 = 0 }
 
 struct Message {
     @validators = [Bounds(min = MIN)]
-    body: str
+    body: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -534,7 +570,7 @@ struct Message {
 fn test_no_deprecation_anywhere_returns_no_warnings() {
     let code = r#"
 struct Author {
-    name: str
+    name: string
 }
 
 struct Post {
@@ -550,7 +586,7 @@ fn test_bare_deprecated_struct_usage_warns_with_no_message() {
     let code = r#"
 @deprecated
 struct Author {
-    name: str
+    name: string
 }
 
 struct Post {
@@ -571,7 +607,7 @@ fn test_deprecated_true_is_the_same_as_bare() {
     let code = r#"
 @deprecated = true
 struct Author {
-    name: str
+    name: string
 }
 
 struct Post {
@@ -589,7 +625,7 @@ fn test_deprecated_with_a_message_includes_it() {
     let code = r#"
 @deprecated = "use NewAuthor instead"
 struct Author {
-    name: str
+    name: string
 }
 
 struct Post {
@@ -607,7 +643,7 @@ fn test_deprecated_false_does_not_warn() {
     let code = r#"
 @deprecated = false
 struct Author {
-    name: str
+    name: string
 }
 
 struct Post {
@@ -626,7 +662,7 @@ fn test_deprecated_capitalized_true_is_a_malformed_value_error() {
     let code = r#"
 @deprecated = True
 struct Author {
-    name: str
+    name: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -644,7 +680,7 @@ fn test_deprecated_bare_word_is_also_a_malformed_value_error() {
     let code = r#"
 @deprecated = coffee
 struct Author {
-    name: str
+    name: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);
@@ -657,7 +693,7 @@ fn test_deprecated_integer_is_also_a_malformed_value_error() {
     let code = r#"
 @deprecated = 42
 struct Author {
-    name: str
+    name: string
 }
 "#;
     let ir = IncrementalInterpreter::from_source(code);

@@ -131,7 +131,7 @@ fn size_of_type_inner(ty: &Type, lookup: &impl SizeLookup, visiting: &mut HashSe
         Type::S16(_) | Type::U16(_) => WireSize::Fixed(2),
         Type::S32(_) | Type::U32(_) | Type::F32(_) => WireSize::Fixed(4),
         Type::S64(_) | Type::U64(_) | Type::F64(_) => WireSize::Fixed(8),
-        Type::Str(_) | Type::String(_) => WireSize::Variable,
+        Type::String(_) => WireSize::Variable,
         Type::Unit(_) => WireSize::Fixed(0),
 
         Type::Array(arr) => {
@@ -270,10 +270,8 @@ mod tests {
 
     #[test]
     fn strings_are_variable() {
-        for ty in ["str", "string"] {
-            let doc = parse(&format!("struct S {{ field: {ty} }}"));
-            assert_eq!(size_of_type(only_type(&doc), &empty_lookup()), WireSize::Variable);
-        }
+        let doc = parse("struct S { field: string }");
+        assert_eq!(size_of_type(only_type(&doc), &empty_lookup()), WireSize::Variable);
     }
 
     #[test]

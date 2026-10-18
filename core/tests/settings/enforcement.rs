@@ -31,7 +31,7 @@ settings = {
             r#"
 @framing = "jsonrpc"
 protocol Chat {
-    function ping() -> str;
+    function ping() -> string;
 }
 "#,
         )
@@ -71,7 +71,7 @@ settings = {
             r#"
 @framing = "jsonrpc"
 protocol Chat {
-    function ping() -> str;
+    function ping() -> string;
 }
 "#,
         )
@@ -98,7 +98,7 @@ code_generation = { languages = { rust#1.70.0 = {} } }
             r#"
 @framing = "jsonrpc"
 protocol Chat {
-    function ping() -> str;
+    function ping() -> string;
 }
 "#,
         )

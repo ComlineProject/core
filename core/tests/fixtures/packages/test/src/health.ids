@@ -1,7 +1,7 @@
 // Health Schema
 
 struct Capabilities {
-    names: str
+    names: string
 }
 
 /// Health check an address

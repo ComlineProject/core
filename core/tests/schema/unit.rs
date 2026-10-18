@@ -18,7 +18,7 @@ fn compile_unit() {
 // Example:
 // #[test]
 // fn parse_simple_struct() {
-//     let code = "struct Test { field: str }";  
+//     let code = "struct Test { field: string }";  
 //     match comline_core::schema::idl::grammar::parse(code) {
 //         Ok(_) => assert!(true),
 //         Err(e) => panic!("Parse error: {:?}", e),

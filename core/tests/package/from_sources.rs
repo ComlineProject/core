@@ -7,7 +7,7 @@ fn compiles_a_single_schema_with_a_synthesised_congregation() {
     let ctx = PackageSources::new()
         .schema(
             ["chat"],
-            "struct Message {\n    body: str\n}\n",
+            "struct Message {\n    body: string\n}\n",
         )
         .compile()
         .expect("should compile");
@@ -40,7 +40,7 @@ fn multiple_schemas_are_all_interpreted() {
     let ctx = PackageSources::new()
         .schema(["types"], "struct User {\n    id: u64\n}\n")
         .schema(["ping"], "struct Ping {\n    seq: u32\n}\n")
-        .schema(["chat"], "struct Message {\n    body: str\n}\n")
+        .schema(["chat"], "struct Message {\n    body: string\n}\n")
         .compile()
         .expect("should compile");
 
@@ -79,7 +79,7 @@ fn cross_schema_use_resolves_across_the_added_schemas() {
 #[test]
 fn nested_namespace_segments_are_kept() {
     let ctx = PackageSources::new()
-        .schema(["chat", "admin"], "struct Ban {\n    who: str\n}\n")
+        .schema(["chat", "admin"], "struct Ban {\n    who: string\n}\n")
         .compile()
         .expect("should compile");
 
@@ -105,7 +105,7 @@ fn a_deprecated_struct_usage_compiles_successfully_and_is_a_warning() {
         .schema(
             ["chat"],
             "@deprecated = \"use Message2 instead\"\n\
-             struct Message {\n    body: str\n}\n\n\
+             struct Message {\n    body: string\n}\n\n\
              struct Envelope {\n    inner: Message\n}\n",
         )
         .compile()
@@ -124,7 +124,7 @@ fn a_deprecated_struct_usage_compiles_successfully_and_is_a_warning() {
 #[test]
 fn no_deprecation_means_no_warnings() {
     let ctx = PackageSources::new()
-        .schema(["chat"], "struct Message {\n    body: str\n}\n")
+        .schema(["chat"], "struct Message {\n    body: string\n}\n")
         .compile()
         .expect("should compile");
 
@@ -138,7 +138,7 @@ fn settings_can_allow_away_a_deprecation_warning() {
         .schema(
             ["chat"],
             "@deprecated\n\
-             struct Message {\n    body: str\n}\n\n\
+             struct Message {\n    body: string\n}\n\n\
              struct Envelope {\n    inner: Message\n}\n\n\
              settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"allow\"\n}\n",
         )
@@ -154,7 +154,7 @@ fn settings_can_escalate_a_deprecation_warning_to_a_build_failure() {
         .schema(
             ["chat"],
             "@deprecated\n\
-             struct Message {\n    body: str\n}\n\n\
+             struct Message {\n    body: string\n}\n\n\
              struct Envelope {\n    inner: Message\n}\n\n\
              settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"error\"\n}\n",
         )
@@ -223,7 +223,7 @@ fn a_misspelled_settings_key_fails_the_build_with_a_suggestion() {
     let err = PackageSources::new()
         .schema(
             ["chat"],
-            "struct Message {\n    body: str\n}\n\n\
+            "struct Message {\n    body: string\n}\n\n\
              settings {\n    annotations.framing.alowed = true\n}\n",
         )
         .compile()
@@ -240,7 +240,7 @@ fn an_unknown_top_level_settings_key_still_builds() {
     PackageSources::new()
         .schema(
             ["chat"],
-            "struct Message {\n    body: str\n}\n\n\
+            "struct Message {\n    body: string\n}\n\n\
              settings {\n    forbid_indexing = true\n    max_depth = 8\n}\n",
         )
         .compile()
@@ -254,7 +254,7 @@ fn a_wrongly_typed_settings_value_fails_even_when_nothing_uses_it() {
     let err = PackageSources::new()
         .schema(
             ["chat"],
-            "struct Message {\n    body: str\n}\n\n\
+            "struct Message {\n    body: string\n}\n\n\
              settings {\n    validators.allowed = Tru\n}\n",
         )
         .compile()
@@ -271,7 +271,7 @@ fn a_malformed_diagnostic_level_is_its_own_build_failure() {
         .schema(
             ["chat"],
             "@deprecated\n\
-             struct Message {\n    body: str\n}\n\n\
+             struct Message {\n    body: string\n}\n\n\
              struct Envelope {\n    inner: Message\n}\n\n\
              settings {\n    diagnostics.\"validation::deprecated-type-usage\".level = \"nope\"\n}\n",
         )
@@ -288,7 +288,7 @@ fn an_error_colliding_with_a_type_is_a_duplicate_declaration() {
     // definitions of `Test` and the generated code did not compile. Core
     // excluded errors from the duplicate check outright, so nothing said so.
     for (label, source) in [
-        ("struct", "struct Test {\n    a: str\n}\n\nerror Test {\n    message = \"\"\n}\n"),
+        ("struct", "struct Test {\n    a: string\n}\n\nerror Test {\n    message = \"\"\n}\n"),
         ("enum", "enum Test {\n    A\n}\n\nerror Test {\n    message = \"\"\n}\n"),
         (
             "protocol",
@@ -319,7 +319,7 @@ fn a_settings_preset_may_share_a_name_with_a_declaration() {
     PackageSources::new()
         .schema(
             ["chat"],
-            "struct Test {\n    a: str\n}\n\n\
+            "struct Test {\n    a: string\n}\n\n\
              settings Test {\n    validators.allowed = true\n}\n",
         )
         .compile()
@@ -360,7 +360,7 @@ fn an_error_is_still_usable_where_an_error_belongs() {
         .schema(
             ["chat"],
             "error Rejected {\n    message = \"\"\n}\n\n\
-             protocol Chat {\n    function send(text: str) ! Rejected;\n}\n",
+             protocol Chat {\n    function send(text: string) ! Rejected;\n}\n",
         )
         .compile()
         .expect("a throws clause must still resolve its error");
@@ -375,13 +375,13 @@ fn a_duplicate_settings_block_is_reported_rather_than_silently_dropped() {
     for (label, source) in [
         (
             "named",
-            "struct S {\n    a: str\n}\n\n\
+            "struct S {\n    a: string\n}\n\n\
              settings Strict {\n    validators.allowed = true\n}\n\n\
              settings Strict {\n    annotations.framing.allowed = true\n}\n",
         ),
         (
             "unnamed",
-            "struct S {\n    a: str\n}\n\n\
+            "struct S {\n    a: string\n}\n\n\
              settings {\n    validators.allowed = true\n}\n\n\
              settings {\n    annotations.framing.allowed = true\n}\n",
         ),
@@ -402,7 +402,7 @@ fn distinct_settings_blocks_are_still_fine() {
     PackageSources::new()
         .schema(
             ["chat"],
-            "struct S {\n    a: str\n}\n\n\
+            "struct S {\n    a: string\n}\n\n\
              settings {\n    validators.allowed = true\n}\n\n\
              settings Strict {\n    annotations.framing.allowed = true\n}\n\n\
              settings Lax {\n    validators.allowed = false\n}\n",
@@ -435,7 +435,7 @@ fn a_schema_named_after_a_target_module_is_rejected() {
 /// something else - so it gets its own explanation.
 #[test]
 fn a_schema_named_after_a_keyword_is_rejected() {
-    for name in ["self", "struct", "use", "str"] {
+    for name in ["self", "struct", "use", "string"] {
         let err = PackageSources::new()
             .schema([name], "struct Thing {\n    id: u64\n}\n")
             .compile()

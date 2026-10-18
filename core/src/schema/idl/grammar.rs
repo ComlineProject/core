@@ -884,7 +884,6 @@ pub mod grammar {
         F32(F32Type),
         F64(F64Type),
         Bool(BoolType),
-        Str(StrType),
         String(StringType),
         Named(ScopedIdentifier),
         Array(Box<ArrayType>),
@@ -970,10 +969,6 @@ pub mod grammar {
     #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "bool")]
     pub struct BoolType;
-
-    #[derive(Debug, Clone)]
-    #[rust_sitter::leaf(text = "str")]
-    pub struct StrType;
 
     #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "string")]

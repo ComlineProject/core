@@ -3,7 +3,7 @@
 import std::validators::string_bounds::StringBounds
 
 const POWER: u8 = 1
-const DEFAULT_NAME: str = f"flower power: {POWER}"
+const DEFAULT_NAME: string = f"flower power: {POWER}"
 
 settings Test {
     forbid_indexing = True
@@ -22,11 +22,11 @@ enum EncryptionMode {
 
 /// A message that can be sent through the mail protocol.
 struct Message {
-    name: str = DEFAULT_NAME
+    name: string = DEFAULT_NAME
     encryption_mode: EncryptionMode = default
 
     @validators = [StringBounds(min_chars = 3, max_chars = 12)]
-    optional recipient: str = "bee"
+    optional recipient: string = "bee"
 }
 
 /// Raised when a message is sent to a missing recipient.
@@ -34,12 +34,12 @@ error RecipientNotFoundError {
     message = "Recipient with name {self.recipient} not found"
 
     @validators = [StringBounds(min_chars = 8, max_chars = 16)]
-    recipient: str
+    recipient: string
 }
 
 /// Mail API for receiving and sending emails.
 @provider = Any
 protocol Mail {
     @timeout_ms = 1000
-    function send_message(message: Message) -> str ! RecipientNotFoundError;
+    function send_message(message: Message) -> string ! RecipientNotFoundError;
 }

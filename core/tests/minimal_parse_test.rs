@@ -3,7 +3,7 @@ use comline_core::schema::idl::grammar;
 
 #[test]
 fn test_minimal_working() {
-    let code = "struct User { name: str }";
+    let code = "struct User { name: string }";
     let result = grammar::parse(code);
     assert!(result.is_ok(), "Basic struct should parse");
 }

@@ -31,15 +31,15 @@ pub struct PrimitiveInfo {
     pub name: &'static str,
     pub class: PrimitiveClass,
     /// Bit width for a fixed-size primitive (including `bool`, sized at 8
-    /// — `size_of_type` packs it with `s8`/`u8`); `None` only for `str`/
-    /// `string` (genuinely unbounded).
+    /// — `size_of_type` packs it with `s8`/`u8`); `None` only for `string`
+    /// (genuinely unbounded).
     pub bits: Option<u16>,
     pub description: &'static str,
 }
 
 /// Every primitive type keyword the grammar defines, in the order
-/// `Type`'s own variants list them. Exactly 13 — `s8 s16 s32 s64 u8 u16
-/// u32 u64 f32 f64 bool str string`. No `i8`/`i16`/`i32`/`i64` — those
+/// `Type`'s own variants list them. Exactly 12 — `s8 s16 s32 s64 u8 u16
+/// u32 u64 f32 f64 bool string`. No `i8`/`i16`/`i32`/`i64` — those
 /// are not Comline syntax (signed integers are `s`-prefixed).
 pub const PRIMITIVES: &[PrimitiveInfo] = &[
     PrimitiveInfo { name: "s8", class: PrimitiveClass::Signed, bits: Some(8), description: "8-bit signed integer" },
@@ -53,8 +53,7 @@ pub const PRIMITIVES: &[PrimitiveInfo] = &[
     PrimitiveInfo { name: "f32", class: PrimitiveClass::Float, bits: Some(32), description: "32-bit floating point" },
     PrimitiveInfo { name: "f64", class: PrimitiveClass::Float, bits: Some(64), description: "64-bit floating point" },
     PrimitiveInfo { name: "bool", class: PrimitiveClass::Bool, bits: Some(8), description: "boolean" },
-    PrimitiveInfo { name: "str", class: PrimitiveClass::Text, bits: None, description: "string — the canonical spelling" },
-    PrimitiveInfo { name: "string", class: PrimitiveClass::Text, bits: None, description: "string — an accepted synonym for `str`" },
+    PrimitiveInfo { name: "string", class: PrimitiveClass::Text, bits: None, description: "UTF-8 text" },
 ];
 
 /// Which syntactic role a reserved word plays — not load-bearing for
@@ -98,10 +97,10 @@ pub struct KeywordInfo {
 }
 
 /// Every reserved word the grammar defines. Exactly 24 — deliberately
-/// excludes `bool`/`str`/`string`, which are reserved too but belong to
+/// excludes `bool`/`string`, which are reserved too but belong to
 /// [`PRIMITIVES`], not here.
 pub const KEYWORDS: &[KeywordInfo] = &[
-    KeywordInfo { text: "struct", kind: KeywordKind::Declaration, description: "A data shape — named, typed fields.", example: "struct S {\n    f: str\n}", contextual: false },
+    KeywordInfo { text: "struct", kind: KeywordKind::Declaration, description: "A data shape — named, typed fields.", example: "struct S {\n    f: string\n}", contextual: false },
     KeywordInfo { text: "enum", kind: KeywordKind::Declaration, description: "A closed set of named variants.", example: "enum E {\n    A\n}", contextual: false },
     KeywordInfo { text: "protocol", kind: KeywordKind::Declaration, description: "A set of callable functions.", example: "protocol P {\n    function f();\n}", contextual: false },
     KeywordInfo { text: "error", kind: KeywordKind::Declaration, description: "A named failure a function can raise, with an interpolated message.", example: "error E {\n    message = \"x\"\n}", contextual: false },
@@ -114,7 +113,7 @@ pub const KEYWORDS: &[KeywordInfo] = &[
     KeywordInfo { text: "function", kind: KeywordKind::Member, description: "A callable operation inside a protocol.", example: "protocol P {\n    function f();\n}", contextual: false },
     KeywordInfo { text: "validate", kind: KeywordKind::Member, description: "Introduces a validator's block of `assert(...)` checks.", example: "validator V {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "message", kind: KeywordKind::Member, description: "An error's required, interpolated failure text.", example: "error E {\n    message = \"x\"\n}", contextual: true },
-    KeywordInfo { text: "optional", kind: KeywordKind::Modifier, description: "Marks a struct/error field as not required.", example: "struct S {\n    optional f: str\n}", contextual: false },
+    KeywordInfo { text: "optional", kind: KeywordKind::Modifier, description: "Marks a struct/error field as not required.", example: "struct S {\n    optional f: string\n}", contextual: false },
     KeywordInfo { text: "self", kind: KeywordKind::PathPrefix, description: "In a `use` path, the current schema.", example: "use self::Type", contextual: false },
     KeywordInfo { text: "parent", kind: KeywordKind::PathPrefix, description: "In a `use` path, one namespace level up.", example: "use parent::Type", contextual: false },
     KeywordInfo { text: "package", kind: KeywordKind::PathPrefix, description: "In a `use` path, the package root.", example: "use package::Type", contextual: false },
@@ -122,7 +121,7 @@ pub const KEYWORDS: &[KeywordInfo] = &[
     KeywordInfo { text: "or", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V {\n    validate {\n        assert(1 == 1 or 2 == 3, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "true", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = true\n}", contextual: false },
     KeywordInfo { text: "false", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = false\n}", contextual: false },
-    KeywordInfo { text: "union", kind: KeywordKind::TypeConstructor, description: "An inline list of alternative types for one field.", example: "struct S {\n    f: union(u8 str)\n}", contextual: false },
+    KeywordInfo { text: "union", kind: KeywordKind::TypeConstructor, description: "An inline list of alternative types for one field.", example: "struct S {\n    f: union(u8 string)\n}", contextual: false },
     KeywordInfo { text: "as", kind: KeywordKind::Other, description: "Binds an import under a new local name.", example: "use pkg::Type as T", contextual: false },
     KeywordInfo { text: "assert", kind: KeywordKind::Other, description: "One check inside a validator's `validate` block.", example: "validator V {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
 ];
@@ -158,7 +157,6 @@ pub fn primitive_name_of(ty: &Type) -> Option<&'static str> {
         Type::F32(_) => "f32",
         Type::F64(_) => "f64",
         Type::Bool(_) => "bool",
-        Type::Str(_) => "str",
         Type::String(_) => "string",
         _ => return None,
     };

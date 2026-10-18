@@ -513,7 +513,7 @@ fn test_thrown_foreign_error_gets_a_reexport_slot() {
     add_schema(
         &mut project,
         &["api"],
-        "use errs::NotFound\n\nprotocol Store {\n    function get(u64) -> str ! NotFound;\n}\n",
+        "use errs::NotFound\n\nprotocol Store {\n    function get(u64) -> string ! NotFound;\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -555,7 +555,7 @@ fn test_local_errors_keep_low_ordinals_foreign_reexports_come_after() {
         &["api"],
         "use errs::Denied\n\n\
          error Local {\n    message = \"local\"\n}\n\
-         protocol Store {\n    function act(u64) -> str ! Denied;\n}\n",
+         protocol Store {\n    function act(u64) -> string ! Denied;\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");

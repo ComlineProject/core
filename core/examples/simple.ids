@@ -1,13 +1,13 @@
 const AGREEMENT_KEY: string = "agreement_key"
 
 struct Credentials {
-    username: str
-    password: str
+    username: string
+    password: string
 }
 
 struct CredentialsOther {
-    username: str
-    password: str
+    username: string
+    password: string
 }
 
 enum RegisterStatus {
@@ -17,8 +17,8 @@ enum RegisterStatus {
 
 protocol Registry {
     function register(Credentials) -> RegisterStatus;
-    function my_username() -> str;
-    function tell_back(str) -> str;
+    function my_username() -> string;
+    function tell_back(string) -> string;
 }
 
 struct TellBackResponse {

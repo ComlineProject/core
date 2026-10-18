@@ -4,10 +4,10 @@ enum Mood {
 }
 
 struct CantCarryError {
-    message: str
+    message: string
 }
 
 struct Ant {
     mood: Mood
-    name: str
+    name: string
 }

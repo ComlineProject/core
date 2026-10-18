@@ -6,7 +6,7 @@ mod array_tests {
 
     #[test]
     fn test_dynamic_array() {
-        let code = "struct Container { items: str[] }";
+        let code = "struct Container { items: string[] }";
         assert!(grammar::parse(code).is_ok());
     }
 

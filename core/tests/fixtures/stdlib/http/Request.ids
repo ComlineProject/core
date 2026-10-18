@@ -9,7 +9,7 @@ enum HttpMethod {
 
 struct Request {
     method: HttpMethod
-    uri: str
+    uri: string
 }
 
 protocol RequestOps {

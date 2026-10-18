@@ -19,7 +19,7 @@ fn test_struct_parsing() {
     println!("=== Test 1: Struct Parsing ===");
     let code = r#"
 struct User {
-    name: str
+    name: string
     age: u8
 }
 "#;
@@ -52,8 +52,8 @@ fn test_protocol_parsing() {
     println!("=== Test 3: Protocol Parsing ===");
     let code = r#"
 protocol UserService {
-    function getUser(u64) -> str;
-    function listUsers() -> str;
+    function getUser(u64) -> string;
+    function listUsers() -> string;
 }
 "#;
     println!("Code:\n{}", code);

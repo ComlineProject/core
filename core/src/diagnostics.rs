@@ -59,7 +59,7 @@ impl DiagnosticCode {
 /// A human-facing problem with a schema or package config: a stable code,
 /// a message, an optional short label for its span (`"unexpected here"`,
 /// `"Struct 'User'"`), an optional byte range into the source, and an
-/// optional suggestion (`"did you mean `str`?"`).
+/// optional suggestion (`"use `f32` or `f64`"`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
     pub code: DiagnosticCode,
@@ -356,7 +356,6 @@ fn most_informative(
 /// on its own - ported from the retired `schema::idl::diagnostics`.
 fn get_suggestion(token: &str) -> Option<String> {
     match token {
-        "string" => Some("did you mean `str`?".to_string()),
         "int" => Some("use sized integer types like `u32`, `s32`, `u64`, etc.".to_string()),
         "float" => Some("use `f32` or `f64`".to_string()),
         "array" => Some("use array syntax like `Type[]` or `Type[N]`".to_string()),
@@ -455,7 +454,7 @@ mod tests {
         // the outer span regardless of nesting depth.
         let errors = vec![ParseError {
             reason: ParseErrorReason::FailedNode(vec![ParseError {
-                reason: ParseErrorReason::UnexpectedToken("string".to_string()),
+                reason: ParseErrorReason::UnexpectedToken("int".to_string()),
                 start: 7,
                 end: 13,
             }]),
@@ -463,9 +462,12 @@ mod tests {
             end: 13,
         }];
         let d = from_parse_errors(&errors);
-        assert_eq!(d.message, "unexpected token `string`");
+        assert_eq!(d.message, "unexpected token `int`");
         assert_eq!(d.span, Some((7, 13)));
-        assert_eq!(d.help.as_deref(), Some("did you mean `str`?"));
+        assert_eq!(
+            d.help.as_deref(),
+            Some("use sized integer types like `u32`, `s32`, `u64`, etc.")
+        );
     }
 
     #[test]
@@ -535,7 +537,7 @@ mod tests {
         let d = Diagnostic::new(UNEXPECTED_TOKEN, "unexpected token `/`")
             .with_context("unexpected here")
             .with_span((8, 9));
-        let rendered = render(&d, "main.ids", "struct Foo {\n  / bar: str\n}\n");
+        let rendered = render(&d, "main.ids", "struct Foo {\n  / bar: string\n}\n");
         assert!(rendered.contains("main.ids"), "{rendered}");
         assert!(rendered.contains("unexpected token"), "{rendered}");
         assert!(rendered.contains("parse::unexpected-token"), "code should appear: {rendered}");
@@ -550,7 +552,7 @@ mod tests {
             .with_context("'x.allowed' set here")
             .with_span((8, 9))
             .with_secondary_span((20, 26), "struct 'S'");
-        let source = "settings { x.allowed = Tru }\nstruct S { @x message: str }\n";
+        let source = "settings { x.allowed = Tru }\nstruct S { @x message: string }\n";
         let rendered = render(&d, "main.ids", source);
         assert!(rendered.contains("main.ids"), "{rendered}");
         assert!(rendered.contains("must be a boolean"), "{rendered}");
@@ -574,7 +576,7 @@ mod tests {
 
     #[test]
     fn render_maps_severity_to_the_right_ariadne_report_kind() {
-        let source = "struct Foo {\n  / bar: str\n}\n";
+        let source = "struct Foo {\n  / bar: string\n}\n";
         let at = |severity_ctor: fn(&'static str) -> DiagnosticCode, expect: &str| {
             let code = severity_ctor("test::example");
             let d = Diagnostic::new(code, "message").with_span((0, 1));
@@ -604,7 +606,7 @@ mod tests {
 
     #[test]
     fn render_uses_the_overridden_severity_not_the_codes_own() {
-        let source = "struct Foo {\n  / bar: str\n}\n";
+        let source = "struct Foo {\n  / bar: string\n}\n";
         let d = Diagnostic::new(DiagnosticCode::warning("test::example"), "message")
             .with_span((0, 1))
             .with_severity_override(Severity::Error);
@@ -692,7 +694,7 @@ mod tests {
 
     #[test]
     fn an_arrow_inside_a_comment_or_string_is_not_checked() {
-        let source = "// f() -> ;\nconst S: str = \"-> ;\"\n/* -> } */\n";
+        let source = "// f() -> ;\nconst S: string = \"-> ;\"\n/* -> } */\n";
         assert!(find_missing_return_types(source).is_empty());
     }
 

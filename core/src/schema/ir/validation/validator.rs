@@ -194,7 +194,7 @@ pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>
                     if let Some(diagnostic) = out_of_range(type_name, &context, Some(*span)) {
                         errors.push(diagnostic);
                     } else {
-                        errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: None, secondary: None, severity_override: None,
+                        errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(type_name), secondary: None, severity_override: None,
                             message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
                             context,
                             span: Some(*span),
@@ -762,7 +762,7 @@ fn validate_type(
                 if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
                     message.push_str(&format!(" - did you mean '{}'?", suggestion));
                 }
-                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: None, secondary: None, severity_override: None,
+                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: text_type_hint(base_type), secondary: None, severity_override: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),
@@ -886,6 +886,18 @@ fn expected_value_type(kind: &KindValue) -> Option<ValueType> {
 /// type reference, for a "did you mean 'X'?" suggestion - `None` if
 /// nothing is close enough to plausibly be a typo rather than just an
 /// unrelated, genuinely nonexistent name.
+/// The text type is spelled `string`. `str` was an accepted spelling until
+/// it was removed outright (no deprecation period - pre-1.0), and `String`
+/// is what the type generates to in Rust; both now parse as an ordinary
+/// unknown name, so say what to write instead.
+fn text_type_hint(type_name: &str) -> Option<String> {
+    match type_name {
+        "str" => Some("`str` was removed; use `string`".to_string()),
+        "String" => Some("the text type is spelled `string`".to_string()),
+        _ => None,
+    }
+}
+
 fn suggest_similar_name(target: &str, symbols: &SymbolTable) -> Option<String> {
     // Allow up to half the target's length to differ (rounded up, at
     // least 1). A single transposition - swapping two adjacent letters,

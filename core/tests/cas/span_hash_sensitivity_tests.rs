@@ -11,8 +11,8 @@ use comline_core::schema::ir::frozen::cas::blob::frozen_unit_to_blob;
 
 #[test]
 fn test_reformatting_changes_blob_hash_but_not_semantic_diff() {
-    let compact = "struct User {\n    id: u64\n    name: str\n}\n";
-    let reformatted = "struct User {\n\n    id: u64\n    name: str\n\n}\n";
+    let compact = "struct User {\n    id: u64\n    name: string\n}\n";
+    let reformatted = "struct User {\n\n    id: u64\n    name: string\n\n}\n";
 
     let compact_units = IncrementalInterpreter::from_source(compact);
     let reformatted_units = IncrementalInterpreter::from_source(reformatted);
