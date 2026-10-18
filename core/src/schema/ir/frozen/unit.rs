@@ -177,6 +177,14 @@ pub enum FrozenUnit {
     ValidatorRef {
         name: String,
         args: Vec<FrozenUnit>,
+        /// The validator's name where it's called, for diagnostics; `(0, 0)`
+        /// when unknown.
+        #[serde(default)]
+        span: (usize, usize),
+        /// Each argument's name where it's written, by index into `args`;
+        /// empty when unknown.
+        #[serde(default)]
+        arg_spans: Vec<(usize, usize)>,
     },
     Field {
         docstring: Option<String>,

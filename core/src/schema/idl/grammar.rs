@@ -739,7 +739,8 @@ pub mod grammar {
     /// arguments - or a bare `Name`, the same as `Name()`.
     #[derive(Debug, Clone)]
     pub struct AnnotationCall {
-        pub name: Identifier,
+        /// Spanned so a diagnostic about the call can point at its name.
+        pub name: rust_sitter::Spanned<Identifier>,
         #[rust_sitter::repeat(non_empty = false)]
         pub call: Option<AnnotationCallArgs>,
     }
@@ -761,7 +762,8 @@ pub mod grammar {
 
     #[derive(Debug, Clone)]
     pub struct AnnotationArg {
-        pub name: Identifier,
+        /// Spanned so a diagnostic about the argument can point at its name.
+        pub name: rust_sitter::Spanned<Identifier>,
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
         pub value: Expression,

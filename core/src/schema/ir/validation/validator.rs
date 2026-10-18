@@ -366,9 +366,11 @@ pub fn validate_with(
     for site in validated_sites(units) {
         let span = &site.span;
         for param in site.parameters {
-            let FrozenUnit::ValidatorRef { name: vname, args } = param else {
+            let FrozenUnit::ValidatorRef { name: vname, args, span: call_span, arg_spans } = param else {
                 continue;
             };
+            // The call's own name, when the lowering recorded it.
+            let span = &known_or(*call_span, *span);
 
             // The other schema isn't loaded here, so any import that could
             // supply `vname` means we can't judge it.
@@ -380,7 +382,7 @@ pub fn validate_with(
                 Some(SymbolType::Validator) => {
                     // Locally declared - check the keyword arguments.
                     if let Some(fields) = validator_fields.get(vname.as_str()) {
-                        check_validator_arguments(vname, fields, args, &field_ctx, *span, &mut errors);
+                        check_validator_arguments(vname, fields, args, arg_spans, &field_ctx, *span, &mut errors);
                     }
                 }
                 Some(other) if other != SymbolType::Import => {
@@ -395,7 +397,7 @@ pub fn validate_with(
                 // there's nothing to judge against.
                 _ if maybe_imported => {
                     if let Some(fields) = imports.validator_properties(vname) {
-                        check_validator_arguments(vname, &fields, args, &field_ctx, *span, &mut errors);
+                        check_validator_arguments(vname, &fields, args, arg_spans, &field_ctx, *span, &mut errors);
                     }
                 }
                 _ => {
@@ -547,9 +549,10 @@ fn check_validator_targets(
         }
 
         for param in site.parameters {
-            let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
+            let FrozenUnit::ValidatorRef { name: vname, span: call_span, .. } = param else {
                 continue;
             };
+            let span = &known_or(*call_span, *span);
             // A local validator without targets was reported above, and
             // an unknown name by pass 2.5 - neither has anything to match.
             let targets: Vec<(TypeRef, TypeRef)> = match local_targets.get(vname.as_str()) {
@@ -1124,16 +1127,20 @@ pub(crate) fn is_primitive(name: &str) -> bool {
 /// The keyword arguments of one `@validators` call against the validator's
 /// properties (`fields`): each names a property, at most once, with a value of
 /// its type, and every property without a default is given.
+///
+/// An argument's error points at its name (`arg_spans`, by index into
+/// `args`), anything about the call as a whole at `span`.
 fn check_validator_arguments(
     vname: &str,
     fields: &[FrozenUnit],
     args: &[FrozenUnit],
+    arg_spans: &[(usize, usize)],
     context: &str,
     span: (usize, usize),
     errors: &mut Vec<Diagnostic>,
 ) {
     let props = prop_names(fields);
-    let mut error = |code, message| {
+    let mut error = |code, message, span| {
         errors.push(Diagnostic { code, help: None, secondary: None, severity_override: None,
             message,
             context: context.to_string(),
@@ -1145,12 +1152,13 @@ fn check_validator_arguments(
     // Properties an unknown argument was taken for (`mni` - did you mean
     // `min`?): already reported, so not again as missing.
     let mut suggested: Vec<String> = Vec::new();
-    for arg in args {
+    for (i, arg) in args.iter().enumerate() {
         let FrozenUnit::Property { name: kw, value: val } = arg else {
             continue;
         };
+        let at = known_or(arg_spans.get(i).copied().unwrap_or_default(), span);
         if seen.contains(&kw.as_str()) {
-            error(DUPLICATE_VALIDATOR_ARGUMENT, format!("duplicate argument '{}' to validator '{}'", kw, vname));
+            error(DUPLICATE_VALIDATOR_ARGUMENT, format!("duplicate argument '{}' to validator '{}'", kw, vname), at);
             continue;
         }
         seen.push(kw.as_str());
@@ -1160,7 +1168,7 @@ fn check_validator_arguments(
                 message.push_str(&format!(" - did you mean '{}'?", s));
                 suggested.push(s);
             }
-            error(UNKNOWN_VALIDATOR_ARGUMENT, message);
+            error(UNKNOWN_VALIDATOR_ARGUMENT, message, at);
             continue;
         }
 
@@ -1179,6 +1187,7 @@ fn check_validator_arguments(
                     "validator '{}': argument '{}' expects {}, got {}",
                     vname, kw, mismatch.expected, mismatch.found
                 ),
+                at,
             );
         }
     }
@@ -1188,10 +1197,15 @@ fn check_validator_arguments(
     for field in fields {
         if let FrozenUnit::Field { name: prop, default: None, .. } = field {
             if !seen.contains(&prop.as_str()) && !suggested.contains(prop) {
-                error(MISSING_VALIDATOR_ARGUMENT, format!("validator '{}' is missing argument '{}'", vname, prop));
+                error(MISSING_VALIDATOR_ARGUMENT, format!("validator '{}' is missing argument '{}'", vname, prop), span);
             }
         }
     }
+}
+
+/// `span`, unless it's the `(0, 0)` of a unit frozen without one.
+fn known_or(span: (usize, usize), fallback: (usize, usize)) -> (usize, usize) {
+    if span == (0, 0) { fallback } else { span }
 }
 
 fn prop_names(props: &[FrozenUnit]) -> Vec<&str> {

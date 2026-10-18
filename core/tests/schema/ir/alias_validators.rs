@@ -21,9 +21,8 @@ fn messages(code: &str) -> Vec<String> {
 
 #[test]
 fn an_alias_freezes_its_validators() {
-    let units = IncrementalInterpreter::from_source(&format!(
-        "{BOUNDS}@validators = [Bounds(max = 5)]\ntype AccountName = string\n"
-    ));
+    let source = format!("{BOUNDS}@validators = [Bounds(max = 5)]\ntype AccountName = string\n");
+    let units = IncrementalInterpreter::from_source(&source);
     let parameters = units
         .iter()
         .find_map(|u| match u {
@@ -33,6 +32,9 @@ fn an_alias_freezes_its_validators() {
             _ => None,
         })
         .expect("the alias");
+    // The call's name and each argument's name, where they're written.
+    let call = source.rfind("Bounds(").unwrap();
+    let max = source.rfind("max = 5").unwrap();
     assert_eq!(
         *parameters,
         [FrozenUnit::ValidatorRef {
@@ -41,6 +43,8 @@ fn an_alias_freezes_its_validators() {
                 name: "max".to_string(),
                 value: ConfigValue::Integer(5),
             }],
+            span: (call, call + "Bounds".len()),
+            arg_spans: vec![(max, max + "max".len())],
         }]
     );
     assert!(validate(&units).is_ok());
@@ -166,9 +170,11 @@ fn a_stand_in_import_is_not_judged_against_a_validator() {
 
 #[test]
 fn a_bare_validator_name_is_a_call_with_no_arguments() {
-    let units = IncrementalInterpreter::from_source(&format!(
-        "{BOUNDS}@validators = [Bounds, Bounds(max = 5)]\ntype AccountName = string\n"
-    ));
+    let source = format!("{BOUNDS}@validators = [Bounds, Bounds(max = 5)]\ntype AccountName = string\n");
+    let units = IncrementalInterpreter::from_source(&source);
+    let bare = source.rfind("Bounds, ").unwrap();
+    let call = source.rfind("Bounds(").unwrap();
+    let max = source.rfind("max = 5").unwrap();
     let parameters = units
         .iter()
         .find_map(|u| match u {
@@ -179,10 +185,17 @@ fn a_bare_validator_name_is_a_call_with_no_arguments() {
     assert_eq!(
         *parameters,
         [
-            FrozenUnit::ValidatorRef { name: "Bounds".to_string(), args: vec![] },
+            FrozenUnit::ValidatorRef {
+                name: "Bounds".to_string(),
+                args: vec![],
+                span: (bare, bare + "Bounds".len()),
+                arg_spans: vec![],
+            },
             FrozenUnit::ValidatorRef {
                 name: "Bounds".to_string(),
                 args: vec![FrozenUnit::Property { name: "max".to_string(), value: ConfigValue::Integer(5) }],
+                span: (call, call + "Bounds".len()),
+                arg_spans: vec![(max, max + "max".len())],
             },
         ]
     );
@@ -197,4 +210,38 @@ fn a_bare_validator_name_still_needs_its_required_arguments() {
     assert_eq!(messages(code), ["validator 'Range' is missing argument 'min'"]);
     // Written out, it's fine - and so is leaving out one with a default.
     assert!(messages(&code.replace("[Range]", "[Range(min = 1)]")).is_empty());
+}
+
+/// A validator's errors point at what's wrong: an unknown validator at its
+/// name, a wrong argument at that argument - not the whole declaration.
+#[test]
+fn validator_errors_point_at_the_call() {
+    let spans = |code: &str| -> Vec<(String, String)> {
+        validate(&IncrementalInterpreter::from_source(code))
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| {
+                let (start, end) = e.span.expect("a span");
+                (e.message, code[start..end].to_string())
+            })
+            .collect()
+    };
+
+    let code = "@validators = [Pos]\ntype FixedNum = string\n";
+    assert_eq!(spans(code), [("Unknown validator 'Pos'".to_string(), "Pos".to_string())]);
+
+    let code = format!("{BOUNDS}@validators = [Bounds(maxx = 1)]\ntype Name = string\n");
+    assert_eq!(
+        spans(&code),
+        [("validator 'Bounds' has no argument 'maxx' - did you mean 'max'?".to_string(), "maxx".to_string())]
+    );
+
+    let code = format!("{BOUNDS}@validators = [Bounds()]\ntype Count = u32\n");
+    assert_eq!(spans(&code), [("validator 'Bounds' applies to `string`, not `u32`".to_string(), "Bounds".to_string())]);
+
+    let code = "validator Range for u32 {\n    min: u32\n    validate {\n        \
+                assert(value >= params.min, \"{value.name}\")\n    }\n}\n\
+                struct S {\n    @validators = [Range]\n    n: u32\n}\n";
+    assert_eq!(spans(code), [("validator 'Range' is missing argument 'min'".to_string(), "Range".to_string())]);
 }

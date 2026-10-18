@@ -138,7 +138,7 @@ struct Message {
         let FrozenUnit::Field { parameters: rcpt_params, .. } = &fields[1] else {
             panic!("expected Field, got {:?}", fields[1]);
         };
-        let FrozenUnit::ValidatorRef { name, args } = &rcpt_params[0] else {
+        let FrozenUnit::ValidatorRef { name, args, .. } = &rcpt_params[0] else {
             panic!("expected ValidatorRef, got {:?}", rcpt_params[0]);
         };
         assert_eq!(name, "StringBounds");
