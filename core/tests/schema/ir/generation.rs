@@ -231,7 +231,7 @@ protocol P {
 
         let code = r#"
 /// Bounds a string's length.
-validator StringBounds {
+validator StringBounds for string {
     min_chars: u32 = 0
     max_chars: u32 = 1024
 
@@ -757,7 +757,7 @@ struct Company {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
         use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
-        let code = "type Count = u32\nvalidator Bounded {\n    max: Count\n}\n";
+        let code = "type Count = u32\nvalidator Bounded for string {\n    max: Count\n}\n";
         let ir_units = IncrementalInterpreter::from_source(code);
 
         assert_eq!(ir_units.len(), 2);

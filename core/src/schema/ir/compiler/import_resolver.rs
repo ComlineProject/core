@@ -14,6 +14,8 @@ use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::utils::text::closest;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
+use crate::schema::ir::compiler::interpreter::incremental::type_to_string;
+use crate::schema::ir::validation::ImportLookup;
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
 
@@ -452,6 +454,95 @@ pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> b
         Declaration::TypeAlias(t) => t.name.text == symbol,
         _ => false,
     })
+}
+
+/// The `for` targets of the validator `name` declared in `declarations`,
+/// with that schema's own aliases resolved. `None` when it declares no such
+/// validator. Shared by the build's [`ProjectImports`] and the language
+/// server, which differ only in how they find the declaring schema.
+pub fn declared_validator_targets(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    name: &str,
+) -> Option<Vec<String>> {
+    declarations.iter().find_map(|decl| match &decl.value {
+        Declaration::Validator(v) if v.name() == name => Some(
+            v.targets()
+                .into_iter()
+                .map(|t| resolve_local_aliases(declarations, type_to_string(t)))
+                .collect(),
+        ),
+        _ => None,
+    })
+}
+
+/// What the `type` alias `name` declared in `declarations` stands for, with
+/// that schema's own aliases resolved. `None` when it declares no such alias.
+pub fn declared_alias_target(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    name: &str,
+) -> Option<String> {
+    declarations.iter().find_map(|decl| match &decl.value {
+        Declaration::TypeAlias(a) if a.name() == name => {
+            Some(resolve_local_aliases(declarations, type_to_string(a.target_type())))
+        }
+        _ => None,
+    })
+}
+
+/// `written` with each alias `declarations` declares replaced by its target,
+/// keeping array dimensions. Bounded: an alias cycle is reported elsewhere.
+fn resolve_local_aliases(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    written: String,
+) -> String {
+    let mut base = written;
+    let mut dims = 0;
+    for _ in 0..32 {
+        while let Some(inner) = base.strip_suffix("[]") {
+            base = inner.to_string();
+            dims += 1;
+        }
+        let next = declarations.iter().find_map(|decl| match &decl.value {
+            Declaration::TypeAlias(a) if a.name() == base => Some(type_to_string(a.target_type())),
+            _ => None,
+        });
+        match next {
+            Some(target) => base = target,
+            None => break,
+        }
+    }
+    base + &"[]".repeat(dims)
+}
+
+/// [`ImportLookup`] for a build: follows a schema's `use` statements through
+/// its [`ProjectContext`] (std included) to the schema that declares a name.
+pub struct ProjectImports<'a> {
+    pub declarations: &'a [rust_sitter::Spanned<Declaration>],
+    pub namespace: &'a [String],
+    pub project: &'a ProjectContext,
+}
+
+impl ProjectImports<'_> {
+    fn declaring_schema(&self, name: &str) -> Option<(Rc<RefCell<SchemaContext>>, String)> {
+        let bare = name.rsplit("::").next()?.to_string();
+        let schema =
+            find_schema_bringing_into_scope(&bare, self.declarations, self.namespace, self.project)?;
+        Some((schema, bare))
+    }
+}
+
+impl ImportLookup for ProjectImports<'_> {
+    fn validator_targets(&self, name: &str) -> Option<Vec<String>> {
+        let (schema, bare) = self.declaring_schema(name)?;
+        let schema = schema.borrow();
+        declared_validator_targets(&schema.declarations, &bare)
+    }
+
+    fn alias_target(&self, name: &str) -> Option<String> {
+        let (schema, bare) = self.declaring_schema(name)?;
+        let schema = schema.borrow();
+        declared_alias_target(&schema.declarations, &bare)
+    }
 }
 
 /// All top-level symbol (struct/enum/protocol/const/type-alias) names a

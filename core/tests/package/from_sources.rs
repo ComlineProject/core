@@ -465,3 +465,56 @@ fn an_ordinary_schema_name_still_builds() {
         .compile()
         .expect("'greeting.ids' is a perfectly good name");
 }
+
+/// An imported validator's targets are checked too - `std`'s `StringBounds`
+/// is the case that matters most, and it used to be skipped entirely
+/// because its declaration isn't among the importing schema's own units.
+#[test]
+fn an_imported_validator_is_checked_against_the_field_type() {
+    let err = PackageSources::new()
+        .schema(
+            ["api"],
+            "use std::validators::StringBounds\n\nstruct S {\n    @validators = [StringBounds(min_chars = 1)]\n    n: s32\n}\n",
+        )
+        .compile()
+        .err()
+        .expect("StringBounds on an s32 field must not build");
+    let text = err.to_string();
+    assert!(text.contains("validator 'StringBounds' applies to `string`, not `s32`"), "{text}");
+
+    PackageSources::new()
+        .schema(
+            ["api"],
+            "use std::validators::StringBounds\n\nstruct S {\n    @validators = [StringBounds(min_chars = 1)]\n    n: string\n}\n",
+        )
+        .compile()
+        .expect("StringBounds on a string field builds");
+}
+
+/// Both the validator and the alias a field uses can come from another
+/// schema of the same package.
+#[test]
+fn an_imported_alias_resolves_before_matching() {
+    let types = "type AccountName = string\ntype Count = u32\n\n\
+                 validator NonEmpty for string {\n    validate {\n        assert(value.length > 0, \"{value.name} is empty\")\n    }\n}\n";
+    PackageSources::new()
+        .schema(["types"], types)
+        .schema(
+            ["api"],
+            "use types::{AccountName, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    name: AccountName\n}\n",
+        )
+        .compile()
+        .expect("an alias of string matches `for string`");
+
+    let err = PackageSources::new()
+        .schema(["types"], types)
+        .schema(
+            ["api"],
+            "use types::{Count, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    n: Count\n}\n",
+        )
+        .compile()
+        .err()
+        .expect("an alias of u32 does not match `for string`");
+    let text = err.to_string();
+    assert!(text.contains("applies to `string`, not `Count` (`u32`)"), "{text}");
+}

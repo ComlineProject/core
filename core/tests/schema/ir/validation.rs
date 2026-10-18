@@ -1052,7 +1052,7 @@ mod duplicate_declaration_diagnostics {
     fn a_validator_colliding_with_a_struct_is_spanned() {
         let code = concat!(
             "struct Bounded {\n    a: string\n}\n\n",
-            "validator Bounded {\n    min: u32 = 1\n\n    validate {\n",
+            "validator Bounded for string {\n    min: u32 = 1\n\n    validate {\n",
             "        assert(value.length >= params.min, \"too short\")\n    }\n}\n",
         );
         let errors = validate(&IncrementalInterpreter::from_source(code)).unwrap_err();

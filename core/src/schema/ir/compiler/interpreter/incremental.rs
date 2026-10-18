@@ -319,10 +319,17 @@ impl IncrementalInterpreter {
                         })
                         .collect();
 
+                    let targets = validator_def
+                        .targets()
+                        .into_iter()
+                        .map(|target| build_kind_value(target, None))
+                        .collect();
+
                     frozen_units.push(FrozenUnit::Validator {
                         docstring: validator_def.docstring(),
                         properties,
                         name: validator_def.name(),
+                        targets,
                         expression_block: Box::new(FrozenUnit::ExpressionBlock { asserts }),
                         span,
                     });
@@ -606,7 +613,7 @@ fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue
 ///
 /// A default is only captured when it's a simple literal matching the
 /// type's own primitive kind (an integer for a sized int, a string for
-/// `str`/`string`, etc.) - anything else (an identifier/const reference,
+/// `string`, etc.) - anything else (an identifier/const reference,
 /// a non-primitive type) falls back to the same unvalued `Namespaced`
 /// representation as if no default had been given at all. This mirrors
 /// `const`'s pre-existing behavior exactly; it isn't a new limitation
@@ -725,7 +732,7 @@ fn integer_primitive(name: &str, literal: i64) -> Option<Primitive> {
     })
 }
 
-fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
+pub(crate) fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
     match type_def {
         crate::schema::idl::grammar::Type::U8(_) => "u8".to_string(),
         crate::schema::idl::grammar::Type::U16(_) => "u16".to_string(),

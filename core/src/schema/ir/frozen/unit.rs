@@ -156,6 +156,11 @@ pub enum FrozenUnit {
         docstring: Option<String>,
         properties: Vec<FrozenUnit>,
         name: String,
+        /// The types after `for`, frozen the same way a field's type is.
+        /// Empty only for a validator written without `for`, which
+        /// validation rejects.
+        #[serde(default)]
+        targets: Vec<KindValue>,
         expression_block: Box<FrozenUnit>,
         /// Always present - a `validator` is only ever frozen from a local
         /// declaration, never re-exported the way an `error` is.

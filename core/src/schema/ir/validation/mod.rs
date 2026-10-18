@@ -10,3 +10,5 @@ use crate::schema::ir::frozen::unit::FrozenUnit;
 pub fn validate(units: &[FrozenUnit]) -> Result<Vec<Diagnostic>, Vec<Diagnostic>> {
     validator::validate(units)
 }
+
+pub use validator::{validate_with, ImportLookup, NoImports};

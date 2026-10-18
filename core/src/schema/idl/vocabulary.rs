@@ -96,7 +96,7 @@ pub struct KeywordInfo {
     pub contextual: bool,
 }
 
-/// Every reserved word the grammar defines. Exactly 24 — deliberately
+/// Every reserved word the grammar defines. Exactly 25 — deliberately
 /// excludes `bool`/`string`, which are reserved too but belong to
 /// [`PRIMITIVES`], not here.
 pub const KEYWORDS: &[KeywordInfo] = &[
@@ -107,23 +107,24 @@ pub const KEYWORDS: &[KeywordInfo] = &[
     KeywordInfo { text: "const", kind: KeywordKind::Declaration, description: "A compile-time constant.", example: "const N: u8 = 1", contextual: false },
     KeywordInfo { text: "type", kind: KeywordKind::Declaration, description: "A transparent alias for another type.", example: "type T = u8", contextual: false },
     KeywordInfo { text: "settings", kind: KeywordKind::Declaration, description: "Schema-wide switches — parsed, not yet enforced.", example: "settings S {\n    k = true\n}", contextual: false },
-    KeywordInfo { text: "validator", kind: KeywordKind::Declaration, description: "A named, parameterised field check.", example: "validator V {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
+    KeywordInfo { text: "validator", kind: KeywordKind::Declaration, description: "A named, parameterised field check.", example: "validator V for string {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "use", kind: KeywordKind::Declaration, description: "Pull declarations in from another schema or package.", example: "use pkg::Type", contextual: false },
     KeywordInfo { text: "import", kind: KeywordKind::Declaration, description: "The older single-item import form, still accepted.", example: "import pkg::Type", contextual: false },
     KeywordInfo { text: "function", kind: KeywordKind::Member, description: "A callable operation inside a protocol.", example: "protocol P {\n    function f();\n}", contextual: false },
-    KeywordInfo { text: "validate", kind: KeywordKind::Member, description: "Introduces a validator's block of `assert(...)` checks.", example: "validator V {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
+    KeywordInfo { text: "validate", kind: KeywordKind::Member, description: "Introduces a validator's block of `assert(...)` checks.", example: "validator V for string {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "message", kind: KeywordKind::Member, description: "An error's required, interpolated failure text.", example: "error E {\n    message = \"x\"\n}", contextual: true },
     KeywordInfo { text: "optional", kind: KeywordKind::Modifier, description: "Marks a struct/error field as not required.", example: "struct S {\n    optional f: string\n}", contextual: false },
     KeywordInfo { text: "self", kind: KeywordKind::PathPrefix, description: "In a `use` path, the current schema.", example: "use self::Type", contextual: false },
     KeywordInfo { text: "parent", kind: KeywordKind::PathPrefix, description: "In a `use` path, one namespace level up.", example: "use parent::Type", contextual: false },
     KeywordInfo { text: "package", kind: KeywordKind::PathPrefix, description: "In a `use` path, the package root.", example: "use package::Type", contextual: false },
-    KeywordInfo { text: "and", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V {\n    validate {\n        assert(1 == 1 and 2 == 2, \"x\")\n    }\n}", contextual: false },
-    KeywordInfo { text: "or", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V {\n    validate {\n        assert(1 == 1 or 2 == 3, \"x\")\n    }\n}", contextual: false },
+    KeywordInfo { text: "and", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V for string {\n    validate {\n        assert(1 == 1 and 2 == 2, \"x\")\n    }\n}", contextual: false },
+    KeywordInfo { text: "or", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V for string {\n    validate {\n        assert(1 == 1 or 2 == 3, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "true", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = true\n}", contextual: false },
     KeywordInfo { text: "false", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = false\n}", contextual: false },
     KeywordInfo { text: "union", kind: KeywordKind::TypeConstructor, description: "An inline list of alternative types for one field.", example: "struct S {\n    f: union(u8 string)\n}", contextual: false },
+    KeywordInfo { text: "for", kind: KeywordKind::Other, description: "Names the type(s) a validator applies to.", example: "validator NonEmpty for string {\n    validate {\n        assert(value.length > 0, \"{value.name} is empty\")\n    }\n}", contextual: false },
     KeywordInfo { text: "as", kind: KeywordKind::Other, description: "Binds an import under a new local name.", example: "use pkg::Type as T", contextual: false },
-    KeywordInfo { text: "assert", kind: KeywordKind::Other, description: "One check inside a validator's `validate` block.", example: "validator V {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
+    KeywordInfo { text: "assert", kind: KeywordKind::Other, description: "One check inside a validator's `validate` block.", example: "validator V for string {\n    validate {\n        assert(1 == 1, \"x\")\n    }\n}", contextual: false },
 ];
 
 /// Look up a primitive by its surface name.

@@ -5,7 +5,9 @@ use std::collections::{HashMap, HashSet};
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
-use crate::schema::ir::compiler::import_resolver::{check_imports, resolve_use_to_schema, ImportResolver};
+use crate::schema::ir::compiler::import_resolver::{
+    check_imports, resolve_use_to_schema, ImportResolver, ProjectImports,
+};
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
@@ -74,7 +76,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         }
 
         let mut frozen_units = IncrementalInterpreter::from_declarations_with_context(
-            declarations,
+            declarations.clone(),
             &namespace,
             project_context,
         );
@@ -83,7 +85,12 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
 
-        match validation::validate(&frozen_units) {
+        let imports = ProjectImports {
+            declarations: &declarations,
+            namespace: &namespace,
+            project: project_context,
+        };
+        match validation::validate_with(&frozen_units, &imports) {
             Ok(warnings) => {
                 let (warnings, fatal) = resolve_diagnostic_overrides(
                     &frozen_units, warnings, &package_settings_dict, &package_settings_spans,
