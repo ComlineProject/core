@@ -533,6 +533,11 @@ fn an_imported_validator_without_a_default_needs_its_argument() {
     let text = build("AtLeast");
     assert!(text.contains("validator 'AtLeast' is missing argument 'min'"), "{text}");
     assert_eq!(build("AtLeast(min = 1)"), "");
+
+    // Misspelled, it's reported once: as the misspelling.
+    let text = build("AtLeast(mni = 1)");
+    assert!(text.contains("did you mean 'min'?"), "{text}");
+    assert!(!text.contains("missing argument"), "{text}");
 }
 
 /// Both the validator and the alias a field uses can come from another

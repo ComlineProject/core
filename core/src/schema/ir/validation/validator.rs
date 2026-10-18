@@ -1142,6 +1142,9 @@ fn check_validator_arguments(
     };
 
     let mut seen: Vec<&str> = Vec::new();
+    // Properties an unknown argument was taken for (`mni` - did you mean
+    // `min`?): already reported, so not again as missing.
+    let mut suggested: Vec<String> = Vec::new();
     for arg in args {
         let FrozenUnit::Property { name: kw, value: val } = arg else {
             continue;
@@ -1155,6 +1158,7 @@ fn check_validator_arguments(
             let mut message = format!("validator '{}' has no argument '{}'", vname, kw);
             if let Some(s) = closest(kw, props.iter().copied()) {
                 message.push_str(&format!(" - did you mean '{}'?", s));
+                suggested.push(s);
             }
             error(UNKNOWN_VALIDATOR_ARGUMENT, message);
             continue;
@@ -1183,7 +1187,7 @@ fn check_validator_arguments(
     // none.
     for field in fields {
         if let FrozenUnit::Field { name: prop, default: None, .. } = field {
-            if !seen.contains(&prop.as_str()) {
+            if !seen.contains(&prop.as_str()) && !suggested.contains(prop) {
                 error(MISSING_VALIDATOR_ARGUMENT, format!("validator '{}' is missing argument '{}'", vname, prop));
             }
         }
