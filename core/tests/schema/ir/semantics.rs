@@ -823,7 +823,12 @@ fn a_validator_without_asserts_warns_once() {
         assert_eq!(warnings[0].code.id, "validation::validator-checks-nothing");
         assert_eq!(warnings[0].message, "validator 'Positive' checks nothing: it has no `assert`");
         assert!(warnings[0].span.is_some());
+        // `value.length` would itself be an error for a `u8`.
+        let help = warnings[0].help.as_deref().unwrap();
+        assert!(help.contains("assert(value > 0,") && !help.contains("length"), "{help}");
     }
+    let text = validation_warnings("validator Named for string {\n}\n");
+    assert!(text[0].help.as_deref().unwrap().contains("value.length > 0"), "{text:?}");
 }
 
 #[test]

@@ -371,7 +371,7 @@ pub fn validate_with(
     // reads. Both build, so both warn: the first passes every value, the
     // second can be set in a call and has no effect.
     for unit in units {
-        let FrozenUnit::Validator { name, properties, expression_block, span, .. } = unit else {
+        let FrozenUnit::Validator { name, properties, targets, expression_block, span, .. } = unit else {
             continue;
         };
         let asserts: &[FrozenUnit] = match &**expression_block {
@@ -381,6 +381,13 @@ pub fn validate_with(
         if asserts.is_empty() {
             // Its properties are unused too, but that's the same omission:
             // one warning, not one per property.
+            // An example that is valid for what it checks: `value.length`
+            // only exists for a string or an array.
+            let example = if !targets.is_empty() && targets.iter().all(has_length) {
+                "assert(value.length > 0, \"{value.name} is empty\")"
+            } else {
+                "assert(value > 0, \"{value.name} must be positive\")"
+            };
             warnings.push(
                 Diagnostic::new(
                     VALIDATOR_CHECKS_NOTHING,
@@ -388,10 +395,9 @@ pub fn validate_with(
                 )
                 .with_context(format!("Validator '{name}'"))
                 .with_span(*span)
-                .with_help(
-                    "add a `validate` block with an assert, e.g. \
-                     `validate { assert(value.length > 0, \"{value.name} is empty\") }`",
-                ),
+                .with_help(format!(
+                    "add a `validate` block with an assert, e.g. `validate {{ {example} }}`"
+                )),
             );
             continue;
         }
