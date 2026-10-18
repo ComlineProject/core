@@ -304,31 +304,25 @@ pub mod grammar {
         _close: (),
     }
 
-    /// message = "...{placeholder}..." - always required, every real
-    /// example has one.
+    /// message = "..." or f"...{placeholder}..." - always required, every
+    /// real example has one.
     #[derive(Debug, Clone)]
     pub struct ErrorMessage {
         #[rust_sitter::leaf(text = "message")]
         _message: (),
         #[rust_sitter::leaf(text = "=")]
         _eq: (),
-        pub value: InterpolatedString,
+        pub value: rust_sitter::Spanned<MessageText>,
     }
 
-    /// An interpolated string: `{path}` substitutes a dotted-path value;
-    /// a doubled brace (`{{` / `}}`) is an escaped literal `{`/`}`; any
-    /// other character is ordinary literal text. Scoped narrowly to
-    /// `message = ...` - not the general `StringLiteral` used by
-    /// `const`/annotation/field-default values, which stay plain and
-    /// non-interpolating.
+    /// The text of an `error`'s `message` or an `assert`'s message. Only an
+    /// f-string interpolates, as everywhere in the language: `f"{value.name}
+    /// is empty"` substitutes the path, `"{value.name} is empty"` prints it
+    /// as written.
     #[derive(Debug, Clone)]
-    pub struct InterpolatedString {
-        #[rust_sitter::leaf(text = "\"")]
-        _open: (),
-        #[rust_sitter::repeat(non_empty = false)]
-        pub parts: Vec<InterpolatedPart>,
-        #[rust_sitter::leaf(text = "\"")]
-        _close: (),
+    pub enum MessageText {
+        Interpolated(FString),
+        Plain(StringLiteral),
     }
 
     #[derive(Debug, Clone)]
@@ -566,7 +560,7 @@ pub mod grammar {
         #[rust_sitter::repeat(non_empty = false)]
         pub properties: Vec<rust_sitter::Spanned<ValidatorProperty>>,
         #[rust_sitter::repeat(non_empty = false)]
-        pub validate: Option<ValidateBlock>,
+        pub validate: Option<rust_sitter::Spanned<ValidateBlock>>,
         #[rust_sitter::leaf(text = "}")]
         _close: (),
     }
@@ -628,7 +622,7 @@ pub mod grammar {
         pub condition: Condition,
         #[rust_sitter::leaf(text = ",")]
         _comma: (),
-        pub message: InterpolatedString,
+        pub message: rust_sitter::Spanned<MessageText>,
         #[rust_sitter::leaf(text = ")")]
         _close: (),
     }
@@ -1177,25 +1171,58 @@ pub mod grammar {
         pub fn name(&self) -> String {
             self.name.text.clone()
         }
-        pub fn message(&self) -> String {
-            self.message.value.reconstruct()
+        pub fn message(&self) -> &rust_sitter::Spanned<MessageText> {
+            &self.message.value
         }
         pub fn fields(&self) -> &Vec<rust_sitter::Spanned<Field>> {
             &self.fields
         }
     }
 
-    impl InterpolatedString {
-        /// Rebuild the original template text: literal parts as-is,
-        /// placeholders re-inserted as `{a.b.c}`, escaped braces
-        /// re-inserted as the single literal character they represent.
-        pub fn reconstruct(&self) -> String {
-            render_interpolated_parts(&self.parts)
+    impl MessageText {
+        /// The message as a template: `{a.b.c}` is a placeholder and `{{` /
+        /// `}}` are literal braces. A plain string's braces are all literal,
+        /// so they come out doubled.
+        pub fn template(&self) -> String {
+            match self {
+                MessageText::Interpolated(f) => f.template(),
+                MessageText::Plain(s) => s.value.replace('{', "{{").replace('}', "}}"),
+            }
+        }
+
+        /// The message as written: `"..."` or `f"..."`.
+        pub fn source(&self) -> String {
+            match self {
+                MessageText::Interpolated(f) => f.source(),
+                MessageText::Plain(s) => format!("\"{}\"", s.value),
+            }
+        }
+
+        /// What a plain string has written like a placeholder, `{value.name}`,
+        /// which it prints as written. Empty for an f-string.
+        pub fn uninterpolated(&self) -> Vec<String> {
+            let MessageText::Plain(s) = self else {
+                return Vec::new();
+            };
+            s.value
+                .split('{')
+                .skip(1)
+                .filter_map(|part| part.split_once('}').map(|(path, _)| path))
+                .filter(|path| {
+                    !path.is_empty()
+                        && path.split('.').all(|seg| {
+                            seg.starts_with(|c: char| c.is_alphabetic() || c == '_')
+                                && seg.chars().all(|c| c.is_alphanumeric() || c == '_')
+                        })
+                })
+                .map(str::to_string)
+                .collect()
         }
     }
 
     impl FString {
-        /// The template between the quotes: `flower power: {POWER}`.
+        /// The template between the quotes: `flower power: {POWER}`, its
+        /// `{{` / `}}` escapes kept.
         pub fn template(&self) -> String {
             render_interpolated_parts(&self.parts)
         }
@@ -1215,8 +1242,10 @@ pub mod grammar {
                     out.push_str(&p.path.joined());
                     out.push('}');
                 }
-                InterpolatedPart::EscapedOpenBrace(_) => out.push('{'),
-                InterpolatedPart::EscapedCloseBrace(_) => out.push('}'),
+                // Kept escaped: a template reader must tell a literal brace
+                // from a placeholder.
+                InterpolatedPart::EscapedOpenBrace(_) => out.push_str("{{"),
+                InterpolatedPart::EscapedCloseBrace(_) => out.push_str("}}"),
             }
         }
         out
@@ -1330,10 +1359,14 @@ pub mod grammar {
         }
         /// The `assert(...)` calls in the `validate` block, in order. Empty
         /// when there is no block.
+        /// Where its `validate { ... }` block is, if it has one.
+        pub fn validate_span(&self) -> Option<(usize, usize)> {
+            self.validate.as_ref().map(|v| v.span)
+        }
         pub fn asserts(&self) -> Vec<&AssertCall> {
             self.validate
                 .as_ref()
-                .map(|v| v.asserts.iter().map(|a| &a.value).collect())
+                .map(|v| v.value.asserts.iter().map(|a| &a.value).collect())
                 .unwrap_or_default()
         }
     }
@@ -1341,9 +1374,9 @@ pub mod grammar {
     impl AssertCall {
         pub fn reconstruct(&self) -> String {
             format!(
-                "assert({}, {:?})",
+                "assert({}, {})",
                 self.condition.reconstruct(),
-                self.message.reconstruct()
+                self.message.value.source()
             )
         }
     }

@@ -55,6 +55,8 @@ const VALIDATOR_CHECKS_NOTHING: DiagnosticCode =
     DiagnosticCode::warning("validation::validator-checks-nothing");
 const VALIDATOR_PROPERTY_UNUSED: DiagnosticCode =
     DiagnosticCode::warning("validation::validator-property-unused");
+const MESSAGE_NOT_INTERPOLATED: DiagnosticCode =
+    DiagnosticCode::warning("validation::message-not-interpolated");
 
 /// What validation needs to know about names a schema imports but whose
 /// declarations aren't among its own units. Resolution is left to the
@@ -371,7 +373,10 @@ pub fn validate_with(
     // reads. Both build, so both warn: the first passes every value, the
     // second can be set in a call and has no effect.
     for unit in units {
-        let FrozenUnit::Validator { name, properties, targets, expression_block, span, .. } = unit else {
+        let FrozenUnit::Validator {
+            name, properties, targets, expression_block, span, validate_span, ..
+        } = unit
+        else {
             continue;
         };
         let asserts: &[FrozenUnit] = match &**expression_block {
@@ -384,21 +389,30 @@ pub fn validate_with(
             // An example that is valid for what it checks: `value.length`
             // only exists for a string or an array.
             let example = if !targets.is_empty() && targets.iter().all(has_length) {
-                "assert(value.length > 0, \"{value.name} is empty\")"
+                "assert(value.length > 0, f\"{value.name} is empty\")"
             } else {
-                "assert(value > 0, \"{value.name} must be positive\")"
+                "assert(value > 0, f\"{value.name} must be positive\")"
             };
-            warnings.push(
-                Diagnostic::new(
+            // An empty `validate` block is where the assert goes, so that's
+            // what is pointed at; without one, the validator itself.
+            let diagnostic = match validate_span {
+                Some(block) => Diagnostic::new(
                     VALIDATOR_CHECKS_NOTHING,
-                    format!("validator '{name}' checks nothing: it has no `assert`"),
+                    format!("validator '{name}' checks nothing: its `validate` block has no `assert`"),
                 )
-                .with_context(format!("Validator '{name}'"))
+                .with_span(*block)
+                .with_secondary_span(*span, format!("validator '{name}'"))
+                .with_help(format!("add an assert, e.g. `{example}`")),
+                None => Diagnostic::new(
+                    VALIDATOR_CHECKS_NOTHING,
+                    format!("validator '{name}' checks nothing: it has no `validate` block"),
+                )
                 .with_span(*span)
                 .with_help(format!(
                     "add a `validate` block with an assert, e.g. `validate {{ {example} }}`"
                 )),
-            );
+            };
+            warnings.push(diagnostic.with_context(format!("Validator '{name}'")));
             continue;
         }
         let used: HashSet<&str> = asserts
@@ -489,6 +503,8 @@ pub fn validate_with(
     check_validator_targets(units, &symbols, imports, &mut errors);
     check_misplaced_validators(units, &mut errors);
 
+    check_uninterpolated_messages(units, &mut warnings);
+
     // Pass 3: Cycle Detection (Structs)
     let unit_map: HashMap<&str, &FrozenUnit> = units.iter().filter_map(|u| match u {
         FrozenUnit::Struct { name, .. } => Some((name.as_str(), u)),
@@ -520,12 +536,58 @@ pub fn validate_with(
 /// or imported through `imports`): a `u8` field doesn't take a `for u32`
 /// validator, and a validator on `string[]` checks the array, not each
 /// element. `optional` is already outside the field's frozen type.
-/// The `{path}` placeholders in an assert's message template.
-fn message_placeholders(message: &str) -> impl Iterator<Item = &str> {
-    message
-        .split('{')
-        .skip(1)
-        .filter_map(|part| part.split_once('}').map(|(path, _)| path.trim()))
+/// The `{path}` placeholders in a message template, `{{` / `}}` (literal
+/// braces) skipped.
+fn message_placeholders(message: &str) -> Vec<&str> {
+    let mut paths = Vec::new();
+    let mut rest = message;
+    while let Some(open) = rest.find('{') {
+        rest = &rest[open..];
+        if let Some(after) = rest.strip_prefix("{{") {
+            rest = after;
+            continue;
+        }
+        let Some(close) = rest.find('}') else { break };
+        paths.push(rest[1..close].trim());
+        rest = &rest[close + 1..];
+    }
+    paths
+}
+
+/// `{path}` written in a plain (non-f) message prints as written: only an
+/// f-string interpolates.
+fn check_uninterpolated_messages(units: &[FrozenUnit], warnings: &mut Vec<Diagnostic>) {
+    let warn = |paths: &[String], span: Option<(usize, usize)>, context: String| {
+        let written = paths.iter().map(|p| format!("`{{{p}}}`")).collect::<Vec<_>>().join(", ");
+        let mut d = Diagnostic::new(
+            MESSAGE_NOT_INTERPOLATED,
+            format!("{written} is printed as written: only an f-string interpolates"),
+        )
+        .with_context(context)
+        .with_help("write the message as an f-string: `f\"...\"`");
+        if let Some(span) = span {
+            d = d.with_span(span);
+        }
+        d
+    };
+    for unit in units {
+        match unit {
+            FrozenUnit::Error { name, uninterpolated, message_span, .. } if !uninterpolated.is_empty() => {
+                warnings.push(warn(uninterpolated, *message_span, format!("Error '{name}'")));
+            }
+            FrozenUnit::Validator { name, expression_block, .. } => {
+                let FrozenUnit::ExpressionBlock { asserts } = &**expression_block else { continue };
+                for assert in asserts {
+                    if let FrozenUnit::Assert { uninterpolated, message_span, .. } = assert {
+                        if !uninterpolated.is_empty() {
+                            warnings.push(warn(uninterpolated, *message_span, format!("Validator '{name}'")));
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
 }
 
 fn check_validator_targets(

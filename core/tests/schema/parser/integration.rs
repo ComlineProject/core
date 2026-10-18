@@ -335,7 +335,7 @@ struct Message { body: string }
 validator StringBounds for string {
     min: u32 = 0
     validate {
-        assert(value.length > params.max or value.length < params.min, "{value.name} out of range")
+        assert(value.length > params.max or value.length < params.min, f"{value.name} out of range")
         assert(value.kind == "email", "must be an email")
     }
 }

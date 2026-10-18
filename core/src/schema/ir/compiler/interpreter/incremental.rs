@@ -298,9 +298,11 @@ impl IncrementalInterpreter {
                         .into_iter()
                         .map(|a| FrozenUnit::Assert {
                             condition: a.condition.reconstruct(),
-                            message: a.message.reconstruct(),
+                            message: a.message.value.template(),
                             references: a.condition.member_paths(),
                             expr: Condition::from_grammar(&a.condition),
+                            message_span: Some(a.message.span),
+                            uninterpolated: a.message.value.uninterpolated(),
                         })
                         .collect();
 
@@ -314,6 +316,7 @@ impl IncrementalInterpreter {
                         targets,
                         expression_block: Box::new(FrozenUnit::ExpressionBlock { asserts }),
                         span,
+                        validate_span: validator_def.validate_span(),
                     });
                 }
                 Declaration::TypeAlias(alias) => {
@@ -422,6 +425,8 @@ fn plan_error_space(
                                 message: String::new(),
                                 fields: vec![],
                                 span: None,
+                                message_span: None,
+                                uninterpolated: vec![],
                             }
                         },
                     ),
@@ -494,8 +499,15 @@ fn frozen_error(
         ordinal,
         imported_from,
         name: error_decl.name(),
-        message: error_decl.message(),
+        message: error_decl.message().value.template(),
         fields: field_units,
+        // A re-export's message was written, and is warned about, in the
+        // schema declaring it.
+        message_span: span.map(|_| error_decl.message().span),
+        uninterpolated: match span {
+            Some(_) => error_decl.message().value.uninterpolated(),
+            None => Vec::new(),
+        },
         span,
     }
 }

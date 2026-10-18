@@ -237,9 +237,9 @@ validator StringBounds for string {
 
     validate {
         assert(value.length >= params.min_chars,
-               "{value.name} must be at least {params.min_chars} characters")
+               f"{value.name} must be at least {params.min_chars} characters")
         assert(value.length <= params.max_chars or value.name == "root",
-               "{value.name} is too long")
+               f"{value.name} is too long")
     }
 }
 "#;

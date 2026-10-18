@@ -31,7 +31,7 @@ struct Message {
 
 /// Raised when a message is sent to a missing recipient.
 error RecipientNotFoundError {
-    message = "Recipient with name {self.recipient} not found"
+    message = f"Recipient with name {self.recipient} not found"
 
     @validators = [StringBounds(min_chars = 8, max_chars = 16)]
     recipient: string

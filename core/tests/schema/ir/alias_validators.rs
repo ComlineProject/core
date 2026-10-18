@@ -8,7 +8,7 @@ use comline_core::schema::ir::frozen::types::{PrimitiveType, TypeRef};
 use comline_core::schema::ir::validation::{validate, validate_with, ImportLookup};
 
 const BOUNDS: &str = "validator Bounds for string {\n    max: u32 = 10\n    validate {\n        \
-                      assert(value.length <= params.max, \"{value.name} is too long\")\n    }\n}\n";
+                      assert(value.length <= params.max, f\"{value.name} is too long\")\n    }\n}\n";
 
 fn messages(code: &str) -> Vec<String> {
     validate(&IncrementalInterpreter::from_source(code))
@@ -131,7 +131,7 @@ fn a_validator_nothing_imports_is_unknown_and_nothing_more() {
 fn an_alias_nothing_imports_is_not_resolved_through_the_lookup() {
     // `Name` is unknown here; the lookup would call it a `string`, which
     // would make `for u32` a mismatch on top of the unknown type.
-    let code = "validator Positive for u32 {\n    validate {\n        assert(value > 0, \"{value.name}\")\n    }\n}\n\
+    let code = "validator Positive for u32 {\n    validate {\n        assert(value > 0, f\"{value.name}\")\n    }\n}\n\
                 struct S {\n    @validators = [Positive()]\n    n: Name\n}\n";
     let errors = messages_with(code, &Everything);
     assert!(errors.iter().all(|m| !m.contains("applies to")), "{errors:?}");
@@ -157,7 +157,7 @@ impl ImportLookup for StandIn {
 #[test]
 fn a_stand_in_import_is_not_judged_against_a_validator() {
     let code = "use rules::Name\n\nvalidator Positive for u32 {\n    validate {\n        \
-                assert(value > 0, \"{value.name}\")\n    }\n}\n\
+                assert(value > 0, f\"{value.name}\")\n    }\n}\n\
                 struct S {\n    @validators = [Positive()]\n    n: Name\n}\n";
     assert_eq!(messages_with(code, &StandIn), Vec::<String>::new());
     // A real import the lookup knows nothing about is still judged: a `u32`
@@ -205,7 +205,7 @@ fn a_bare_validator_name_is_a_call_with_no_arguments() {
 #[test]
 fn a_bare_validator_name_still_needs_its_required_arguments() {
     let code = "validator Range for u32 {\n    min: u32\n    validate {\n        \
-                assert(value >= params.min, \"{value.name}\")\n    }\n}\n\
+                assert(value >= params.min, f\"{value.name}\")\n    }\n}\n\
                 @validators = [Range]\ntype Count = u32\n";
     assert_eq!(messages(code), ["validator 'Range' is missing argument 'min'"]);
     // Written out, it's fine - and so is leaving out one with a default.
@@ -241,7 +241,7 @@ fn validator_errors_point_at_the_call() {
     assert_eq!(spans(&code), [("validator 'Bounds' applies to `string`, not `u32`".to_string(), "Bounds".to_string())]);
 
     let code = "validator Range for u32 {\n    min: u32\n    validate {\n        \
-                assert(value >= params.min, \"{value.name}\")\n    }\n}\n\
+                assert(value >= params.min, f\"{value.name}\")\n    }\n}\n\
                 struct S {\n    @validators = [Range]\n    n: u32\n}\n";
     assert_eq!(spans(code), [("validator 'Range' is missing argument 'min'".to_string(), "Range".to_string())]);
 }

@@ -508,7 +508,7 @@ fn test_thrown_foreign_error_gets_a_reexport_slot() {
     add_schema(
         &mut project,
         &["errs"],
-        "error NotFound {\n    message = \"{self.id} is gone\"\n    id: u64\n}\n",
+        "error NotFound {\n    message = f\"{self.id} is gone\"\n    id: u64\n}\n",
     );
     add_schema(
         &mut project,

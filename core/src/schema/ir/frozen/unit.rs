@@ -66,13 +66,21 @@ pub enum FrozenUnit {
     Assert {
         /// Canonical condition text, e.g. `value.length >= params.min_chars`.
         condition: String,
-        /// The message template, with `{path}` placeholders intact.
+        /// The message template: `{path}` placeholders, `{{` / `}}` literal
+        /// braces.
         message: String,
         /// Every `root.seg...` member path used in the condition (`value.*`,
         /// `params.*`, ...), for reference checking. Literals are not listed.
         references: Vec<String>,
         /// The condition as a tree, for a generator to emit the check from.
         expr: Condition,
+        /// Where the message was written.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_span: Option<(usize, usize)>,
+        /// Paths a plain (non-f) message wrote like placeholders, which it
+        /// prints as written. Recorded for `validate` to warn about.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        uninterpolated: Vec<String>,
     },
     //
     Enum {
@@ -145,6 +153,8 @@ pub enum FrozenUnit {
         /// local `error` declaration.
         imported_from: Option<String>,
         name: String,
+        /// The message template: `{path}` placeholders, `{{` / `}}` literal
+        /// braces.
         message: String,
         fields: Vec<FrozenUnit>,
         /// Where this `error` was written, when it was written *here*.
@@ -157,6 +167,13 @@ pub enum FrozenUnit {
         /// was never written anywhere.
         #[serde(default)]
         span: Option<(usize, usize)>,
+        /// Where the message was written; `None` where `span` is.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message_span: Option<(usize, usize)>,
+        /// Paths a plain (non-f) message wrote like placeholders, which it
+        /// prints as written. Recorded for `validate` to warn about.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        uninterpolated: Vec<String>,
     },
     Validator {
         docstring: Option<String>,
@@ -170,6 +187,9 @@ pub enum FrozenUnit {
         /// declaration, never re-exported the way an `error` is.
         #[serde(default)]
         span: (usize, usize),
+        /// Where its `validate { ... }` block was written, if it has one.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        validate_span: Option<(usize, usize)>,
     },
     /// A validator applied to a field via `@validators = [Name(k = v, ...)]`.
     /// One per call in the list; `args` holds a `Property { name, expression }`
