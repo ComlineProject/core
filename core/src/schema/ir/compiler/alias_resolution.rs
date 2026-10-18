@@ -5,12 +5,12 @@
 //! (see `interpreter::incremental`), exactly the same way a struct or enum
 //! declaration freezes to its own named unit - and a reference to the
 //! alias elsewhere (a field, an argument, ...) freezes to an ordinary
-//! `KindValue::Namespaced(name, _)`, exactly the same way a struct/enum
-//! reference already does. No substitution happens anywhere; the alias's
-//! name survives all the way to codegen, which needs only one new case
-//! (emit the declaration itself) to support it correctly - every *use* of
-//! the alias already works for free, through the same string-based type
-//! mapping every generator already applies to any other `KindValue`.
+//! `TypeRef::Named(name)`, exactly the same way a struct/enum reference
+//! already does. No substitution happens anywhere; the alias's name
+//! survives all the way to codegen, which needs only one new case (emit the
+//! declaration itself) to support it correctly - every *use* of the alias
+//! already works for free, through the same type mapping every generator
+//! applies to any other named type.
 //!
 //! What *is* this module's job: a `type` alias is still required to make
 //! sense before any of that happens - no name collision with another

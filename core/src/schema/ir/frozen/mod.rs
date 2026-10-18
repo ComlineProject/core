@@ -1,5 +1,6 @@
 // Relative Modules
 pub mod unit;
+pub mod types;
 // Removed: basic_storage - replaced by CAS
 pub mod cas;  // CAS module (public for tests and build)
 

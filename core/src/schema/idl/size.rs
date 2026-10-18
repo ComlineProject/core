@@ -13,16 +13,10 @@
 //! take" — useful for an at-a-glance hover estimate, not a protocol
 //! commitment.
 //!
-//! Deliberately operates on the raw AST (`super::grammar`), not the frozen
-//! IR (`crate::schema::ir::frozen`): freezing already collapses `f32`/`f64`
-//! into one string (`"float"`) and drops a fixed array's literal size
-//! entirely (`Type[8]` and `Type[]` both become `"{elem}[]"`) — exactly the
-//! precision this module needs. See `ir/validation/validator.rs`'s
-//! `detect_cycle` for what that loss already breaks: its `ends_with("[]")`
-//! cycle-escape matches *every* array, fixed or dynamic, because by the
-//! time it runs the distinction is gone — a fixed-size self-reference like
-//! `struct Node { next: Node[4] }` slips through uncaught. This module does
-//! not reuse that cycle guard; it has its own (see [`size_of_struct`]).
+//! Operates on the raw AST (`super::grammar`), which is what the editor has
+//! on hand mid-edit. The frozen IR keeps the same precision now - exact
+//! float widths and fixed array lengths in its `TypeRef` - so this could
+//! move onto it later. It has its own cycle guard (see [`size_of_struct`]).
 
 use std::collections::HashSet;
 

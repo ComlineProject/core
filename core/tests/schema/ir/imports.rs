@@ -579,12 +579,12 @@ fn test_local_errors_keep_low_ordinals_foreign_reexports_come_after() {
 /// below - all exercise a `type` alias imported from another schema.
 fn response_field_kind_value(
     frozen: &[FrozenUnit],
-) -> &comline_core::schema::ir::compiler::interpreted::kind_search::KindValue {
+) -> &comline_core::schema::ir::frozen::types::TypeRef {
     frozen
         .iter()
         .find_map(|u| match u {
             FrozenUnit::Struct { name, fields, .. } if name == "Response" => match &fields[0] {
-                FrozenUnit::Field { kind_value, .. } => Some(kind_value),
+                FrozenUnit::Field { ty, .. } => Some(ty),
                 _ => None,
             },
             _ => None,
@@ -594,7 +594,7 @@ fn response_field_kind_value(
 
 #[test]
 fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
-    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+    use comline_core::schema::ir::frozen::types::TypeRef;
 
     let mut project = build_project();
     add_schema(&mut project, &["types"], "type UserId = u64\n");
@@ -609,7 +609,7 @@ fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
     let frozen = frozen_units_for(&project, "api");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("UserId".to_string(), None),
+        &TypeRef::Named("UserId".to_string()),
         "a use-imported alias is a by-name reference, same as a struct/enum would be - the \
          import only needs to prove 'UserId' is a real, known symbol (see \
          import_resolver::schema_declares_symbol's TypeAlias arm)"
@@ -618,7 +618,7 @@ fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
 
 #[test]
 fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
-    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+    use comline_core::schema::ir::frozen::types::TypeRef;
 
     let mut project = build_project();
     add_schema(&mut project, &["types"], "type UserId = u64\n");
@@ -635,13 +635,13 @@ fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
     let frozen = frozen_units_for(&project, "api");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("UserId".to_string(), None)
+        &TypeRef::Named("UserId".to_string())
     );
 }
 
 #[test]
 fn test_cross_file_alias_chain_through_two_files_keeps_the_written_name() {
-    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+    use comline_core::schema::ir::frozen::types::TypeRef;
 
     let mut project = build_project();
     add_schema(&mut project, &["a"], "type Id = u64\n");
@@ -657,7 +657,7 @@ fn test_cross_file_alias_chain_through_two_files_keeps_the_written_name() {
     let frozen = frozen_units_for(&project, "c");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("ForeignId".to_string(), None),
+        &TypeRef::Named("ForeignId".to_string()),
         "the field keeps exactly what was written, regardless of how many files/aliases the \
          chain behind that name spans - validity of the whole chain is `check_aliases`'s job, \
          not freezing's"
@@ -666,7 +666,7 @@ fn test_cross_file_alias_chain_through_two_files_keeps_the_written_name() {
 
 #[test]
 fn test_cross_file_alias_target_that_is_a_real_struct_is_not_inlined() {
-    use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+    use comline_core::schema::ir::frozen::types::TypeRef;
 
     let mut project = build_project();
     add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
@@ -683,7 +683,7 @@ fn test_cross_file_alias_target_that_is_a_real_struct_is_not_inlined() {
     let frozen = frozen_units_for(&project, "api");
     assert_eq!(
         response_field_kind_value(&frozen),
-        &KindValue::Namespaced("User".to_string(), None),
+        &TypeRef::Named("User".to_string()),
         "a real cross-file struct reference must stay a by-name reference, not be inlined"
     );
 }

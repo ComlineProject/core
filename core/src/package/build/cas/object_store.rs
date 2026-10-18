@@ -23,7 +23,10 @@ use std::path::{Path, PathBuf};
 /// - 2: `FrozenUnit::Property`'s `expression: Option<String>` became
 ///   `value: ConfigValue` - a field renamed *and* retyped, which is
 ///   exactly the case name tagging cannot absorb.
-pub const CURRENT_IR_FORMAT_VERSION: u32 = 2;
+/// - 3: types became structured (`TypeRef`, `Literal`) instead of
+///   `KindValue` text: `Field`/`Constant` `kind_value` became `ty` plus a
+///   literal, `EnumVariant` holds its name, and `Assert` gained `expr`.
+pub const CURRENT_IR_FORMAT_VERSION: u32 = 3;
 
 fn format_version_path(project_root: &Path) -> PathBuf {
     project_root.join(".comline/FORMAT_VERSION")

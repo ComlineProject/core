@@ -1,7 +1,7 @@
 // Tests for schema integration (blob.rs)
 
 use comline_core::package::build::cas::ObjectStore;
-use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use comline_core::schema::ir::frozen::types::TypeRef;
 use comline_core::schema::ir::frozen::cas::blob::{
     blob_to_frozen_unit, build_tree_from_schema, frozen_unit_to_blob,
     load_schema_from_tree,
@@ -14,7 +14,7 @@ fn test_frozen_unit_blob_roundtrip() {
     let unit = FrozenUnit::Constant {
         docstring: None,
         name: "TEST_CONST".to_string(),
-        kind_value: KindValue::Primitive(Primitive::U32(Some(42))),
+        ty: TypeRef::Primitive(comline_core::schema::ir::frozen::types::PrimitiveType::U32), value: Some(comline_core::schema::ir::frozen::types::Literal::Integer(42)),
         span: (0, 0),
     };
 
@@ -85,7 +85,7 @@ fn test_load_schema_from_tree() {
     let original_schema = vec![FrozenUnit::Constant {
         docstring: None,
         name: "VERSION".to_string(),
-        kind_value: KindValue::Primitive(Primitive::String(Some("1.0.0".to_string()))),
+        ty: TypeRef::Primitive(comline_core::schema::ir::frozen::types::PrimitiveType::String), value: Some(comline_core::schema::ir::frozen::types::Literal::String("1.0.0".to_string())),
         span: (0, 0),
     }];
 

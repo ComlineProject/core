@@ -255,7 +255,7 @@ fn verdict(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+    use crate::schema::ir::frozen::types::{PrimitiveType, TypeRef};
     use crate::schema::ir::frozen::unit::ConfigValue;
 
     fn b(v: bool) -> SettingsValue {
@@ -296,7 +296,7 @@ mod tests {
     fn a_field(name: &str, parameters: Vec<FrozenUnit>) -> FrozenUnit {
         FrozenUnit::Field {
             docstring: None, parameters, optional: false, name: name.to_string(),
-            kind_value: KindValue::Primitive(Primitive::String(None)), span: (0, 1),
+            ty: TypeRef::Primitive(PrimitiveType::String), default: None, span: (0, 1),
         }
     }
 

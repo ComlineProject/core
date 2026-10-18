@@ -5,7 +5,7 @@
 //! this key take" at its own use site, with its own error prose.
 //!
 //! Deliberately **not** named `typing`: this is about values *configuring*
-//! a schema element, not about the schema type system ([`KindValue`] and
+//! a schema element, not about the schema type system ([`TypeRef`] and
 //! the grammar's `Type`) that describes wire data. The two never mix - a
 //! `settings` value is never a `u32`, and a struct field's type is never a
 //! `Keyword`.
@@ -21,7 +21,7 @@
 //!   `SettingsValue` and the IR's own annotation value into one union
 //!   carrying variants that are meaningless in half their uses.
 //!
-//! [`KindValue`]: crate::schema::ir::compiler::interpreted::kind_search::KindValue
+//! [`TypeRef`]: crate::schema::ir::frozen::types::TypeRef
 
 use std::fmt;
 

@@ -4,7 +4,7 @@
 
 // External Uses
 use comline_core::autodoc;
-use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use comline_core::schema::ir::frozen::types::TypeRef;
 use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
 use once_cell::sync::Lazy;
@@ -15,7 +15,7 @@ static PREVIOUS_FROZEN_UNITS: Lazy<Vec<FrozenUnit>> = Lazy::new(||
         FrozenUnit::Namespace("foobar".to_owned()),
         FrozenUnit::Constant {
             docstring: None,
-            name: "DUCKS".to_string(), kind_value: KindValue::Primitive(Primitive::U8(Some(10))),
+            name: "DUCKS".to_string(), ty: TypeRef::Primitive(comline_core::schema::ir::frozen::types::PrimitiveType::U8), value: Some(comline_core::schema::ir::frozen::types::Literal::Integer(10)),
             span: (0, 0),
         }
     ]
@@ -26,7 +26,7 @@ static CURRENT_FROZEN_UNITS: Lazy<Vec<FrozenUnit>> = Lazy::new(||
         FrozenUnit::Namespace("foo::bar".to_owned()),
         FrozenUnit::Constant {
             docstring: None,
-            name: "DUCKS".to_string(), kind_value: KindValue::Primitive(Primitive::U8(Some(15))),
+            name: "DUCKS".to_string(), ty: TypeRef::Primitive(comline_core::schema::ir::frozen::types::PrimitiveType::U8), value: Some(comline_core::schema::ir::frozen::types::Literal::Integer(15)),
             span: (0, 0),
         }
     ]

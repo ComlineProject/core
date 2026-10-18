@@ -220,10 +220,9 @@ pub mod grammar {
     }
 
     /// Type alias: type NAME = TYPE — fully transparent (Rust's `type`, not
-    /// a newtype wrapper). Erased entirely before freezing: the IR
-    /// compiler's alias-resolution pass substitutes every `Type::Named`
-    /// occurrence of NAME with TYPE before any `KindValue` is built, so
-    /// this declaration itself never produces a `FrozenUnit`.
+    /// a newtype wrapper). Freezes to its own `FrozenUnit::TypeAlias`, and a
+    /// use of it freezes to `TypeRef::Named(NAME)`, so the alias's name
+    /// reaches the generators.
     #[derive(Debug, Clone)]
     pub struct TypeAlias {
         #[rust_sitter::repeat(non_empty = false)]
@@ -1309,23 +1308,12 @@ pub mod grammar {
                 None => Vec::new(),
             }
         }
-        /// One `(condition text, message template, member paths)` per assert in
-        /// the `validate` block. Empty when there is no block.
-        pub fn frozen_asserts(&self) -> Vec<(String, String, Vec<String>)> {
+        /// The `assert(...)` calls in the `validate` block, in order. Empty
+        /// when there is no block.
+        pub fn asserts(&self) -> Vec<&AssertCall> {
             self.validate
                 .as_ref()
-                .map(|v| {
-                    v.asserts
-                        .iter()
-                        .map(|a| {
-                            (
-                                a.condition.reconstruct(),
-                                a.message.reconstruct(),
-                                a.condition.member_paths(),
-                            )
-                        })
-                        .collect()
-                })
+                .map(|v| v.asserts.iter().map(|a| &a.value).collect())
                 .unwrap_or_default()
         }
     }

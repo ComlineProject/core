@@ -12,7 +12,7 @@ use crate::schema::ir::compiler::import_resolver::{
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     importable_names, ImportResolver,
 };
-use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+use crate::schema::ir::frozen::types::{Condition, Literal, TypeRef};
 use crate::schema::ir::compiler::Compile;
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 use crate::diagnostics::Diagnostic;
@@ -115,12 +115,11 @@ impl IncrementalInterpreter {
                     let type_def = const_decl.type_def();
                     let value = const_decl.value();
 
-                    let kind_value = build_kind_value(type_def, Some(value));
-
                     frozen_units.push(FrozenUnit::Constant {
                         docstring: const_decl.docstring(),
                         name,
-                        kind_value,
+                        ty: TypeRef::from_grammar(type_def),
+                        value: Literal::from_grammar(value),
                         span,
                     });
                 }
@@ -134,14 +133,13 @@ impl IncrementalInterpreter {
                             let fname = field.name();
                             let field_type = field.field_type();
 
-                            let kind_value = build_kind_value(field_type, field.default_value());
-
                             FrozenUnit::Field {
                                 docstring: field.docstring(),
                                 parameters: annotation_units(&field.annotations()),
                                 optional: field.optional(),
                                 name: fname,
-                                kind_value,
+                                ty: TypeRef::from_grammar(field_type),
+                                default: field.default_value().and_then(Literal::from_grammar),
                                 span: field.span,
                             }
                         })
@@ -163,7 +161,7 @@ impl IncrementalInterpreter {
                         .iter()
                         .map(|variant| {
                             FrozenUnit::EnumVariant(
-                                KindValue::EnumVariant(variant.identifier().to_string(), None),
+                                variant.identifier().to_string(),
                                 variant.span,
                             )
                         })
@@ -197,7 +195,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| "arg0".to_string()),
-                                        kind: type_to_kind_value(first_arg.arg_type()),
+                                        ty: TypeRef::from_grammar(first_arg.arg_type()),
                                         span: first_arg.arg_type_span(),
                                     }];
 
@@ -208,7 +206,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| format!("arg{}", i + 1)),
-                                        kind: type_to_kind_value(arg.arg_type()),
+                                        ty: TypeRef::from_grammar(arg.arg_type()),
                                         span: arg.arg_type_span(),
                                     });
                                 }
@@ -219,7 +217,7 @@ impl IncrementalInterpreter {
 
                             let return_type = ret_opt
                                 .as_ref()
-                                .map(|rt| type_to_kind_value(rt.return_type()));
+                                .map(|rt| TypeRef::from_grammar(rt.return_type()));
 
                             FrozenUnit::Function {
                                 name: func_name,
@@ -301,29 +299,25 @@ impl IncrementalInterpreter {
                             parameters: vec![],
                             optional: false,
                             name: prop.name(),
-                            kind_value: build_kind_value(
-                                prop.property_type(),
-                                prop.default_value(),
-                            ),
+                            ty: TypeRef::from_grammar(prop.property_type()),
+                            default: prop.default_value().and_then(Literal::from_grammar),
                             span: prop.span,
                         })
                         .collect();
 
                     let asserts = validator_def
-                        .frozen_asserts()
+                        .asserts()
                         .into_iter()
-                        .map(|(condition, message, references)| FrozenUnit::Assert {
-                            condition,
-                            message,
-                            references,
+                        .map(|a| FrozenUnit::Assert {
+                            condition: a.condition.reconstruct(),
+                            message: a.message.reconstruct(),
+                            references: a.condition.member_paths(),
+                            expr: Condition::from_grammar(&a.condition),
                         })
                         .collect();
 
-                    let targets = validator_def
-                        .targets()
-                        .into_iter()
-                        .map(|target| build_kind_value(target, None))
-                        .collect();
+                    let targets =
+                        validator_def.targets().into_iter().map(TypeRef::from_grammar).collect();
 
                     frozen_units.push(FrozenUnit::Validator {
                         docstring: validator_def.docstring(),
@@ -337,20 +331,18 @@ impl IncrementalInterpreter {
                 Declaration::TypeAlias(alias) => {
                     // Transparent like Rust's own `type`: a reference to
                     // this alias elsewhere (a field, an argument, ...)
-                    // freezes to a plain `Type::Named` -> `KindValue::
-                    // Namespaced` just like any struct/enum reference
-                    // does - no substitution happens here. The alias's
-                    // *own* target freezes the same way, one level, as
-                    // written (an alias-of-alias stays a `Named`
-                    // reference to the other alias, not flattened) - a
-                    // generator picks this up with exactly the same
-                    // `rust_type`/`ts_type`-style string mapping it
-                    // already uses for every other `KindValue`, plus one
-                    // new top-level case to emit the declaration itself.
+                    // freezes to a plain `TypeRef::Named` just like any
+                    // struct/enum reference does - no substitution happens
+                    // here. The alias's *own* target freezes the same way,
+                    // one level, as written (an alias-of-alias stays a
+                    // `Named` reference to the other alias, not flattened) -
+                    // a generator renders it with the same type mapping it
+                    // uses everywhere else, plus one new top-level case to
+                    // emit the declaration itself.
                     frozen_units.push(FrozenUnit::TypeAlias {
                         docstring: alias.docstring(),
                         name: alias.name(),
-                        target: type_to_kind_value(alias.target_type()),
+                        target: TypeRef::from_grammar(alias.target_type()),
                         span,
                     });
                 }
@@ -501,7 +493,8 @@ fn frozen_error(
             parameters: annotation_units(&field.annotations()),
             optional: field.optional(),
             name: field.name(),
-            kind_value: build_kind_value(field.field_type(), field.default_value()),
+            ty: TypeRef::from_grammar(field.field_type()),
+            default: field.default_value().and_then(Literal::from_grammar),
             span: field.span,
         })
         .collect();
@@ -602,83 +595,9 @@ fn deprecated_value(annotation: &Annotation) -> crate::schema::ir::frozen::unit:
     }
 }
 
-fn type_to_kind_value(type_def: &crate::schema::idl::grammar::Type) -> KindValue {
-    build_kind_value(type_def, None)
-}
-
-/// Build a `KindValue` for a type, optionally carrying a literal default
-/// value (used by both `const NAME: TYPE = VALUE` and a struct field's
-/// own optional `= VALUE` default - `None` for anything with no default,
-/// e.g. function arguments/return types).
-///
-/// A default is only captured when it's a simple literal matching the
-/// type's own primitive kind (an integer for a sized int, a string for
-/// `string`, etc.) - anything else (an identifier/const reference,
-/// a non-primitive type) falls back to the same unvalued `Namespaced`
-/// representation as if no default had been given at all. This mirrors
-/// `const`'s pre-existing behavior exactly; it isn't a new limitation
-/// introduced for fields.
-fn build_kind_value(
-    type_def: &crate::schema::idl::grammar::Type,
-    value: Option<&crate::schema::idl::grammar::Expression>,
-) -> KindValue {
-    if let crate::schema::idl::grammar::Type::Union(union_type) = type_def {
-        return KindValue::Union(
-            union_type
-                .members()
-                .iter()
-                .map(|member| build_kind_value(member, None))
-                .collect(),
-        );
-    }
-
-    if matches!(type_def, crate::schema::idl::grammar::Type::Unit(_)) {
-        return KindValue::Unit;
-    }
-
-    let type_name = type_to_string(type_def);
-
-    // A `KindValue::Primitive` carries the declared type *and* the value, so
-    // the variant has to come from the declared type - never from the
-    // literal. Inferring it from the literal collapsed every unsigned width
-    // into `U64` and every signed one into `S64`, which is how
-    // `retries: u8 = 5` reached a generator as `u64`.
-    use crate::schema::idl::grammar::{BoolLiteral, Expression};
-    match (type_name.as_str(), value) {
-        (name, Some(Expression::Integer(int_lit))) if is_integer_primitive(name) => {
-            match integer_primitive(name, int_lit.value()) {
-                Some(primitive) => KindValue::Primitive(primitive),
-                // Out of range for the width the author declared. Recorded as
-                // a marker rather than truncated, following the same
-                // encode-in-the-IR convention `<unresolved: _>` uses for an
-                // import that would not resolve: validation turns it into a
-                // real diagnostic, and nothing silently carries a wrong
-                // number forward.
-                None => KindValue::Namespaced(
-                    format!("{OUT_OF_RANGE_PREFIX}{}: {}>", name, int_lit.value()),
-                    None,
-                ),
-            }
-        }
-        ("bool", Some(Expression::Bool(lit))) => KindValue::Primitive(Primitive::Boolean(Some(
-            matches!(lit, BoolLiteral::True),
-        ))),
-        ("string", Some(Expression::String(str_lit))) => {
-            KindValue::Primitive(Primitive::String(Some(str_lit.value().to_string())))
-        }
-        _ => KindValue::Namespaced(type_name, None),
-    }
-}
-
-/// Marks a literal that does not fit the width its declaration named. The
-/// text after it is `<type>: <value>>`; [`crate::schema::ir::validation`]
-/// parses it back out to report the range error.
-pub(crate) const OUT_OF_RANGE_PREFIX: &str = "<out of range for ";
-
 /// Marks a `! Name` that resolved to nothing at all - frozen into the
 /// placeholder error's `imported_from`, which `validate` turns into a
-/// diagnostic. Same trick as [`OUT_OF_RANGE_PREFIX`]: freeze cannot report,
-/// so it records.
+/// diagnostic. Freeze cannot report, so it records.
 pub(crate) const UNRESOLVED_PREFIX: &str = "<unresolved: ";
 
 /// Marks a `! Name` that names a declaration in this schema which is not an
@@ -702,61 +621,6 @@ fn local_declaration_kind(
         Declaration::TypeAlias(d) if d.name() == name => Some("a type alias"),
         _ => None,
     })
-}
-
-fn is_integer_primitive(name: &str) -> bool {
-    matches!(
-        name,
-        "u8" | "u16" | "u32" | "u64" | "u128" | "s8" | "s16" | "s32" | "s64" | "s128"
-    )
-}
-
-/// The primitive for `name` holding `literal`, or `None` if it does not fit.
-///
-/// `IntegerLiteral` is lexed as `i64`, so a `u64`/`u128` value above
-/// `i64::MAX` cannot be written in the IDL at all today - that is a lexer
-/// limit, not one this function imposes.
-fn integer_primitive(name: &str, literal: i64) -> Option<Primitive> {
-    Some(match name {
-        "u8" => Primitive::U8(Some(u8::try_from(literal).ok()?)),
-        "u16" => Primitive::U16(Some(u16::try_from(literal).ok()?)),
-        "u32" => Primitive::U32(Some(u32::try_from(literal).ok()?)),
-        "u64" => Primitive::U64(Some(u64::try_from(literal).ok()?)),
-        "u128" => Primitive::U128(Some(u128::try_from(literal).ok()?)),
-        "s8" => Primitive::S8(Some(i8::try_from(literal).ok()?)),
-        "s16" => Primitive::S16(Some(i16::try_from(literal).ok()?)),
-        "s32" => Primitive::S32(Some(i32::try_from(literal).ok()?)),
-        "s64" => Primitive::S64(Some(literal)),
-        "s128" => Primitive::S128(Some(literal as i128)),
-        _ => return None,
-    })
-}
-
-pub(crate) fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
-    match type_def {
-        crate::schema::idl::grammar::Type::U8(_) => "u8".to_string(),
-        crate::schema::idl::grammar::Type::U16(_) => "u16".to_string(),
-        crate::schema::idl::grammar::Type::U32(_) => "u32".to_string(),
-        crate::schema::idl::grammar::Type::U64(_) => "u64".to_string(),
-        crate::schema::idl::grammar::Type::S8(_) => "s8".to_string(),
-        crate::schema::idl::grammar::Type::S16(_) => "s16".to_string(),
-        crate::schema::idl::grammar::Type::S32(_) => "s32".to_string(),
-        crate::schema::idl::grammar::Type::S64(_) => "s64".to_string(),
-        crate::schema::idl::grammar::Type::F32(_) | crate::schema::idl::grammar::Type::F64(_) => {
-            "float".to_string()
-        }
-        crate::schema::idl::grammar::Type::Bool(_) => "bool".to_string(),
-        crate::schema::idl::grammar::Type::String(_) => "string".to_string(),
-        crate::schema::idl::grammar::Type::Named(id) => id.to_string(),
-        crate::schema::idl::grammar::Type::Array(arr) => {
-            format!("{}[]", type_to_string(arr.elem_type()))
-        }
-        crate::schema::idl::grammar::Type::Union(union_type) => {
-            let members: Vec<String> = union_type.members().iter().map(type_to_string).collect();
-            format!("union({})", members.join(" "))
-        }
-        crate::schema::idl::grammar::Type::Unit(_) => "()".to_string(),
-    }
 }
 
 /// Extract path string from UsePath enum
