@@ -2,7 +2,7 @@
 
 // Crate Uses
 use crate::schema::ir::context::SchemaContext;
-use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
+use crate::schema::ir::frozen::types::{Condition, Literal, TypeRef};
 
 // External Uses
 use serde_derive::{Serialize, Deserialize};
@@ -44,7 +44,10 @@ pub enum FrozenUnit {
     Constant {
         docstring: Option<String>,
         name: String,
-        kind_value: KindValue,
+        ty: TypeRef,
+        /// `None` only for a value that isn't a literal at all (an
+        /// f-string), which validation rejects.
+        value: Option<Literal>,
         span: (usize, usize),
     },
     /// One `@key` / `@key = value` annotation. `value` keeps the shape the
@@ -68,6 +71,8 @@ pub enum FrozenUnit {
         /// Every `root.seg...` member path used in the condition (`value.*`,
         /// `params.*`, ...), for reference checking. Literals are not listed.
         references: Vec<String>,
+        /// The condition as a tree, for a generator to emit the check from.
+        expr: Condition,
     },
     //
     Enum {
@@ -76,7 +81,8 @@ pub enum FrozenUnit {
         variants: Vec<FrozenUnit>,
         span: (usize, usize),
     },
-    EnumVariant(KindValue, (usize, usize)),
+    /// A variant's name and where it was written.
+    EnumVariant(String, (usize, usize)),
     /// `name: None` = an unnamed block, applying implicitly to the whole
     /// schema file; `Some(name)` = a reusable preset, opted into
     /// per-declaration via `@settings = name`. `values` is the dotted-key
@@ -115,7 +121,7 @@ pub enum FrozenUnit {
         name: String,
         // direction: Box<FrozenUnit>,
         arguments: Vec<FrozenArgument>,
-        _return: Option<KindValue>,
+        _return: Option<TypeRef>,
         // The schema-global ordinal of each `error` this function can throw -
         // resolved at freeze from the `! Name` reference to the matching
         // `FrozenUnit::Error`'s `ordinal` (local or a re-exported import; see
@@ -156,11 +162,9 @@ pub enum FrozenUnit {
         docstring: Option<String>,
         properties: Vec<FrozenUnit>,
         name: String,
-        /// The types after `for`, frozen the same way a field's type is.
-        /// Empty only for a validator written without `for`, which
-        /// validation rejects.
-        #[serde(default)]
-        targets: Vec<KindValue>,
+        /// The types after `for`. Empty only for a validator written
+        /// without `for`, which validation rejects.
+        targets: Vec<TypeRef>,
         expression_block: Box<FrozenUnit>,
         /// Always present - a `validator` is only ever frozen from a local
         /// declaration, never re-exported the way an `error` is.
@@ -179,7 +183,9 @@ pub enum FrozenUnit {
         parameters: Vec<FrozenUnit>,
         optional: bool,
         name: String,
-        kind_value: KindValue,
+        ty: TypeRef,
+        /// `= value`, when one was written.
+        default: Option<Literal>,
         span: (usize, usize),
     },
     /// A `type NAME = TARGET` declaration - transparent like Rust's own
@@ -187,15 +193,15 @@ pub enum FrozenUnit {
     /// name, one level - an alias-of-alias's own target stays a `Named`
     /// reference, not flattened), the same way a struct/enum reference
     /// freezes. A reference to this alias elsewhere (a field, an argument,
-    /// ...) freezes to the *same* `KindValue::Namespaced(name, _)` a
-    /// struct/enum reference would, so generators need only one new case -
-    /// emitting the alias declaration itself (`pub type NAME = ...;`,
+    /// ...) freezes to the *same* `TypeRef::Named(name)` a struct/enum
+    /// reference would, so generators need only one new case - emitting the
+    /// alias declaration itself (`pub type NAME = ...;`,
     /// `export type NAME = ...;`) - to pick it up correctly; no other
     /// codegen path changes.
     TypeAlias {
         docstring: Option<String>,
         name: String,
-        target: KindValue,
+        target: TypeRef,
         span: (usize, usize),
     },
     /// `@deprecated`, frozen with its *semantics* rather than its syntax -
@@ -309,7 +315,7 @@ pub enum DeprecatedValue {
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub struct  FrozenArgument {
     pub name: String,
-    pub kind: KindValue,
+    pub ty: TypeRef,
     pub span: (usize, usize),
 }
 

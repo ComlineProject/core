@@ -402,7 +402,7 @@ protocol P {\n    function get(u64) -> string ! Denied;\n}";
     /// `retries: u8 = 5` became `pub retries: u64`.
     #[test]
     fn a_default_keeps_the_width_its_field_declared() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::types::{Literal, PrimitiveType as P, TypeRef};
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
         let code = r#"
@@ -421,33 +421,28 @@ struct Widths {
         let FrozenUnit::Struct { fields, .. } = &ir_units[0] else {
             panic!("expected a struct");
         };
-        let kinds: Vec<&KindValue> = fields
+        let kinds: Vec<(&TypeRef, &Option<Literal>)> = fields
             .iter()
             .map(|f| match f {
-                FrozenUnit::Field { kind_value, .. } => kind_value,
+                FrozenUnit::Field { ty, default, .. } => (ty, default),
                 _ => panic!("expected a field"),
             })
             .collect();
-        assert_eq!(
-            kinds,
-            vec![
-                &KindValue::Primitive(Primitive::U8(Some(1))),
-                &KindValue::Primitive(Primitive::U16(Some(2))),
-                &KindValue::Primitive(Primitive::U32(Some(3))),
-                &KindValue::Primitive(Primitive::U64(Some(4))),
-                &KindValue::Primitive(Primitive::S8(Some(-1))),
-                &KindValue::Primitive(Primitive::S16(Some(-2))),
-                &KindValue::Primitive(Primitive::S32(Some(-3))),
-                &KindValue::Primitive(Primitive::S64(Some(-4))),
-            ]
-        );
+        let expected: Vec<(TypeRef, Option<Literal>)> = [
+            (P::U8, 1), (P::U16, 2), (P::U32, 3), (P::U64, 4),
+            (P::S8, -1), (P::S16, -2), (P::S32, -3), (P::S64, -4),
+        ]
+        .into_iter()
+        .map(|(p, v)| (TypeRef::Primitive(p), Some(Literal::Integer(v))))
+        .collect();
+        assert_eq!(kinds, expected.iter().map(|(t, d)| (t, d)).collect::<Vec<_>>());
     }
 
     /// `= true` froze as `false`: the match arm took `Some(_)` and threw the
     /// literal away. Silent, and it travelled into the IR hash.
     #[test]
     fn a_boolean_default_keeps_the_value_that_was_written() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::types::{Literal, PrimitiveType as P, TypeRef};
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
         let code = r#"
@@ -460,19 +455,16 @@ struct Flags {
         let FrozenUnit::Struct { fields, .. } = &ir_units[0] else {
             panic!("expected a struct");
         };
-        let kinds: Vec<&KindValue> = fields
+        let defaults: Vec<&Option<Literal>> = fields
             .iter()
             .map(|f| match f {
-                FrozenUnit::Field { kind_value, .. } => kind_value,
+                FrozenUnit::Field { default, .. } => default,
                 _ => panic!("expected a field"),
             })
             .collect();
         assert_eq!(
-            kinds,
-            vec![
-                &KindValue::Primitive(Primitive::Boolean(Some(true))),
-                &KindValue::Primitive(Primitive::Boolean(Some(false))),
-            ]
+            defaults,
+            vec![&Some(Literal::Bool(true)), &Some(Literal::Bool(false))]
         );
     }
 
@@ -481,15 +473,16 @@ struct Flags {
     /// legitimate declaration with "cannot be a named type 'u128'".
     #[test]
     fn a_128_bit_constant_is_a_primitive_not_a_named_type() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::types::{Literal, PrimitiveType as P, TypeRef};
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
         let ir_units = IncrementalInterpreter::from_source("const BIG: u128 = 7
 ");
-        let FrozenUnit::Constant { kind_value, .. } = &ir_units[0] else {
+        let FrozenUnit::Constant { ty, value, .. } = &ir_units[0] else {
             panic!("expected a constant");
         };
-        assert_eq!(*kind_value, KindValue::Primitive(Primitive::U128(Some(7))));
+        assert_eq!(*ty, TypeRef::Primitive(P::U128));
+        assert_eq!(*value, Some(Literal::Integer(7)));
         assert!(validate(&IncrementalInterpreter::from_source("const BIG: u128 = 7\n")).is_ok());
     }
 
@@ -531,20 +524,19 @@ struct Flags {
         );
     }
 
-    /// `Primitive::String` reported its type name as the empty string, so a
-    /// generator asking the primitive for its name rendered `name: ;` -
+    /// The string primitive once reported its type name as the empty
+    /// string, so a generator asking for its name rendered `name: ;` -
     /// output that does not parse in Rust or TypeScript.
     #[test]
     fn a_string_primitive_knows_its_own_type_name() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::Primitive;
+        use comline_core::schema::ir::frozen::types::PrimitiveType;
 
-        assert_eq!(Primitive::String(None).name(), "string");
-        assert_eq!(Primitive::String(Some("x".into())).name(), "string");
+        assert_eq!(PrimitiveType::String.name(), "string");
     }
 
     #[test]
     fn test_struct_field_default_values() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
+        use comline_core::schema::ir::frozen::types::{Literal, PrimitiveType as P, TypeRef};
 
         let code = r#"
 struct Config {
@@ -564,52 +556,42 @@ struct Config {
 
                 match &fields[0] {
                     comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
-                        kind_value, ..
+                        ty, default, ..
                     } => {
-                        // `u32`, not `u64`: the variant comes from the
-                        // declared type. This asserted `U64` until core
-                        // stopped inferring the variant from the literal -
-                        // which is what made `retries: u8 = 5` reach a
-                        // generator as `u64`.
-                        assert_eq!(
-                            *kind_value,
-                            KindValue::Primitive(Primitive::U32(Some(3)))
-                        );
+                        // `u32`, not `u64`: the type is the declared one,
+                        // never inferred from the literal - which is what
+                        // once made `retries: u8 = 5` reach a generator as
+                        // `u64`.
+                        assert_eq!(*ty, TypeRef::Primitive(P::U32));
+                        assert_eq!(*default, Some(Literal::Integer(3)));
                     }
                     _ => panic!("Expected Field"),
                 }
                 match &fields[1] {
                     comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
-                        kind_value, ..
+                        ty, default, ..
                     } => {
-                        assert_eq!(
-                            *kind_value,
-                            KindValue::Primitive(Primitive::String(Some("default".to_string())))
-                        );
+                        assert_eq!(*ty, TypeRef::Primitive(P::String));
+                        assert_eq!(*default, Some(Literal::String("default".to_string())));
                     }
                     _ => panic!("Expected Field"),
                 }
                 match &fields[2] {
                     comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
-                        kind_value, ..
+                        ty, default, ..
                     } => {
-                        assert_eq!(
-                            *kind_value,
-                            KindValue::Primitive(Primitive::S64(Some(-1)))
-                        );
+                        assert_eq!(*ty, TypeRef::Primitive(P::S64));
+                        assert_eq!(*default, Some(Literal::Integer(-1)));
                     }
                     _ => panic!("Expected Field"),
                 }
-                // A field with no default keeps behaving exactly as before
-                // the shared build_kind_value refactor.
+                // A field with no default has the same type, and no literal.
                 match &fields[3] {
                     comline_core::schema::ir::frozen::unit::FrozenUnit::Field {
-                        kind_value, ..
+                        ty, default, ..
                     } => {
-                        assert_eq!(
-                            *kind_value,
-                            KindValue::Namespaced("string".to_string(), None)
-                        );
+                        assert_eq!(*ty, TypeRef::Primitive(P::String));
+                        assert_eq!(*default, None);
                     }
                     _ => panic!("Expected Field"),
                 }
@@ -954,7 +936,7 @@ protocol MessagingService {
 
     #[test]
     fn test_check_and_from_declarations_succeeds_and_freezes_the_alias() {
-        use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
+        use comline_core::schema::ir::frozen::types::{PrimitiveType, TypeRef};
         use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
         let declarations = declarations_for("type UserId = u64\nstruct X {\n    id: UserId\n}\n");
@@ -965,13 +947,13 @@ protocol MessagingService {
         assert!(ir_units.iter().any(|u| matches!(
             u,
             FrozenUnit::TypeAlias { name, target, .. }
-                if name == "UserId" && *target == KindValue::Namespaced("u64".to_string(), None)
+                if name == "UserId" && *target == TypeRef::Primitive(PrimitiveType::U64)
         )));
         let field_kind = ir_units
             .iter()
             .find_map(|u| match u {
                 FrozenUnit::Struct { fields, .. } => match &fields[0] {
-                    FrozenUnit::Field { kind_value, .. } => Some(kind_value),
+                    FrozenUnit::Field { ty, .. } => Some(ty),
                     _ => None,
                 },
                 _ => None,
@@ -979,7 +961,7 @@ protocol MessagingService {
             .expect("a struct with one field");
         assert_eq!(
             field_kind,
-            &KindValue::Namespaced("UserId".to_string(), None),
+            &TypeRef::Named("UserId".to_string()),
             "the field keeps the alias's name, same as a struct/enum reference would"
         );
     }

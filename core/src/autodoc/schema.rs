@@ -3,7 +3,7 @@
 // Crate Uses
 use crate::schema::ir::diff::Differ;
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
+use crate::schema::ir::frozen::types::Literal;
 
 // External Uses
 
@@ -44,31 +44,14 @@ impl Differ for Document {
     }
 
     fn on_const_default_value_changed(
-        &mut self, name: &str, left_kind_value: &KindValue, right_kind_value: &KindValue
+        &mut self, name: &str, left_value: Option<&Literal>, right_value: Option<&Literal>
     ) {
-        let (left_kind_name, left_value_display) = {
-            left_kind_value.name_and_value()
-        };
-
-        let (right_kind_name, right_value_display) = {
-            right_kind_value.name_and_value()
-        };
-
-        if left_kind_name != right_kind_name {
-            self.minor_changes.push(
-                format!(
-                    "Constant '{}' kind changed from '{}' to '{}'", name,
-                    left_kind_name, right_kind_name
-                )
-            )
-        }
-
-        if left_value_display != right_value_display {
+        if left_value != right_value {
             self.minor_changes.push(
                 format!(
                     "Constant '{}' default value changed from {} to {}", name,
-                    into_formal(left_value_display),
-                    into_formal(right_value_display)
+                    into_formal(left_value.map(Literal::to_string)),
+                    into_formal(right_value.map(Literal::to_string))
                 )
             )
         }

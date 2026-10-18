@@ -14,7 +14,7 @@ use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::utils::text::closest;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
-use crate::schema::ir::compiler::interpreter::incremental::type_to_string;
+use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::validation::ImportLookup;
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
@@ -463,12 +463,12 @@ pub fn schema_declares_symbol(schema_context: &SchemaContext, symbol: &str) -> b
 pub fn declared_validator_targets(
     declarations: &[rust_sitter::Spanned<Declaration>],
     name: &str,
-) -> Option<Vec<String>> {
+) -> Option<Vec<TypeRef>> {
     declarations.iter().find_map(|decl| match &decl.value {
         Declaration::Validator(v) if v.name() == name => Some(
             v.targets()
                 .into_iter()
-                .map(|t| resolve_local_aliases(declarations, type_to_string(t)))
+                .map(|t| resolve_local_aliases(declarations, &TypeRef::from_grammar(t)))
                 .collect(),
         ),
         _ => None,
@@ -480,38 +480,42 @@ pub fn declared_validator_targets(
 pub fn declared_alias_target(
     declarations: &[rust_sitter::Spanned<Declaration>],
     name: &str,
-) -> Option<String> {
+) -> Option<TypeRef> {
     declarations.iter().find_map(|decl| match &decl.value {
-        Declaration::TypeAlias(a) if a.name() == name => {
-            Some(resolve_local_aliases(declarations, type_to_string(a.target_type())))
-        }
+        Declaration::TypeAlias(a) if a.name() == name => Some(resolve_local_aliases(
+            declarations,
+            &TypeRef::from_grammar(a.target_type()),
+        )),
         _ => None,
     })
 }
 
-/// `written` with each alias `declarations` declares replaced by its target,
-/// keeping array dimensions. Bounded: an alias cycle is reported elsewhere.
+/// `ty` with each alias `declarations` declares replaced by its target, all
+/// the way down. Bounded: an alias cycle is reported elsewhere.
 fn resolve_local_aliases(
     declarations: &[rust_sitter::Spanned<Declaration>],
-    written: String,
-) -> String {
-    let mut base = written;
-    let mut dims = 0;
-    for _ in 0..32 {
-        while let Some(inner) = base.strip_suffix("[]") {
-            base = inner.to_string();
-            dims += 1;
+    ty: &TypeRef,
+) -> TypeRef {
+    fn go(
+        declarations: &[rust_sitter::Spanned<Declaration>],
+        ty: &TypeRef,
+        depth: usize,
+    ) -> TypeRef {
+        if depth == 32 {
+            return ty.clone();
         }
-        let next = declarations.iter().find_map(|decl| match &decl.value {
-            Declaration::TypeAlias(a) if a.name() == base => Some(type_to_string(a.target_type())),
-            _ => None,
-        });
-        match next {
-            Some(target) => base = target,
-            None => break,
-        }
+        ty.map_named(&mut |name| {
+            declarations.iter().find_map(|decl| match &decl.value {
+                Declaration::TypeAlias(a) if a.name() == name => Some(go(
+                    declarations,
+                    &TypeRef::from_grammar(a.target_type()),
+                    depth + 1,
+                )),
+                _ => None,
+            })
+        })
     }
-    base + &"[]".repeat(dims)
+    go(declarations, ty, 0)
 }
 
 /// [`ImportLookup`] for a build: follows a schema's `use` statements through
@@ -532,13 +536,13 @@ impl ProjectImports<'_> {
 }
 
 impl ImportLookup for ProjectImports<'_> {
-    fn validator_targets(&self, name: &str) -> Option<Vec<String>> {
+    fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
         declared_validator_targets(&schema.declarations, &bare)
     }
 
-    fn alias_target(&self, name: &str) -> Option<String> {
+    fn alias_target(&self, name: &str) -> Option<TypeRef> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
         declared_alias_target(&schema.declarations, &bare)

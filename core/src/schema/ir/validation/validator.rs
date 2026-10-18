@@ -5,10 +5,8 @@ use std::collections::{HashMap, HashSet};
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
-use crate::schema::ir::compiler::interpreted::kind_search::{KindValue, Primitive};
-use crate::schema::ir::compiler::interpreter::incremental::{
-    NOT_AN_ERROR_PREFIX, OUT_OF_RANGE_PREFIX, UNRESOLVED_PREFIX,
-};
+use crate::schema::ir::compiler::interpreter::incremental::{NOT_AN_ERROR_PREFIX, UNRESOLVED_PREFIX};
+use crate::schema::ir::frozen::types::{Literal, PrimitiveType, TypeRef};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
 use crate::schema::idl::annotations;
@@ -17,6 +15,8 @@ const DUPLICATE_DECLARATION: DiagnosticCode = DiagnosticCode::error("validation:
 const INVALID_CONSTANT_TYPE: DiagnosticCode = DiagnosticCode::error("validation::invalid-constant-type");
 const VALUE_OUT_OF_RANGE: DiagnosticCode =
     DiagnosticCode::error("validation::value-out-of-range");
+const LITERAL_TYPE_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::literal-type-mismatch");
 const UNKNOWN_VALIDATOR_PROPERTY: DiagnosticCode =
     DiagnosticCode::error("validation::unknown-validator-property");
 const INVALID_VALIDATOR_REFERENCE: DiagnosticCode =
@@ -55,25 +55,24 @@ const VALIDATOR_ACCESSOR_UNSUPPORTED: DiagnosticCode =
 /// [`validate`] answers nothing - an imported name stays unchecked, as it
 /// always was.
 ///
-/// Types are answered as the text a frozen type carries (`string`,
-/// `u8[]`), already resolved through aliases in the schema that declares
-/// them.
+/// Types come back already resolved through aliases in the schema that
+/// declares them.
 pub trait ImportLookup {
     /// The `for` targets of an imported validator, as written or qualified
     /// (`StringBounds`, `validators::StringBounds`).
-    fn validator_targets(&self, name: &str) -> Option<Vec<String>>;
+    fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>>;
     /// What an imported `type` alias stands for.
-    fn alias_target(&self, name: &str) -> Option<String>;
+    fn alias_target(&self, name: &str) -> Option<TypeRef>;
 }
 
 /// The lookup for a schema validated on its own: no imports known.
 pub struct NoImports;
 
 impl ImportLookup for NoImports {
-    fn validator_targets(&self, _: &str) -> Option<Vec<String>> {
+    fn validator_targets(&self, _: &str) -> Option<Vec<TypeRef>> {
         None
     }
-    fn alias_target(&self, _: &str) -> Option<String> {
+    fn alias_target(&self, _: &str) -> Option<TypeRef> {
         None
     }
 }
@@ -207,8 +206,12 @@ pub fn validate_with(
             FrozenUnit::Struct { name, fields, .. } => {
                 for field in fields {
                     match field {
-                        FrozenUnit::Field { name: field_name, kind_value, span, .. } => {
-                            validate_type(kind_value, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Struct '{}', field '{}'", name, field_name), *span);
+                        FrozenUnit::Field { name: field_name, ty, default, span, .. } => {
+                            let context = format!("Struct '{}', field '{}'", name, field_name);
+                            validate_type(ty, &symbols, &deprecated, &mut errors, &mut warnings, &context, *span);
+                            if let Some(default) = default {
+                                check_literal(ty, default, &context, *span, &mut errors);
+                            }
                         }
                         _ => {}
                     }
@@ -219,7 +222,7 @@ pub fn validate_with(
                     match func {
                         FrozenUnit::Function { name: func_name, arguments, _return, span, .. } => {
                             for arg in arguments {
-                                validate_type(&arg.kind, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name), arg.span);
+                                validate_type(&arg.ty, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Protocol '{}', function '{}', arg '{}'", name, func_name, arg.name), arg.span);
                             }
                             if let Some(ret_type) = _return {
                                 validate_type(ret_type, &symbols, &deprecated, &mut errors, &mut warnings, &format!("Protocol '{}', function '{}' return", name, func_name), *span);
@@ -229,21 +232,27 @@ pub fn validate_with(
                     }
                 }
             }
-            FrozenUnit::Constant { name, kind_value, span, .. } => {
-                // Constants usually primitive, but check if namespaced
-                if let KindValue::Namespaced(type_name, _) = kind_value {
-                    let context = format!("Constant '{name}'");
-                    // An out-of-range literal is not a named type, and saying
-                    // so sent the author looking for a type they never wrote.
-                    if let Some(diagnostic) = out_of_range(type_name, &context, Some(*span)) {
-                        errors.push(diagnostic);
-                    } else {
-                        errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(type_name), secondary: None, severity_override: None,
-                            message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, type_name),
-                            context,
-                            span: Some(*span),
-                        });
+            FrozenUnit::Constant { name, ty, value, span, .. } => {
+                let context = format!("Constant '{name}'");
+                match (ty.as_primitive(), value) {
+                    // A constant is a primitive with a literal value - the
+                    // literal's own fit is `check_literal`'s business.
+                    (Some(_), Some(literal)) if !matches!(literal, Literal::Reference(_)) => {
+                        check_literal(ty, literal, &context, *span, &mut errors);
                     }
+                    (Some(_), _) => errors.push(
+                        Diagnostic::new(
+                            INVALID_CONSTANT_TYPE,
+                            format!("Constant '{name}' must have a literal value"),
+                        )
+                        .with_context(context)
+                        .with_span(*span),
+                    ),
+                    (None, _) => errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(&ty.to_string()), secondary: None, severity_override: None,
+                        message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, ty),
+                        context,
+                        span: Some(*span),
+                    }),
                 }
             }
             FrozenUnit::TypeAlias { name, target, span, .. } => {
@@ -415,9 +424,7 @@ pub fn validate_with(
                                     .get(vname.as_str())
                                     .and_then(|fs| prop_field(fs, kw))
                                     .and_then(|f| match f {
-                                        FrozenUnit::Field { kind_value, .. } => {
-                                            expected_value_type(kind_value)
-                                        }
+                                        FrozenUnit::Field { ty, .. } => expected_value_type(ty),
                                         _ => None,
                                     });
                                 if let Some(want) = want {
@@ -504,20 +511,18 @@ fn check_validator_targets(
     imports: &dyn ImportLookup,
     errors: &mut Vec<Diagnostic>,
 ) {
-    let local_aliases: HashMap<&str, String> = units
+    let local_aliases: HashMap<&str, &TypeRef> = units
         .iter()
         .filter_map(|u| match u {
-            FrozenUnit::TypeAlias { name, target, .. } => {
-                Some((name.as_str(), kind_type_name(target)?))
-            }
+            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), target)),
             _ => None,
         })
         .collect();
-    let resolve = |written: &str| resolve_type(written, &local_aliases, symbols, imports);
+    let resolve = |written: &TypeRef| resolve_type(written, &local_aliases, symbols, imports);
 
     // `(as written, resolved)` per target, for each local validator that has
     // any.
-    let mut local_targets: HashMap<&str, Vec<(String, String)>> = HashMap::new();
+    let mut local_targets: HashMap<&str, Vec<(TypeRef, TypeRef)>> = HashMap::new();
     for unit in units {
         let FrozenUnit::Validator { name, targets, expression_block, span, .. } = unit else {
             continue;
@@ -536,14 +541,8 @@ fn check_validator_targets(
             );
             continue;
         }
-        let pairs: Vec<(String, String)> = targets
-            .iter()
-            .filter_map(kind_type_name)
-            .map(|written| {
-                let resolved = resolve(&written);
-                (written, resolved)
-            })
-            .collect();
+        let pairs: Vec<(TypeRef, TypeRef)> =
+            targets.iter().map(|written| (written.clone(), resolve(written))).collect();
 
         if let FrozenUnit::ExpressionBlock { asserts } = &**expression_block {
             let mut reported = HashSet::new();
@@ -603,14 +602,12 @@ fn check_validator_targets(
             _ => continue,
         };
         for field in fields {
-            let FrozenUnit::Field { name: field_name, parameters, kind_value, span, .. } = field
+            let FrozenUnit::Field { name: field_name, parameters, ty: field_written, span, .. } =
+                field
             else {
                 continue;
             };
-            let Some(field_written) = kind_type_name(kind_value) else {
-                continue;
-            };
-            let field_resolved = resolve(&field_written);
+            let field_resolved = resolve(field_written);
 
             for param in parameters {
                 let FrozenUnit::ValidatorRef { name: vname, .. } = param else {
@@ -618,7 +615,7 @@ fn check_validator_targets(
                 };
                 // A local validator without targets was reported above, and
                 // an unknown name by pass 2.5 - neither has anything to match.
-                let targets: Vec<(String, String)> = match local_targets.get(vname.as_str()) {
+                let targets: Vec<(TypeRef, TypeRef)> = match local_targets.get(vname.as_str()) {
                     Some(pairs) => pairs.clone(),
                     None if matches!(symbols.get(vname), None | Some(SymbolType::Import)) => {
                         match imports.validator_targets(vname) {
@@ -637,7 +634,7 @@ fn check_validator_targets(
                     .collect::<Vec<_>>()
                     .join(", ");
                 let mut found = format!("`{field_written}`");
-                if field_resolved != field_written {
+                if field_resolved != *field_written {
                     found.push_str(&format!(" (`{field_resolved}`)"));
                 }
                 errors.push(
@@ -653,59 +650,40 @@ fn check_validator_targets(
     }
 }
 
-/// The type a frozen `KindValue` spells (`string`, `User[]`,
-/// `union(u8 string)`), or `None` for an enum-variant value.
-fn kind_type_name(kind: &KindValue) -> Option<String> {
-    match kind {
-        KindValue::Namespaced(name, _) => Some(name.clone()),
-        KindValue::Primitive(p) => Some(p.name().to_string()),
-        KindValue::Union(members) => {
-            let names = members.iter().map(kind_type_name).collect::<Option<Vec<_>>>()?;
-            Some(format!("union({})", names.join(" ")))
-        }
-        KindValue::Unit => Some("()".to_string()),
-        KindValue::EnumVariant(..) => None,
-    }
-}
-
-/// `written` with every alias replaced by what it stands for, keeping array
-/// dimensions: `type Name = string` makes `Name[]` resolve to `string[]`.
-/// Local aliases first; a name this schema doesn't declare goes to
-/// `imports`. Bounded, so a cycle (already reported by alias resolution)
-/// can't hang it.
+/// `ty` with every alias replaced by what it stands for, all the way down:
+/// `type Name = string` makes `Name[]` resolve to `string[]`. Local aliases
+/// first; a name this schema doesn't declare goes to `imports`. Bounded, so
+/// a cycle (already reported by alias resolution) can't hang it.
 fn resolve_type(
-    written: &str,
-    local_aliases: &HashMap<&str, String>,
+    ty: &TypeRef,
+    local_aliases: &HashMap<&str, &TypeRef>,
     symbols: &SymbolTable,
     imports: &dyn ImportLookup,
-) -> String {
-    let mut base = written.to_string();
-    let mut dims = 0;
-    for _ in 0..32 {
-        while let Some(inner) = base.strip_suffix("[]") {
-            base = inner.to_string();
-            dims += 1;
+) -> TypeRef {
+    fn go(
+        ty: &TypeRef,
+        local_aliases: &HashMap<&str, &TypeRef>,
+        symbols: &SymbolTable,
+        imports: &dyn ImportLookup,
+        depth: usize,
+    ) -> TypeRef {
+        if depth == 32 {
+            return ty.clone();
         }
-        let next = match local_aliases.get(base.as_str()) {
-            Some(target) => Some(target.clone()),
-            None if !is_primitive(&base)
-                && matches!(symbols.get(&base), None | Some(SymbolType::Import)) =>
-            {
-                imports.alias_target(&base)
+        ty.map_named(&mut |name| match local_aliases.get(name) {
+            Some(target) => Some(go(target, local_aliases, symbols, imports, depth + 1)),
+            None if matches!(symbols.get(name), None | Some(SymbolType::Import)) => {
+                imports.alias_target(name)
             }
             None => None,
-        };
-        match next {
-            Some(target) => base = target,
-            None => break,
-        }
+        })
     }
-    base + &"[]".repeat(dims)
+    go(ty, local_aliases, symbols, imports, 0)
 }
 
 /// Whether `value.length` means something for this (resolved) type.
-fn has_length(resolved: &str) -> bool {
-    resolved == "string" || resolved.ends_with("[]")
+fn has_length(resolved: &TypeRef) -> bool {
+    resolved.is_array() || *resolved == TypeRef::Primitive(PrimitiveType::String)
 }
 
 /// Check every *known* annotation's value against the shape its registry
@@ -791,15 +769,12 @@ fn detect_cycle<'a>(
     
     if let Some(FrozenUnit::Struct { fields, span, .. }) = unit_map.get(current) {
         for field in fields {
-            if let FrozenUnit::Field { kind_value, .. } = field {
-                if let KindValue::Namespaced(type_name, _) = kind_value {
-                    // Cycles are broken by dynamic arrays
-                    if type_name.ends_with("[]") {
-                        continue;
-                    }
-                    
-                    // Handle fixed arrays [N] -> technically still a cycle
-                    let base_type = type_name.split('[').next().unwrap_or(type_name);
+            if let FrozenUnit::Field { ty, .. } = field {
+                // Only a dynamic array breaks a cycle - it can be empty. A
+                // fixed array `Node[4]` always holds four, so a struct
+                // containing one of itself is still infinite.
+                if !breaks_cycle(ty) {
+                    let Some(base_type) = ty.base_name() else { continue };
 
                     if unit_map.contains_key(base_type) {
                         if visiting.contains(base_type) {
@@ -852,31 +827,60 @@ fn deprecation_of(
     Ok(None)
 }
 
-/// The diagnostic for an out-of-range marker, or `None` if `type_name` is an
-/// ordinary type name.
-///
-/// The interpreter writes `<out of range for u8: 300>` into the type slot
-/// instead of truncating the value - the same encode-in-the-IR convention
-/// `<unresolved: _>` uses for an import - so this is where that becomes a
-/// message an author can act on.
-fn out_of_range(type_name: &str, context: &str, span: Option<(usize, usize)>) -> Option<Diagnostic> {
-    let rest = type_name
-        .strip_prefix(OUT_OF_RANGE_PREFIX)?
-        .strip_suffix('>')?;
-    let (declared, literal) = rest.split_once(": ")?;
-    let mut diagnostic = Diagnostic::new(
-        VALUE_OUT_OF_RANGE,
-        format!("the value {literal} does not fit in `{declared}`"),
-    )
-    .with_context(context.to_string())
-    .with_help(format!(
-        "either change the value to one `{declared}` can hold, or widen the \
-         declared type"
-    ));
-    if let Some(span) = span {
-        diagnostic = diagnostic.with_span(span);
+/// Whether a field of this type can stand in a struct that contains
+/// itself: only through a dynamic array, which can be empty.
+fn breaks_cycle(ty: &TypeRef) -> bool {
+    matches!(ty, TypeRef::Array { length: None, .. })
+}
+
+/// A literal written for a value of type `ty` - a field or property
+/// default, a constant - has to be that type, and an integer has to fit
+/// the width declared. A reference (`MAX`, `u32::MAX`) isn't resolved yet,
+/// so it isn't judged; nor is a literal for a non-primitive type.
+fn check_literal(
+    ty: &TypeRef,
+    literal: &Literal,
+    context: &str,
+    span: (usize, usize),
+    errors: &mut Vec<Diagnostic>,
+) {
+    let Some(primitive) = ty.as_primitive() else { return };
+    let fits = match (primitive, literal) {
+        (_, Literal::Reference(_)) => return,
+        (p, Literal::Integer(value)) if p.is_integer() => {
+            let (min, max) = p.integer_range().expect("an integer primitive has a range");
+            if !(min..=max).contains(&i128::from(*value)) {
+                errors.push(
+                    Diagnostic::new(
+                        VALUE_OUT_OF_RANGE,
+                        format!("the value {value} does not fit in `{primitive}`"),
+                    )
+                    .with_context(context.to_string())
+                    .with_help(format!(
+                        "either change the value to one `{primitive}` can hold, or widen the \
+                         declared type"
+                    ))
+                    .with_span(span),
+                );
+            }
+            return;
+        }
+        // An integer literal is a fine value for a float.
+        (p, Literal::Integer(_)) => p.is_float(),
+        (PrimitiveType::Bool, Literal::Bool(_)) => true,
+        (PrimitiveType::String, Literal::String(_)) => true,
+        _ => false,
+    };
+    if !fits {
+        errors.push(
+            Diagnostic::new(
+                LITERAL_TYPE_MISMATCH,
+                format!("expected a `{primitive}` value, found {} `{literal}`", literal.describe()),
+            )
+            .with_context(context.to_string())
+            .with_span(span),
+        );
     }
-    Some(diagnostic)
 }
 
 /// Check every function's `! Name` clause.
@@ -884,7 +888,7 @@ fn out_of_range(type_name: &str, context: &str, span: Option<(usize, usize)>) ->
 /// Freeze resolves a throw to a schema-global ordinal before `validate` runs,
 /// so a bad name is not a name here any more - it is a placeholder
 /// [`FrozenUnit::Error`] carrying a marker in `imported_from`, the same
-/// encode-in-the-IR convention `out_of_range` reads. This is where those
+/// encode-in-the-IR convention. This is where those
 /// become messages, reported at the throwing function's span rather than the
 /// placeholder's (a re-export has no span of its own).
 fn validate_throws(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
@@ -976,28 +980,11 @@ fn validate_throws(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
 }
 
 fn validate_type(
-    kind: &KindValue, symbols: &SymbolTable, deprecated: &HashMap<&str, Option<String>>,
+    ty: &TypeRef, symbols: &SymbolTable, deprecated: &HashMap<&str, Option<String>>,
     errors: &mut Vec<Diagnostic>, warnings: &mut Vec<Diagnostic>, context: &str, span: (usize, usize),
 ) {
-    match kind {
-        KindValue::Namespaced(type_name, _) => {
-            // A literal that did not fit the width its declaration named.
-            // The interpreter encodes it as a marker rather than truncating
-            // it; this is where it becomes a readable error instead of
-            // "unknown type `<out of range for u8: 300>`".
-            if let Some(diagnostic) = out_of_range(type_name, context, Some(span)) {
-                errors.push(diagnostic);
-                return;
-            }
-
-            // Handle array syntax e.g. "User[]", "User[][]"
-            let base_type = type_name.trim_end_matches("[]");
-
-            // Allow primitives
-            if is_primitive(base_type) {
-                return;
-            }
-
+    match ty {
+        TypeRef::Named(name) => {
             // Resolve the name, then check that what it names can actually
             // stand here. Presence used to be the whole test, so anything in
             // the table passed: `field: SomeProtocol`, `field: SOME_CONST`
@@ -1007,66 +994,61 @@ fn validate_type(
             // A name the bare-import set brought into scope is opaque - the
             // schema it came from is not necessarily parsed here - so it is
             // accepted without a kind.
-            let found = symbols.get(base_type);
-            let imported_bare = symbols.is_imported_bare(base_type);
+            let found = symbols.get(name);
+            let imported_bare = symbols.is_imported_bare(name);
 
             if let Some(kind) = found.filter(|k| !k.usable_as_type()) {
                 errors.push(
                     Diagnostic::new(
                         NOT_A_TYPE,
-                        format!("'{base_type}' is {}, not a type", kind.describe()),
+                        format!("'{name}' is {}, not a type", kind.describe()),
                     )
                     .with_context(context.to_string())
                     .with_span(span),
                 );
             } else if found.is_none() && !imported_bare {
-                let mut message = format!("Unknown type '{}'", base_type);
-                if let Some(suggestion) = suggest_similar_name(base_type, symbols) {
-                    message.push_str(&format!(" - did you mean '{}'?", suggestion));
+                // A text-type hint says exactly what to write; a "did you
+                // mean" alongside it would only contradict it (`str` is one
+                // edit from `s8`).
+                let hint = text_type_hint(name);
+                let mut message = format!("Unknown type '{}'", name);
+                if hint.is_none() {
+                    if let Some(suggestion) = suggest_similar_name(name, symbols) {
+                        message.push_str(&format!(" - did you mean '{}'?", suggestion));
+                    }
                 }
-                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: text_type_hint(base_type), secondary: None, severity_override: None,
+                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: hint, secondary: None, severity_override: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),
                 });
-            } else if let Some(deprecation_message) = deprecated.get(base_type) {
+            } else if let Some(deprecation_message) = deprecated.get(name.as_str()) {
                 let message = match deprecation_message {
-                    Some(msg) => format!("'{}' is deprecated: {}", base_type, msg),
-                    None => format!("'{}' is deprecated", base_type),
+                    Some(msg) => format!("'{}' is deprecated: {}", name, msg),
+                    None => format!("'{}' is deprecated", name),
                 };
                 warnings.push(Diagnostic::new(DEPRECATED_TYPE_USAGE, message)
                     .with_context(context.to_string())
                     .with_span(span));
             }
         }
-        KindValue::Primitive(_) => {
-            // Primitives are always valid
+        TypeRef::Array { element, .. } => {
+            validate_type(element, symbols, deprecated, errors, warnings, context, span);
         }
-        KindValue::Union(members) => {
+        TypeRef::Union(members) => {
             for member in members {
                 validate_type(member, symbols, deprecated, errors, warnings, context, span);
             }
         }
-        KindValue::EnumVariant(_, _) => {
-            // KindValue::EnumVariant only carries the variant's own name, not
-            // the enclosing enum's - there's no way to check it exists without
-            // that context, and no grammar syntax produces this as a field's
-            // type today (it's only ever used to represent one variant inside
-            // an Enum's own `variants` list, not as a referenceable type).
-        }
-        KindValue::Unit => {
-            // `()` - the empty-reply type. Nothing to resolve.
-        }
+        // Primitives and `()` have nothing to resolve.
+        TypeRef::Primitive(_) | TypeRef::Unit => {}
     }
 }
 
-/// Every name treated as a primitive here: the grammar's own 13 (see
-/// `schema::idl::vocabulary::PRIMITIVES`), plus `u128`/`s128` — the IR's
-/// `Primitive` enum has variants for these, reachable via a frozen
-/// dependency schema built by a different generator, even though no
-/// `.ids` source parsed by *this* grammar can spell them.
+/// Every primitive's name: the grammar's own, plus `u128`/`s128` (see
+/// [`PrimitiveType`]).
 fn primitive_names() -> impl Iterator<Item = &'static str> + Clone {
-    crate::schema::idl::vocabulary::PRIMITIVES.iter().map(|p| p.name).chain(["u128", "s128"])
+    PrimitiveType::ALL.into_iter().map(PrimitiveType::name)
 }
 
 pub(crate) fn is_primitive(name: &str) -> bool {
@@ -1114,40 +1096,21 @@ fn argument_mismatch(
 /// What a validator property's declared type accepts, in the shared
 /// configuration-value vocabulary.
 ///
-/// Replaces a pair of functions that compared coarse category *strings*
-/// (`"bool"`/`"string"`/`"integer"`) - one deriving them by re-parsing the
-/// argument's already-rendered text, the other by mapping a `KindValue`
-/// through an intermediate type-name string. Both are gone: the argument
-/// keeps its written form, and this maps the declared type straight onto
-/// the same vocabulary that checks it.
+/// The argument keeps its written form, and this maps the declared type
+/// straight onto the same vocabulary that checks it - with or without a
+/// default, since the type no longer depends on one being written.
 ///
-/// `None` for a type this cannot express - a custom/namespaced type, a
-/// float, an array, a union - leaving the argument unchecked exactly as
-/// before, rather than guessing.
-fn expected_value_type(kind: &KindValue) -> Option<ValueType> {
-    match kind {
-        KindValue::Primitive(Primitive::Boolean(_)) => Some(ValueType::Bool),
-        KindValue::Primitive(Primitive::String(_)) => Some(ValueType::Str),
-        KindValue::Primitive(
-            Primitive::U8(_)
-            | Primitive::U16(_)
-            | Primitive::U32(_)
-            | Primitive::U64(_)
-            | Primitive::U128(_)
-            | Primitive::S8(_)
-            | Primitive::S16(_)
-            | Primitive::S32(_)
-            | Primitive::S64(_)
-            | Primitive::S128(_),
-        ) => Some(ValueType::Integer),
+/// `None` for a type this cannot express - a custom/named type, a float, an
+/// array, a union - leaving the argument unchecked rather than guessing.
+fn expected_value_type(ty: &TypeRef) -> Option<ValueType> {
+    match ty.as_primitive()? {
+        PrimitiveType::Bool => Some(ValueType::Bool),
+        PrimitiveType::String => Some(ValueType::Str),
+        p if p.is_integer() => Some(ValueType::Integer),
         _ => None,
     }
 }
 
-/// Find the closest known symbol or primitive name to an unrecognized
-/// type reference, for a "did you mean 'X'?" suggestion - `None` if
-/// nothing is close enough to plausibly be a typo rather than just an
-/// unrelated, genuinely nonexistent name.
 /// The text type is spelled `string`. `str` was an accepted spelling until
 /// it was removed outright (no deprecation period - pre-1.0), and `String`
 /// is what the type generates to in Rust; both now parse as an ordinary
@@ -1160,6 +1123,10 @@ fn text_type_hint(type_name: &str) -> Option<String> {
     }
 }
 
+/// Find the closest known symbol or primitive name to an unrecognized
+/// type reference, for a "did you mean 'X'?" suggestion - `None` if
+/// nothing is close enough to plausibly be a typo rather than just an
+/// unrelated, genuinely nonexistent name.
 fn suggest_similar_name(target: &str, symbols: &SymbolTable) -> Option<String> {
     // Allow up to half the target's length to differ (rounded up, at
     // least 1). A single transposition - swapping two adjacent letters,

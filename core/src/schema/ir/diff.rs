@@ -1,6 +1,6 @@
 // Schema diffing and change analysis
 
-use crate::schema::ir::compiler::interpreted::kind_search::KindValue;
+use crate::schema::ir::frozen::types::{Literal, TypeRef};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use std::collections::{HashMap, HashSet};
 
@@ -363,7 +363,7 @@ fn compare_struct_fields(
                 changes.new_features.push(NewFeature::AddedField {
                     type_name: struct_name.to_string(),
                     field_name: field_name.clone(),
-                    field_type: kind_to_string(field_type),
+                    field_type: field_type.to_string(),
                     optional: *new_optional,
                 });
             } else {
@@ -372,7 +372,7 @@ fn compare_struct_fields(
                     .push(BreakingChange::AddedRequiredField {
                         type_name: struct_name.to_string(),
                         field_name: field_name.clone(),
-                        field_type: kind_to_string(field_type),
+                        field_type: field_type.to_string(),
                     });
             }
         }
@@ -381,31 +381,33 @@ fn compare_struct_fields(
     // Changed field types (breaking)
     for (field_name, (new_type, _)) in &new_field_map {
         if let Some((old_type, _)) = old_field_map.get(field_name) {
-            if !types_compatible(old_type, new_type) {
+            // Exact match, so `f32` -> `f64` and `u8[4]` -> `u8[8]` count.
+            // Future: could allow compatible widening (e.g., u32 -> u64).
+            if old_type != new_type {
                 changes
                     .breaking_changes
                     .push(BreakingChange::ChangedFieldType {
                         type_name: struct_name.to_string(),
                         field_name: field_name.clone(),
-                        old_type: kind_to_string(old_type),
-                        new_type: kind_to_string(new_type),
+                        old_type: old_type.to_string(),
+                        new_type: new_type.to_string(),
                     });
             }
         }
     }
 }
 
-fn build_field_map(fields: &[FrozenUnit]) -> HashMap<String, (KindValue, bool)> {
+fn build_field_map(fields: &[FrozenUnit]) -> HashMap<String, (TypeRef, bool)> {
     let mut map = HashMap::new();
     for field in fields {
         if let FrozenUnit::Field {
             name,
-            kind_value,
+            ty,
             optional,
             ..
         } = field
         {
-            map.insert(name.clone(), (kind_value.clone(), *optional));
+            map.insert(name.clone(), (ty.clone(), *optional));
         }
     }
     map
@@ -443,12 +445,8 @@ fn extract_variant_names(variants: &[FrozenUnit]) -> HashSet<String> {
     variants
         .iter()
         .filter_map(|v| {
-            if let FrozenUnit::EnumVariant(kv, _) = v {
-                match kv {
-                    KindValue::EnumVariant(name, _) => Some(name.clone()),
-                    KindValue::Namespaced(name, _) => Some(name.clone()),
-                    _ => None,
-                }
+            if let FrozenUnit::EnumVariant(name, _) = v {
+                Some(name.clone())
             } else {
                 None
             }
@@ -523,35 +521,16 @@ fn build_function_map(functions: &[FrozenUnit]) -> HashMap<String, String> {
 
 fn format_function_signature(
     args: &[crate::schema::ir::frozen::unit::FrozenArgument],
-    ret: &Option<KindValue>,
+    ret: &Option<TypeRef>,
 ) -> String {
-    let arg_types: Vec<String> = args.iter().map(|arg| kind_to_string(&arg.kind)).collect();
+    let arg_types: Vec<String> = args.iter().map(|arg| arg.ty.to_string()).collect();
 
     let ret_type = ret
         .as_ref()
-        .map(kind_to_string)
+        .map(TypeRef::to_string)
         .unwrap_or_else(|| "void".to_string());
 
     format!("({}) -> {}", arg_types.join(", "), ret_type)
-}
-
-fn kind_to_string(kind: &KindValue) -> String {
-    match kind {
-        KindValue::Primitive(p) => p.name().to_string(),
-        KindValue::Namespaced(name, _) => name.clone(),
-        KindValue::EnumVariant(name, _) => name.clone(),
-        KindValue::Union(members) => {
-            let parts: Vec<String> = members.iter().map(kind_to_string).collect();
-            format!("union({})", parts.join(" | "))
-        }
-        KindValue::Unit => "()".to_string(),
-    }
-}
-
-fn types_compatible(old: &KindValue, new: &KindValue) -> bool {
-    // For now, require exact match
-    // Future: could allow compatible widening (e.g., u32 -> u64)
-    kind_to_string(old) == kind_to_string(new)
 }
 
 // ===== Backward Compatibility =====
@@ -567,7 +546,7 @@ pub trait Differ {
     fn on_const_default_value_changed(
         &mut self,
         name: &str,
-        left_kind_value: &KindValue,
-        right_kind_value: &KindValue,
+        left_value: Option<&Literal>,
+        right_value: Option<&Literal>,
     );
 }

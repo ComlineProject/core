@@ -15,9 +15,7 @@ use comline_core::schema::ir::frozen::cas::blob::{
 };
 use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
-/// A schema using every declaration kind and type shape the grammar has -
-/// except `f32`/`f64` fields, which don't validate yet (see
-/// [`float_fields_validate`]); #95 adds them here.
+/// A schema using every declaration kind and type shape the grammar has.
 const TOUR: &str = r#"
 use std::validators::StringBounds
 
@@ -65,6 +63,8 @@ struct User {
     scores: u32[]
     digest: u8[32]
     grid: s16[][]
+    ratio: f64
+    weight: f32 = 1
     either: union(string u32)
     flag: bool = false
 }
@@ -147,11 +147,9 @@ fn the_shipped_packages_round_trip_through_cbor() {
     }
 }
 
-/// `f32`/`f64` freeze to the text `"float"`, which validation doesn't know
-/// as a primitive - so any float field fails with "Unknown type 'float'".
-/// Fixed by the structured-type IR (#95).
+/// `f32`/`f64` once froze to the text `"float"`, which validation didn't know
+/// as a primitive - so any float field failed with "Unknown type 'float'".
 #[test]
-#[ignore = "fails until #95: floats freeze as \"float\""]
 fn float_fields_validate() {
     PackageSources::new()
         .schema(["floats"], "struct S {\n    x: f32\n    y: f64\n}\n")
