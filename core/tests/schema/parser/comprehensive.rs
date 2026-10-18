@@ -9,7 +9,7 @@ mod parser_tests {
 
     #[test]
     fn test_simple_struct() {
-        let code = "struct User { name: str }";
+        let code = "struct User { name: string }";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -17,9 +17,9 @@ mod parser_tests {
     fn test_struct_multiple_fields() {
         let code = r#"
 struct Person {
-    name: str
+    name: string
     age: u8
-    email: str
+    email: string
     active: bool
 }
 "#;
@@ -41,7 +41,7 @@ struct AllTypes {
     f32_field: f32
     f64_field: f64
     bool_field: bool
-    str_field: str
+    str_field: string
     string_field: string
 }
 "#;
@@ -68,7 +68,7 @@ struct AllTypes {
 
     #[test]
     fn test_optional_field_with_default_value() {
-        let code = r#"struct Foo { optional name: str = "bee" }"#;
+        let code = r#"struct Foo { optional name: string = "bee" }"#;
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -84,7 +84,7 @@ struct AllTypes {
 
     #[test]
     fn test_struct_mixed_default_and_plain_fields() {
-        let code = "struct Foo {\n    a: u32 = 1\n    b: str\n}";
+        let code = "struct Foo {\n    a: u32 = 1\n    b: string\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -116,7 +116,7 @@ struct AllTypes {
 
     #[test]
     fn test_field_with_annotation() {
-        let code = "struct Foo {\n    @deprecated=true\n    old: str\n}";
+        let code = "struct Foo {\n    @deprecated=true\n    old: string\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -124,7 +124,7 @@ struct AllTypes {
     fn test_field_annotation_composes_with_optional_and_default() {
         let code = r#"struct Foo {
     @deprecated=true
-    optional old: str = "x"
+    optional old: string = "x"
 }"#;
         assert!(grammar::parse(code).is_ok());
     }
@@ -308,36 +308,36 @@ struct AllTypes {
 
     #[test]
     fn test_function_with_throws() {
-        let code = "protocol P {\n    function get(u64) -> str ! NotFoundError;\n}";
+        let code = "protocol P {\n    function get(u64) -> string ! NotFoundError;\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_function_with_several_throws() {
-        let code = "protocol P {\n    function get(u64) -> str ! NotFound, Denied;\n}";
+        let code = "protocol P {\n    function get(u64) -> string ! NotFound, Denied;\n}";
         assert!(grammar::parse(code).is_ok());
 
-        let three = "protocol P {\n    function get(u64) -> str ! A, B, C;\n}";
+        let three = "protocol P {\n    function get(u64) -> string ! A, B, C;\n}";
         assert!(grammar::parse(three).is_ok());
     }
 
     #[test]
     fn test_throws_clause_needs_at_least_one_name() {
         // A bare `!` names nothing - `first` is not optional.
-        let code = "protocol P {\n    function get(u64) -> str !;\n}";
+        let code = "protocol P {\n    function get(u64) -> string !;\n}";
         assert!(grammar::parse(code).is_err());
     }
 
     #[test]
     fn test_throws_clause_rejects_a_trailing_comma() {
-        let code = "protocol P {\n    function get(u64) -> str ! A,;\n}";
+        let code = "protocol P {\n    function get(u64) -> string ! A,;\n}";
         assert!(grammar::parse(code).is_err());
     }
 
     #[test]
     fn test_function_without_throws_still_parses() {
         // Regression: throws is optional, a plain function is unaffected.
-        let code = "protocol P {\n    function get(u64) -> str;\n}";
+        let code = "protocol P {\n    function get(u64) -> string;\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -374,13 +374,13 @@ struct AllTypes {
         // `message` becomes a keyword only inside `error { }` blocks - a
         // struct field literally named `message` (the exact shape used by
         // the live examples/imports package) must keep parsing fine.
-        assert!(grammar::parse("struct Foo { message: str }").is_ok());
-        assert!(grammar::parse("struct NotEdibleError {\n    message: str\n}").is_ok());
+        assert!(grammar::parse("struct Foo { message: string }").is_ok());
+        assert!(grammar::parse("struct NotEdibleError {\n    message: string\n}").is_ok());
     }
 
     #[test]
     fn test_message_as_function_argument_name_regression() {
-        let code = "protocol P {\n    function f(message: str) -> bool;\n}";
+        let code = "protocol P {\n    function f(message: string) -> bool;\n}";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -424,13 +424,13 @@ enum DayOfWeek {
 
     #[test]
     fn test_simple_protocol() {
-        let code = "protocol API { function get() -> str; }";
+        let code = "protocol API { function get() -> string; }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_protocol_no_return() {
-        let code = "protocol API { function notify(str); }";
+        let code = "protocol API { function notify(string); }";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -443,19 +443,19 @@ enum DayOfWeek {
 
     #[test]
     fn test_protocol_multiple_args() {
-        let code = "protocol API { function process(str, u32, bool) -> s64; }";
+        let code = "protocol API { function process(string, u32, bool) -> s64; }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_protocol_named_args() {
-        let code = "protocol API { function process(name: str, age: u32) -> bool; }";
+        let code = "protocol API { function process(name: string, age: u32) -> bool; }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_protocol_mixed_named_and_bare_args() {
-        let code = "protocol API { function process(str, count: u32, bool) -> i64; }";
+        let code = "protocol API { function process(string, count: u32, bool) -> i64; }";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -472,9 +472,9 @@ enum DayOfWeek {
     fn test_protocol_multiple_functions() {
         let code = r#"
 protocol UserService {
-    function create(str) -> u64;
-    function read(u64) -> str;
-    function update(u64, str) -> bool;
+    function create(string) -> u64;
+    function read(u64) -> string;
+    function update(u64, string) -> bool;
     function delete(u64) -> bool;
 }
 "#;
@@ -497,13 +497,13 @@ protocol UserService {
 
     #[test]
     fn test_const_string() {
-        let code = r#"const NAME: str = "hello""#;
+        let code = r#"const NAME: string = "hello""#;
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_const_identifier_value() {
-        let code = "const DEFAULT: str = OTHER_CONST";
+        let code = "const DEFAULT: string = OTHER_CONST";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -523,7 +523,7 @@ protocol UserService {
 
     #[test]
     fn test_type_alias_union() {
-        let code = "type Mixed = union(u32 str)";
+        let code = "type Mixed = union(u32 string)";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -565,7 +565,7 @@ protocol UserService {
 
     #[test]
     fn test_extra_whitespace() {
-        let code = "   struct   User   {   name  :  str   }   ";
+        let code = "   struct   User   {   name  :  string   }   ";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -577,13 +577,13 @@ protocol UserService {
 
     #[test]
     fn test_multiple_newlines() {
-        let code = "\n\n\nstruct User {\n\n\nname: str\n\n\n}\n\n\n";
+        let code = "\n\n\nstruct User {\n\n\nname: string\n\n\n}\n\n\n";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_mixed_whitespace() {
-        let code = "\t  \n  struct User {\n\t  name: str\n  \t}\n  ";
+        let code = "\t  \n  struct User {\n\t  name: string\n  \t}\n  ";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -593,7 +593,7 @@ protocol UserService {
     fn test_comment_before_struct() {
         let code = r#"
 // This is a comment
-struct User { name: str }
+struct User { name: string }
 "#;
         assert!(grammar::parse(code).is_ok());
     }
@@ -602,7 +602,7 @@ struct User { name: str }
     fn test_comment_after_field() {
         let code = r#"
 struct User {
-    name: str  // user's name
+    name: string  // user's name
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -614,7 +614,7 @@ struct User {
 // Comment 1
 // Comment 2
 struct User { // inline comment
-    name: str // field comment
+    name: string // field comment
 } // end comment
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -624,19 +624,19 @@ struct User { // inline comment
 
     #[test]
     fn test_identifier_with_numbers() {
-        let code = "struct User123 { field456: str }";
+        let code = "struct User123 { field456: string }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_identifier_with_underscores() {
-        let code = "struct My_User_Type { my_field_name: str }";
+        let code = "struct My_User_Type { my_field_name: string }";
         assert!(grammar::parse(code).is_ok());
     }
 
     #[test]
     fn test_identifier_starts_with_underscore() {
-        let code = "struct _Private { _field: str }";
+        let code = "struct _Private { _field: string }";
         assert!(grammar::parse(code).is_ok());
     }
 
@@ -668,7 +668,7 @@ struct User { // inline comment
 
     #[test]
     fn test_invalid_identifier_starts_with_number() {
-        let code = "struct 123User { field: str }";
+        let code = "struct 123User { field: string }";
         assert!(grammar::parse(code).is_err());
     }
 }

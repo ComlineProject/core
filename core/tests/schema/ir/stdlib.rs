@@ -32,7 +32,7 @@ fn a_std_type_is_usable() {
 fn a_std_validator_is_usable() {
     compile(&[(
         &["users"],
-        "use std::validators::StringBounds\n\nstruct User {\n    @validators = [StringBounds(min_chars = 3, max_chars = 32)]\n    name: str\n}\n",
+        "use std::validators::StringBounds\n\nstruct User {\n    @validators = [StringBounds(min_chars = 3, max_chars = 32)]\n    name: string\n}\n",
     )])
     .expect("a std validator should resolve");
 }

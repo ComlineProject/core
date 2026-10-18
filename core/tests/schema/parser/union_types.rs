@@ -6,14 +6,14 @@ mod union_tests {
 
     #[test]
     fn test_union_field() {
-        let code = "struct Response { status: union(str u32) }";
+        let code = "struct Response { status: union(string u32) }";
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse union field: {:?}", result.err());
     }
 
     #[test]
     fn test_union_three_members() {
-        let code = "struct Response { status: union(str u32 bool) }";
+        let code = "struct Response { status: union(string u32 bool) }";
         let result = grammar::parse(code);
         assert!(result.is_ok(), "Failed to parse three-member union: {:?}", result.err());
     }
@@ -21,8 +21,8 @@ mod union_tests {
     #[test]
     fn test_union_of_named_types() {
         let code = r#"
-struct Ok { value: str }
-struct Err { message: str }
+struct Ok { value: string }
+struct Err { message: string }
 struct Result { outcome: union(Ok Err) }
 "#;
         let result = grammar::parse(code);

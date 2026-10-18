@@ -4,13 +4,13 @@ const WORLD_COUNT: u8 = 10
 
 // A basic message structure with an optional field
 struct MessageVersioned {
-    optional world_name: str
-    person_name: str
+    optional world_name: string
+    person_name: string
 }
 
 // A basic message structure without optional fields
 struct Message {
-    world_name: str
+    world_name: string
 }
 
 // Protocol definition that can be used for RPC, IPC or anything of the likes
@@ -19,8 +19,8 @@ protocol World {
     function hello();
 
     // One-way call, single return
-    function hello_back() -> str;
+    function hello_back() -> string;
 
     // Two-way call, both sides can call this, and it returns a value
-    function hello_back_both() -> str;
+    function hello_back_both() -> string;
 }

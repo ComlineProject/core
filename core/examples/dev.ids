@@ -1,13 +1,13 @@
-use std::str::StringBounds
+use std::validators::StringBounds
 
 struct Mail {
-    sender: str
-    recipient: str
+    sender: string
+    recipient: string
 }
 
 struct Article {
-    title: str
-    content: str
+    title: string
+    content: string
 }
 
 // Maximum amount of articles that a provider can send

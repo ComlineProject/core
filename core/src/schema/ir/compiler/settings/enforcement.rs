@@ -567,7 +567,7 @@ mod tests {
         let source = "\
 struct Message {
     @validators = [StringBounds(min=3, max=10)]
-    message: str
+    message: string
 }
 
 settings {

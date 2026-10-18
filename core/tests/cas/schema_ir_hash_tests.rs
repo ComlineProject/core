@@ -9,7 +9,7 @@ use comline_core::schema::ir::frozen::schema_ir_hash;
 
 #[test]
 fn identical_source_hashes_identically() {
-    let source = "struct User {\n    id: u64\n    name: str\n}\n";
+    let source = "struct User {\n    id: u64\n    name: string\n}\n";
     let a = IncrementalInterpreter::from_source(source);
     let b = IncrementalInterpreter::from_source(source);
 
@@ -19,7 +19,7 @@ fn identical_source_hashes_identically() {
 #[test]
 fn a_semantic_change_moves_the_hash() {
     let before = IncrementalInterpreter::from_source("struct User {\n    id: u64\n}\n");
-    let after = IncrementalInterpreter::from_source("struct User {\n    id: u64\n    name: str\n}\n");
+    let after = IncrementalInterpreter::from_source("struct User {\n    id: u64\n    name: string\n}\n");
 
     assert_ne!(schema_ir_hash(&before), schema_ir_hash(&after));
 }

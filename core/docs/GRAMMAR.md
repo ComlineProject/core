@@ -21,7 +21,7 @@ Define compile-time constants with specific types:
 
 ```idl
 const MAX_USERS: u32 = 1000
-const API_VERSION: str = "v1.0"
+const API_VERSION: string = "v1.0"
 const ENABLED: bool = true
 const MIN_VALUE: s8 = -128
 ```
@@ -30,7 +30,7 @@ const MIN_VALUE: s8 = -128
 - Unsigned integers: `u8`, `u16`, `u32`, `u64`
 - Signed integers: `s8`, `s16`, `s32`, `s64`
 - Booleans: `bool`
-- Strings: `str`, `string`
+- Strings: `string`
 
 The value can be a literal, a bare identifier (another constant), a
 `::`-separated path (`u32::MIN`, `pkg::mod::DEFAULT`), or an f-string
@@ -45,8 +45,8 @@ Define data structures with typed fields:
 ```idl
 struct User {
     id: u64
-    name: str
-    email: str
+    name: string
+    email: string
     active: bool
 }
 ```
@@ -54,7 +54,7 @@ struct User {
 **With Arrays:**
 ```idl
 struct Container {
-    items: str[]           // Dynamic array
+    items: string[]           // Dynamic array
     buffer: u8[256]        // Fixed-size array
     data: CustomType[]     // Custom type arrays
 }
@@ -64,7 +64,7 @@ struct Container {
 ```idl
 struct Config {
     retries: u32 = 3
-    label: str = "default"
+    label: string = "default"
     optional timeout: s64 = -1
 }
 ```
@@ -99,7 +99,7 @@ Define RPC-style service interfaces with functions:
 ```idl
 protocol UserService {
     function getUser(u64) returns User
-    function createUser(str, str) returns u64
+    function createUser(string, string) returns u64
     function listUsers() returns User[]
     function deleteUser(u64) returns bool
 }
@@ -108,9 +108,9 @@ protocol UserService {
 **Function Syntax:**
 - `function NAME(ARG_TYPES...) returns RETURN_TYPE`
 - No arguments: `function reset() returns bool`
-- No return: `function notify(str)`  
-- Multiple args: `function process(str, u32, bool) returns s64`
-- Named args (optional): `function process(name: str, age: u32) returns bool`
+- No return: `function notify(string)`  
+- Multiple args: `function process(string, u32, bool) returns s64`
+- Named args (optional): `function process(name: string, age: u32) returns bool`
   - a bare type and a `name: Type` pair can be mixed freely in the same
     argument list; the name (when given) is carried through to generated
     code instead of a synthesized `arg0`/`arg1`
@@ -124,7 +124,7 @@ function - one annotation per line, stacked if there's more than one:
 @indexed=true
 struct Product {
     @deprecated=true
-    legacy_sku: str
+    legacy_sku: string
 
     id: u64
 }
@@ -136,7 +136,7 @@ list of named calls with keyword arguments:
 ```idl
 struct Message {
     @validators=[StringBounds(min_chars=3, max_chars=12)]
-    recipient: str
+    recipient: string
 }
 ```
 
@@ -168,7 +168,7 @@ field - when combined, it goes first:
 struct Product {
     /// The item's stock keeping unit, retired in v2.
     @deprecated=true
-    optional legacy_sku: str
+    optional legacy_sku: string
 }
 ```
 
@@ -250,7 +250,7 @@ errors.
 | `s8` - `s64` | Signed integers | `offset: s32` |
 | `f32`, `f64` | Floating point (partial support) | `ratio: f32` |
 | `bool` | Boolean | `enabled: bool` |
-| `str`, `string` | String | `name: str` |
+| `string` | String | `name: string` |
 
 **Naming convention:** the leading letter is the sign, the number is the
 bit width - `u` = unsigned (`u8`...`u64`), `s` = signed (`s8`...`s64`),
@@ -279,7 +279,7 @@ struct Message {
 
 **Dynamic Arrays:**
 ```idl
-items: str[]
+items: string[]
 users: User[]
 ```
 
@@ -302,10 +302,10 @@ Whitespace (spaces, tabs, newlines) is flexible:
 
 ```idl
 // All valid:
-struct User { name: str }
-struct   User   {   name  :  str   }
+struct User { name: string }
+struct   User   {   name  :  string   }
 struct User {
-    name: str
+    name: string
 }
 ```
 
@@ -318,7 +318,7 @@ Single-line comments with `//`:
 import std // Inline comment
 
 struct User { // Comment here
-    name: str // And here
+    name: string // And here
 }
 ```
 
@@ -341,7 +341,7 @@ struct 123Invalid { ... }   // ❌ Invalid
 import std
 
 const MAX_USERS: u32 = 1000
-const DEFAULT_ROLE: str = "user"
+const DEFAULT_ROLE: string = "user"
 
 enum UserRole {
     Admin
@@ -357,11 +357,11 @@ enum Status {
 
 struct User {
     id: u64
-    username: str
-    email: str
+    username: string
+    email: string
     role: UserRole
     status: Status
-    tags: str[]
+    tags: string[]
 }
 
 struct UserList {
@@ -372,17 +372,17 @@ struct UserList {
 
 protocol UserService {
     function getUser(u64) returns User
-    function createUser(str, str, UserRole) returns u64
+    function createUser(string, string, UserRole) returns u64
     function listUsers(u32, u32) returns UserList
-    function updateUser(u64, str) returns bool
+    function updateUser(u64, string) returns bool
     function deleteUser(u64) returns bool
-    function searchUsers(str) returns User[]
+    function searchUsers(string) returns User[]
 }
 
 protocol AuthService {
-    function login(str, str) returns str
-    function logout(str) returns bool
-    function validateToken(str) returns bool
+    function login(string, string) returns string
+    function logout(string) returns bool
+    function validateToken(string) returns bool
 }
 ```
 

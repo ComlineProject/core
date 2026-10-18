@@ -41,7 +41,7 @@ settings Strict {
 }
 
 @settings = Strict
-struct Message { body: str }
+struct Message { body: string }
 "#,
         )
         .compile()

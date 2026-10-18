@@ -1,8 +1,8 @@
 // Simple test IDL file to verify parser works
 
 struct Message {
-    sender: str
-    content: str
+    sender: string
+    content: string
 }
 
 enum Status {

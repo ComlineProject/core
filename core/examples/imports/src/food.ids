@@ -4,10 +4,10 @@ enum State {
 }
 
 struct NotEdibleError {
-    message: str
+    message: string
 }
 
 struct Food {
     state: State
-    name: str
+    name: string
 }

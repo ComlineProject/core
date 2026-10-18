@@ -10,7 +10,7 @@ use comline_core::schema::ir::validation::validate;
 
 #[test]
 fn test_duplicate_name_diagnostic_renders_with_span() {
-    let code = "struct User {\n    id: u64\n}\n\nstruct User {\n    name: str\n}\n";
+    let code = "struct User {\n    id: u64\n}\n\nstruct User {\n    name: string\n}\n";
     let _ = grammar::parse(code).expect("source should parse");
     let ir = IncrementalInterpreter::from_source(code);
     let errors = validate(&ir).unwrap_err();

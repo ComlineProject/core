@@ -656,7 +656,7 @@ fn build_kind_value(
         ("bool", Some(Expression::Bool(lit))) => KindValue::Primitive(Primitive::Boolean(Some(
             matches!(lit, BoolLiteral::True),
         ))),
-        ("str" | "string", Some(Expression::String(str_lit))) => {
+        ("string", Some(Expression::String(str_lit))) => {
             KindValue::Primitive(Primitive::String(Some(str_lit.value().to_string())))
         }
         _ => KindValue::Namespaced(type_name, None),
@@ -739,7 +739,6 @@ fn type_to_string(type_def: &crate::schema::idl::grammar::Type) -> String {
             "float".to_string()
         }
         crate::schema::idl::grammar::Type::Bool(_) => "bool".to_string(),
-        crate::schema::idl::grammar::Type::Str(_) => "str".to_string(),
         crate::schema::idl::grammar::Type::String(_) => "string".to_string(),
         crate::schema::idl::grammar::Type::Named(id) => id.to_string(),
         crate::schema::idl::grammar::Type::Array(arr) => {

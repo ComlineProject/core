@@ -13,7 +13,7 @@ mod ir_generation_tests {
         let code = r#"
 struct User {
     id: u64
-    name: str
+    name: string
 }
 "#;
         // Should not panic - basic smoke test
@@ -101,10 +101,10 @@ settings Project {
 @internal=true
 struct Message {
     @min=3
-    body: str
+    body: string
 
     @validators=[StringBounds(min_chars=3, max_chars=12)]
-    recipient: str
+    recipient: string
 }
 "#;
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -294,8 +294,8 @@ validator StringBounds {
     fn test_protocol_with_functions_ir() {
         let code = r#"
 protocol UserService {
-    function getUser(u64) -> str;
-    function createUser(str, str) -> u64;
+    function getUser(u64) -> string;
+    function createUser(string, string) -> u64;
     function deleteUser(u64) -> bool;
 }
 "#;
@@ -322,7 +322,7 @@ protocol UserService {
     fn test_const_ir() {
         let code = r#"
 const MAX_USERS: u32 = 1000
-const API_VERSION: str = "v1.0"
+const API_VERSION: string = "v1.0"
 const ENABLED: bool = true
 const MIN_VALUE: s8 = -128
 "#;
@@ -362,7 +362,7 @@ const MIN_VALUE: s8 = -128
     fn test_struct_with_arrays_ir() {
         let code = r#"
 struct Container {
-    items: str[]
+    items: string[]
     buffer: u8[256]
     matrix: u32[][]
 }
@@ -395,9 +395,9 @@ enum Status {
 
 struct User {
     id: u64
-    name: str
+    name: string
     status: Status
-    tags: str[]
+    tags: string[]
 }
 
 protocol API {
@@ -419,7 +419,7 @@ protocol API {
         let code = r#"
 protocol Service {
     function reset() -> bool;
-    function status() -> str;
+    function status() -> string;
 }
 "#;
         let result = grammar::parse(code);
@@ -442,8 +442,8 @@ protocol Service {
     fn test_protocol_no_return_ir() {
         let code = r#"
 protocol EventService {
-    function notify(str);
-    function log(str, u32);
+    function notify(string);
+    function log(string, u32);
 }
 "#;
         let result = grammar::parse(code);
@@ -471,7 +471,7 @@ protocol EventService {
         let code = r#"
 protocol TxService {
     function commit() -> ();
-    function log(str);
+    function log(string);
 }
 "#;
         let ir_units = IncrementalInterpreter::from_source(code);
@@ -506,7 +506,7 @@ protocol TxService {
 
     #[test]
     fn test_struct_and_field_spans_are_populated() {
-        let code = "struct User {\n    id: u64\n    name: str\n}\n";
+        let code = "struct User {\n    id: u64\n    name: string\n}\n";
 
         let ir_units = IncrementalInterpreter::from_source(code);
         assert_eq!(ir_units.len(), 1);
@@ -514,7 +514,7 @@ protocol TxService {
         match &ir_units[0] {
             comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { span, fields, .. } => {
                 // The struct's span should cover the whole declaration.
-                assert_eq!(&code[span.0..span.1], "struct User {\n    id: u64\n    name: str\n}");
+                assert_eq!(&code[span.0..span.1], "struct User {\n    id: u64\n    name: string\n}");
 
                 assert_eq!(fields.len(), 2);
                 let field_spans: Vec<(usize, usize)> = fields
@@ -526,7 +526,7 @@ protocol TxService {
                     .collect();
 
                 assert_eq!(&code[field_spans[0].0..field_spans[0].1], "id: u64");
-                assert_eq!(&code[field_spans[1].0..field_spans[1].1], "name: str");
+                assert_eq!(&code[field_spans[1].0..field_spans[1].1], "name: string");
                 // Fields should appear in source order.
                 assert!(field_spans[0].0 < field_spans[1].0);
             }
@@ -538,7 +538,7 @@ protocol TxService {
     fn test_union_field_ir() {
         let code = r#"
 struct Response {
-    status: union(str u32)
+    status: union(string u32)
 }
 "#;
         let result = grammar::parse(code);
@@ -570,8 +570,8 @@ struct Response {
     fn test_multiple_structs_ir() {
         let code = r#"
 struct Address {
-    street: str
-    city: str
+    street: string
+    city: string
 }
 
 struct User {
@@ -580,7 +580,7 @@ struct User {
 }
 
 struct Company {
-    name: str
+    name: string
     employees: User[]
 }
 "#;
@@ -691,7 +691,7 @@ struct Company {
     fn test_type_alias_inside_union_keeps_the_name() {
         use comline_core::schema::ir::compiler::interpreted::kind_search::KindValue;
 
-        let code = "type Id = u64\nstruct X {\n    v: union(Id str)\n}\n";
+        let code = "type Id = u64\nstruct X {\n    v: union(Id string)\n}\n";
         let ir_units = IncrementalInterpreter::from_source(code);
 
         assert_eq!(ir_units.len(), 2);

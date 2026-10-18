@@ -1,4 +1,4 @@
-const SOMETHING: str = "test"
+const SOMETHING: string = "test"
 
 enum Motion {
     Wave

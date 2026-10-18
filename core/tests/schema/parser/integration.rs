@@ -10,7 +10,7 @@ mod integration_tests {
 import std
 
 const MAX_USERS: u32 = 1000
-const API_VERSION: str = "v1"
+const API_VERSION: string = "v1"
 
 enum Status {
     Active
@@ -20,8 +20,8 @@ enum Status {
 
 struct User {
     id: u64
-    name: str
-    email: str
+    name: string
+    email: string
     status: Status
 }
 
@@ -31,7 +31,7 @@ struct UserList {
 }
 
 protocol UserService {
-    function createUser(str, str) -> u64;
+    function createUser(string, string) -> u64;
     function getUser(u64) -> User;
     function listUsers() -> UserList;
     function deleteUser(u64) -> bool;
@@ -44,15 +44,15 @@ protocol UserService {
     fn test_complex_nested_structures() {
         let code = r#"
 struct Metadata {
-    key: str
-    value: str
+    key: string
+    value: string
 }
 
 struct Document {
     id: u64
-    title: str
+    title: string
     metadata: Metadata[]
-    tags: str[]
+    tags: string[]
 }
 
 struct Collection {
@@ -67,13 +67,13 @@ struct Collection {
     fn test_multiple_protocols() {
         let code = r#"
 protocol AuthService {
-    function login(str, str) -> str;
-    function logout(str) -> bool;
+    function login(string, string) -> string;
+    function logout(string) -> bool;
 }
 
 protocol DataService {
-    function query(str) -> str;
-    function update(u64, str) -> bool;
+    function query(string) -> string;
+    function update(u64, string) -> bool;
 }
 
 protocol AdminService {
@@ -89,7 +89,7 @@ protocol AdminService {
 struct ComplexData {
     integers: u32[]
     fixedBytes: u8[256]
-    strings: str[]
+    strings: string[]
     ids: u64[10]
     flags: bool[]
 }
@@ -108,21 +108,21 @@ enum MessageType {
 
 struct Message {
     id: u64
-    sender: str
-    recipient: str
+    sender: string
+    recipient: string
     type: MessageType
-    content: str
+    content: string
     timestamp: u64
 }
 
 struct Conversation {
     id: u64
-    participants: str[]
+    participants: string[]
     messages: Message[]
 }
 
 protocol MessagingService {
-    function sendMessage(str, str, str) -> u64;
+    function sendMessage(string, string, string) -> u64;
     function getConversation(u64) -> Conversation;
     function markAsRead(u64) -> bool;
 }
@@ -139,7 +139,7 @@ const MAX_U32: u32 = 4294967295
 const MAX_S8: s8 = 127
 const MIN_S8: s8 = -128
 const ENABLED: bool = true
-const NAME: str = "test"
+const NAME: string = "test"
 "#;
         assert!(grammar::parse(code).is_ok());
     }
@@ -148,12 +148,12 @@ const NAME: str = "test"
     fn test_function_variations() {
         let code = r#"
 protocol TestService {
-    function noArgs() -> str;
+    function noArgs() -> string;
     function oneArg(u64) -> bool;
-    function twoArgs(str, u32) -> str;
-    function manyArgs(u8, u16, u32, u64, str, bool) -> s64;
-    function noReturn(str);
-    function arrayArg(str[]) -> u32;
+    function twoArgs(string, u32) -> string;
+    function manyArgs(u8, u16, u32, u64, string, bool) -> s64;
+    function noReturn(string);
+    function arrayArg(string[]) -> u32;
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -195,13 +195,13 @@ const VALUE: u32 = 100 // inline value comment
 // Struct comment
 struct Data { // inline struct comment
     // Field comment
-    field: str // inline field comment
+    field: string // inline field comment
 }
 
 // Protocol comment  
 protocol Service { // inline protocol comment
     // Function comment
-    function test(u64) -> str; // inline function comment
+    function test(u64) -> string; // inline function comment
 }
 "#;
         assert!(grammar::parse(code).is_ok());
@@ -209,13 +209,13 @@ protocol Service { // inline protocol comment
 
     #[test]
     fn test_whitespace_tolerance() {
-        let code = "struct   Test   {   field  :  str   }";
+        let code = "struct   Test   {   field  :  string   }";
         assert!(grammar::parse(code).is_ok());
 
         let code2 = "struct\tTest\t{\tfield:\tstr\t}";
         assert!(grammar::parse(code2).is_ok());
 
-        let code3 = "\n\n\nstruct Test {\n\n\nfield: str\n\n\n}\n\n\n";
+        let code3 = "\n\n\nstruct Test {\n\n\nfield: string\n\n\n}\n\n\n";
         assert!(grammar::parse(code3).is_ok());
     }
 
@@ -234,7 +234,7 @@ settings Project {
     max_depth = 8
 }
 
-struct Message { body: str }
+struct Message { body: string }
 "#;
         assert!(grammar::parse(code).is_ok());
 
@@ -279,14 +279,14 @@ struct Message { body: str }
 
     #[test]
     fn test_settings_annotation_on_every_scope() {
-        assert!(grammar::parse("settings {}\n@settings = Foo\nstruct S { x: str }").is_ok());
-        assert!(grammar::parse("settings {}\nstruct S { @settings = Foo x: str }").is_ok());
+        assert!(grammar::parse("settings {}\n@settings = Foo\nstruct S { x: string }").is_ok());
+        assert!(grammar::parse("settings {}\nstruct S { @settings = Foo x: string }").is_ok());
         assert!(
-            grammar::parse("settings {}\n@settings = Foo\nprotocol P { function f() -> str; }")
+            grammar::parse("settings {}\n@settings = Foo\nprotocol P { function f() -> string; }")
                 .is_ok()
         );
         assert!(
-            grammar::parse("settings {}\nprotocol P { @settings = Foo function f() -> str; }")
+            grammar::parse("settings {}\nprotocol P { @settings = Foo function f() -> string; }")
                 .is_ok()
         );
         assert!(
@@ -297,7 +297,7 @@ struct Message { body: str }
     #[test]
     fn test_validator_declaration() {
         assert!(grammar::parse("validator V {}").is_ok());
-        assert!(grammar::parse("validator V { a: u32 b: str = \"x\" }").is_ok());
+        assert!(grammar::parse("validator V { a: u32 b: string = \"x\" }").is_ok());
 
         let code = r#"
 /// bounds
@@ -306,7 +306,7 @@ validator StringBounds {
     max_chars: u32 = 1024
 }
 
-struct Message { body: str }
+struct Message { body: string }
 "#;
         assert!(grammar::parse(code).is_ok());
 
@@ -356,24 +356,24 @@ validator StringBounds {
         let code = r#"
 struct Message {
     @validators = [StringBounds(min_chars = 3, max_chars = 12)]
-    recipient: str
+    recipient: string
 }
 "#;
         assert!(grammar::parse(code).is_ok());
 
         // multiple calls, a call with no args, an empty list
         assert!(grammar::parse(
-            "struct S {\n@validators = [A(x = 1), B()]\nf: str\n}"
+            "struct S {\n@validators = [A(x = 1), B()]\nf: string\n}"
         )
         .is_ok());
-        assert!(grammar::parse("struct S {\n@validators = []\nf: str\n}").is_ok());
+        assert!(grammar::parse("struct S {\n@validators = []\nf: string\n}").is_ok());
     }
 
     #[test]
     fn test_scoped_path_values() {
         // `::`-separated paths as const / default values
         assert!(grammar::parse("const MIN_LEN: u32 = u32::MIN").is_ok());
-        assert!(grammar::parse("struct S { name: str = pkg::mod::DEFAULT }").is_ok());
+        assert!(grammar::parse("struct S { name: string = pkg::mod::DEFAULT }").is_ok());
         assert!(grammar::parse("validator V { min: u32 = u32::MIN }").is_ok());
         assert!(grammar::parse("@retries = core::defaults::MAX\nstruct S { x: u32 }").is_ok());
 
@@ -384,18 +384,18 @@ struct Message {
 
     #[test]
     fn test_fstring_values() {
-        assert!(grammar::parse(r#"const NAME: str = f"flower power: {POWER}""#).is_ok());
-        assert!(grammar::parse(r#"const X: str = f"a {{lit}} {x.y} z""#).is_ok());
-        assert!(grammar::parse(r#"struct S { name: str = f"hi {n}" }"#).is_ok());
+        assert!(grammar::parse(r#"const NAME: string = f"flower power: {POWER}""#).is_ok());
+        assert!(grammar::parse(r#"const X: string = f"a {{lit}} {x.y} z""#).is_ok());
+        assert!(grammar::parse(r#"struct S { name: string = f"hi {n}" }"#).is_ok());
 
         // `f` is not a keyword - only `f"` is. Identifiers / members named `f`
         // still parse.
         assert!(grammar::parse("const A: u32 = f").is_ok());
-        assert!(grammar::parse("struct S { f: str }").is_ok());
-        assert!(grammar::parse("protocol P { function f() -> str; }").is_ok());
+        assert!(grammar::parse("struct S { f: string }").is_ok());
+        assert!(grammar::parse("protocol P { function f() -> string; }").is_ok());
 
         // plain strings stay non-interpolating
-        assert!(grammar::parse(r#"const S: str = "plain {not_a_path}""#).is_ok());
+        assert!(grammar::parse(r#"const S: string = "plain {not_a_path}""#).is_ok());
     }
 
     #[test]
