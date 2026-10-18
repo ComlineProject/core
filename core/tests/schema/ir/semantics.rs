@@ -434,9 +434,11 @@ struct Message {
 }
 
 #[test]
-fn test_imported_validator_kwargs_not_checked() {
-    // the other schema isn't loaded, so its properties are unknown - a bogus
-    // kwarg on an imported validator can't be flagged here.
+fn test_imported_validator_kwargs_not_checked_without_its_schema() {
+    // A schema validated on its own: the other schema isn't loaded, so its
+    // properties are unknown and a bogus kwarg can't be flagged here. With
+    // the package (`comline build`, the editor), it is - see
+    // `package::from_sources::an_imported_validators_arguments_are_checked`.
     let code = r#"
 import std::validators::string_bounds::StringBounds
 

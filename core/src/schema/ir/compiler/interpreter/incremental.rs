@@ -291,19 +291,7 @@ impl IncrementalInterpreter {
                     });
                 }
                 Declaration::Validator(validator_def) => {
-                    let properties: Vec<FrozenUnit> = validator_def
-                        .properties()
-                        .iter()
-                        .map(|prop| FrozenUnit::Field {
-                            docstring: prop.docstring(),
-                            parameters: vec![],
-                            optional: false,
-                            name: prop.name(),
-                            ty: TypeRef::from_grammar(prop.property_type()),
-                            default: prop.default_value().and_then(Literal::from_grammar),
-                            span: prop.span,
-                        })
-                        .collect();
+                    let properties = freeze_validator_properties(&validator_def);
 
                     let asserts = validator_def
                         .asserts()
@@ -622,6 +610,24 @@ fn local_declaration_kind(
         Declaration::TypeAlias(d) if d.name() == name => Some("a type alias"),
         _ => None,
     })
+}
+
+/// A validator's properties as `FrozenUnit::Field`s - its own schema's
+/// lowering, and what an importing schema checks a call's arguments against.
+pub fn freeze_validator_properties(validator: &crate::schema::idl::grammar::Validator) -> Vec<FrozenUnit> {
+    validator
+        .properties()
+        .iter()
+        .map(|prop| FrozenUnit::Field {
+            docstring: prop.docstring(),
+            parameters: vec![],
+            optional: false,
+            name: prop.name(),
+            ty: TypeRef::from_grammar(prop.property_type()),
+            default: prop.default_value().and_then(Literal::from_grammar),
+            span: prop.span,
+        })
+        .collect()
 }
 
 /// Extract path string from UsePath enum

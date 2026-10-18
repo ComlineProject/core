@@ -67,6 +67,13 @@ pub trait ImportLookup {
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>>;
     /// What an imported `type` alias stands for.
     fn alias_target(&self, name: &str) -> Option<TypeRef>;
+    /// An imported validator's properties, frozen the way its own schema
+    /// freezes them (`FrozenUnit::Field`s), for checking a call's arguments.
+    /// `None` when the lookup can't read the declaring schema: the arguments
+    /// then go unchecked.
+    fn validator_properties(&self, _name: &str) -> Option<Vec<FrozenUnit>> {
+        None
+    }
     /// Whether `name`'s import is only a stand-in: an editor that reports a
     /// missing `use` itself adds an import for the name, so core doesn't also
     /// call it an unknown type - but nothing is in scope behind it, and no
@@ -372,87 +379,8 @@ pub fn validate_with(
             match symbols.get(vname.as_str()) {
                 Some(SymbolType::Validator) => {
                     // Locally declared - check the keyword arguments.
-                    if let Some(props) = validator_props.get(vname.as_str()) {
-                        let mut seen: Vec<&str> = Vec::new();
-                        for arg in args {
-                            let FrozenUnit::Property { name: kw, .. } = arg else {
-                                continue;
-                            };
-                            if seen.contains(&kw.as_str()) {
-                                errors.push(Diagnostic { code: DUPLICATE_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
-                                    message: format!(
-                                        "duplicate argument '{}' to validator '{}'",
-                                        kw, vname
-                                    ),
-                                    context: field_ctx.clone(),
-                                    span: Some(*span),
-                                });
-                                continue;
-                            }
-                            seen.push(kw.as_str());
-                            if !props.contains(&kw.as_str()) {
-                                let mut message = format!(
-                                    "validator '{}' has no argument '{}'",
-                                    vname, kw
-                                );
-                                if let Some(s) = closest(kw, props.iter().copied()) {
-                                    message.push_str(
-                                        &format!(" - did you mean '{}'?", s),
-                                    );
-                                }
-                                errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
-                                    message,
-                                    context: field_ctx.clone(),
-                                    span: Some(*span),
-                                });
-                                continue;
-                            }
-
-                            // The argument's value against the
-                            // property's declared type. Both sides are
-                            // typed now: the value keeps the form it
-                            // was written in, and the declared type
-                            // maps onto the same vocabulary - so this
-                            // no longer re-parses rendered text to
-                            // guess a category.
-                            let FrozenUnit::Property { value: val, .. } = arg else {
-                                continue;
-                            };
-                            let want = validator_fields
-                                .get(vname.as_str())
-                                .and_then(|fs| prop_field(fs, kw))
-                                .and_then(|f| match f {
-                                    FrozenUnit::Field { ty, .. } => expected_value_type(ty),
-                                    _ => None,
-                                });
-                            if let Some(want) = want {
-                                if let Some(mismatch) = argument_mismatch(&want, val) {
-                                    errors.push(Diagnostic { code: VALIDATOR_ARGUMENT_TYPE_MISMATCH, help: None, secondary: None, severity_override: None,
-                                        message: format!(
-                                            "validator '{}': argument '{}' expects {}, got {}",
-                                            vname, kw, mismatch.expected, mismatch.found
-                                        ),
-                                        context: field_ctx.clone(),
-                                        span: Some(*span),
-                                    });
-                                }
-                            }
-                        }
-
-                        // Every property without a default has to be given
-                        // - a bare `Name` gives none.
-                        let fields = validator_fields.get(vname.as_str()).copied().unwrap_or_default();
-                        for field in fields {
-                            if let FrozenUnit::Field { name: prop, default: None, .. } = field {
-                                if !seen.contains(&prop.as_str()) {
-                                    errors.push(Diagnostic { code: MISSING_VALIDATOR_ARGUMENT, help: None, secondary: None, severity_override: None,
-                                        message: format!("validator '{}' is missing argument '{}'", vname, prop),
-                                        context: field_ctx.clone(),
-                                        span: Some(*span),
-                                    });
-                                }
-                            }
-                        }
+                    if let Some(fields) = validator_fields.get(vname.as_str()) {
+                        check_validator_arguments(vname, fields, args, &field_ctx, *span, &mut errors);
                     }
                 }
                 Some(other) if other != SymbolType::Import => {
@@ -462,7 +390,14 @@ pub fn validate_with(
                         span: Some(*span),
                     });
                 }
-                _ if maybe_imported => {}
+                // Imported: its arguments are checked against the properties
+                // the lookup can read off the declaring schema; when it can't,
+                // there's nothing to judge against.
+                _ if maybe_imported => {
+                    if let Some(fields) = imports.validator_properties(vname) {
+                        check_validator_arguments(vname, &fields, args, &field_ctx, *span, &mut errors);
+                    }
+                }
                 _ => {
                     let mut message = format!("Unknown validator '{}'", vname);
                     if let Some(s) = suggest_similar_name(vname, &symbols) {
@@ -1186,6 +1121,79 @@ pub(crate) fn is_primitive(name: &str) -> bool {
 }
 
 /// A validator's declared property names.
+/// The keyword arguments of one `@validators` call against the validator's
+/// properties (`fields`): each names a property, at most once, with a value of
+/// its type, and every property without a default is given.
+fn check_validator_arguments(
+    vname: &str,
+    fields: &[FrozenUnit],
+    args: &[FrozenUnit],
+    context: &str,
+    span: (usize, usize),
+    errors: &mut Vec<Diagnostic>,
+) {
+    let props = prop_names(fields);
+    let mut error = |code, message| {
+        errors.push(Diagnostic { code, help: None, secondary: None, severity_override: None,
+            message,
+            context: context.to_string(),
+            span: Some(span),
+        })
+    };
+
+    let mut seen: Vec<&str> = Vec::new();
+    // Properties an unknown argument was taken for (`mni` - did you mean
+    // `min`?): already reported, so not again as missing.
+    let mut suggested: Vec<String> = Vec::new();
+    for arg in args {
+        let FrozenUnit::Property { name: kw, value: val } = arg else {
+            continue;
+        };
+        if seen.contains(&kw.as_str()) {
+            error(DUPLICATE_VALIDATOR_ARGUMENT, format!("duplicate argument '{}' to validator '{}'", kw, vname));
+            continue;
+        }
+        seen.push(kw.as_str());
+        if !props.contains(&kw.as_str()) {
+            let mut message = format!("validator '{}' has no argument '{}'", vname, kw);
+            if let Some(s) = closest(kw, props.iter().copied()) {
+                message.push_str(&format!(" - did you mean '{}'?", s));
+                suggested.push(s);
+            }
+            error(UNKNOWN_VALIDATOR_ARGUMENT, message);
+            continue;
+        }
+
+        // The argument's value against the property's declared type. Both
+        // sides are typed now: the value keeps the form it was written in,
+        // and the declared type maps onto the same vocabulary - so this no
+        // longer re-parses rendered text to guess a category.
+        let want = prop_field(fields, kw).and_then(|f| match f {
+            FrozenUnit::Field { ty, .. } => expected_value_type(ty),
+            _ => None,
+        });
+        if let Some(mismatch) = want.and_then(|want| argument_mismatch(&want, val)) {
+            error(
+                VALIDATOR_ARGUMENT_TYPE_MISMATCH,
+                format!(
+                    "validator '{}': argument '{}' expects {}, got {}",
+                    vname, kw, mismatch.expected, mismatch.found
+                ),
+            );
+        }
+    }
+
+    // Every property without a default has to be given - a bare `Name` gives
+    // none.
+    for field in fields {
+        if let FrozenUnit::Field { name: prop, default: None, .. } = field {
+            if !seen.contains(&prop.as_str()) && !suggested.contains(prop) {
+                error(MISSING_VALIDATOR_ARGUMENT, format!("validator '{}' is missing argument '{}'", vname, prop));
+            }
+        }
+    }
+}
+
 fn prop_names(props: &[FrozenUnit]) -> Vec<&str> {
     props
         .iter()
