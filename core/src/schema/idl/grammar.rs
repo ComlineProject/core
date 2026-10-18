@@ -735,10 +735,19 @@ pub mod grammar {
         _close: (),
     }
 
-    /// `Name(key = value, key = value)` - a named call with keyword arguments.
+    /// `Name(key = value, key = value)` - a named call with keyword
+    /// arguments - or a bare `Name`, the same as `Name()`.
     #[derive(Debug, Clone)]
     pub struct AnnotationCall {
         pub name: Identifier,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub call: Option<AnnotationCallArgs>,
+    }
+
+    /// The `(key = value, ...)` half of an [`AnnotationCall`], factored out
+    /// so the call can leave it off (same shape as `AnnotationAssignment`).
+    #[derive(Debug, Clone)]
+    pub struct AnnotationCallArgs {
         #[rust_sitter::leaf(text = "(")]
         _open: (),
         #[rust_sitter::delimited(
@@ -1592,6 +1601,13 @@ pub mod grammar {
         }
     }
 
+    impl AnnotationCall {
+        /// The call's arguments - none for a bare `Name`.
+        pub fn args(&self) -> &[AnnotationArg] {
+            self.call.as_ref().map(|c| c.args.as_slice()).unwrap_or_default()
+        }
+    }
+
     impl AnnotationValue {
         /// Render back to canonical text. Scalars round-trip as written; a
         /// list normalises to `[Name(a = 1, b = 2), ...]`.
@@ -1611,7 +1627,7 @@ pub mod grammar {
                         .iter()
                         .map(|call| {
                             let args: Vec<String> = call
-                                .args
+                                .args()
                                 .iter()
                                 .map(|a| {
                                     format!("{} = {}", a.name.text, a.value.as_text())
