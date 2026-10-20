@@ -185,3 +185,101 @@ fn a_typo_in_the_dependency_name_fails_the_build() {
     assert!(error.contains("did you mean 'shared_types'?"), "{error}");
 }
 
+
+/// Every schema in `context` with its frozen units, by namespace.
+fn frozen_by_namespace(
+    context: &comline_core::package::config::ir::context::ProjectContext,
+) -> Vec<(String, Vec<comline_core::schema::ir::frozen::unit::FrozenUnit>)> {
+    context
+        .schema_contexts
+        .iter()
+        .map(|schema| {
+            let schema = schema.borrow();
+            let frozen = schema.frozen_schema.borrow().clone().unwrap();
+            (schema.namespace_joined(), frozen)
+        })
+        .collect()
+}
+
+#[test]
+fn a_dependency_is_taken_as_its_own_compile_froze_it() {
+    use comline_core::package::build::compile_package;
+    use comline_core::schema::ir::frozen::unit::FrozenUnit;
+
+    let workspace = TempDir::new().unwrap();
+    let dependency = workspace.path().join("shared-types");
+    write_dependency(&dependency, "struct Thing {\n    id: u64\n}\n");
+    fs::write(
+        dependency.join("src/api.ids"),
+        "use models::Thing\n\nprotocol Things {\n    function get(id: u64) -> Thing;\n}\n",
+    )
+    .unwrap();
+    let consumer = workspace.path().join("consumer");
+    write_consumer(&consumer, CONSUMER_SCHEMA);
+
+    let alone = frozen_by_namespace(&compile_package(&dependency).unwrap());
+    let in_consumer = frozen_by_namespace(&compile_package(&consumer).unwrap());
+
+    assert_eq!(alone.len(), 2);
+    for (namespace, units) in alone {
+        let prefixed = format!("shared_types::{namespace}");
+        let expected: Vec<FrozenUnit> = units
+            .into_iter()
+            .map(|unit| match unit {
+                FrozenUnit::Namespace(_) => FrozenUnit::Namespace(prefixed.clone()),
+                other => other,
+            })
+            .collect();
+        let found = in_consumer
+            .iter()
+            .find(|(n, _)| *n == prefixed)
+            .unwrap_or_else(|| panic!("no `{prefixed}` in the consumer"));
+        assert_eq!(found.1, expected, "`{prefixed}`");
+    }
+}
+
+#[test]
+fn a_dependency_keeps_its_own_settings_and_default_handshake() {
+    use comline_core::package::build::compile_package;
+    use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
+
+    let workspace = TempDir::new().unwrap();
+    let dependency = workspace.path().join("shared-types");
+    write_dependency(&dependency, "struct Thing {\n    id: u64\n}\n");
+    // `@unverified` is off by default; this package allows it, and its
+    // protocols run no handshake unless they say otherwise.
+    fs::write(
+        dependency.join("config.idp"),
+        "congregation shared_types\nspecification_version = 1\nhandshake = \"none\"\n\
+         settings = { annotations = { unverified = { allowed = true } } }\n",
+    )
+    .unwrap();
+    fs::write(
+        dependency.join("src/api.ids"),
+        "@unverified = \"the 2009 gateway\"\nprotocol Legacy {\n    function ping();\n}\n",
+    )
+    .unwrap();
+    let consumer = workspace.path().join("consumer");
+    write_consumer(&consumer, CONSUMER_SCHEMA);
+    // The consumer allows neither, and accepts what `Legacy` gives up.
+    let manifest = fs::read_to_string(consumer.join("config.idp")).unwrap().replace(
+        "path = \"../shared-types\"",
+        "path = \"../shared-types\"\n        accept_unverified = { Legacy = [\"schema_agreement\", \"encoding_agreement\"] }",
+    );
+    fs::write(consumer.join("config.idp"), manifest).unwrap();
+
+    let context = compile_package(&consumer).unwrap();
+    let frozen = frozen_by_namespace(&context);
+    let (_, api) = frozen.iter().find(|(n, _)| n == "shared_types::api").unwrap();
+    let parameters = api
+        .iter()
+        .find_map(|unit| match unit {
+            FrozenUnit::Protocol { name, parameters, .. } if name == "Legacy" => Some(parameters),
+            _ => None,
+        })
+        .unwrap();
+    assert!(parameters.contains(&FrozenUnit::Property {
+        name: "handshake".to_string(),
+        value: ConfigValue::Str("none".to_string()),
+    }));
+}

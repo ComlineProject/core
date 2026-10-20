@@ -14,14 +14,16 @@
 // the feature and is unaffected.
 
 // Standard Uses
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 // Crate Uses
 use crate::package::build::cas::storage::{to_cbor, Hash};
 use crate::package::build::compile_package_with;
 use crate::package::config::dependency::{git_checkout_dir, DependencyConfig, DependencySource, DEPS_CACHE_DIR};
-use crate::package::config::ir::context::{DependencyPackage, ProjectContext};
+use crate::package::config::ir::context::ProjectContext;
+use crate::schema::ir::context::SchemaContext;
+use crate::schema::ir::frozen::unit::FrozenUnit;
 
 // External Uses
 use eyre::{bail, eyre, Result};
@@ -33,7 +35,7 @@ pub struct ResolvedDependency {
     /// a `Git` dependency's cache checkout.
     pub resolved_path: PathBuf,
     /// The compiled dependency — its own schemas, ready to be merged into
-    /// the consuming project's schema sources or vendored into its CAS tree.
+    /// the consuming project's or vendored into its CAS tree.
     pub context: ProjectContext,
     /// blake3 hash over the dependency's frozen schema content (all schema
     /// contexts, in order) — stable across incidental source formatting.
@@ -184,7 +186,7 @@ fn check_accepted(dep: &DependencyConfig, context: &ProjectContext) -> Result<()
 /// Resolve every dependency declared in `context`'s raw congregation, in a
 /// deterministic (name-sorted) order regardless of `HashMap` iteration —
 /// matching the freeze order `interpret_assignment_dependencies` already
-/// uses. Shared by [`resolve_dependency_sources`] (schema merging, during
+/// uses. Shared by [`resolve_dependency_schemas`] (schema merging, during
 /// `compile_package`) and CAS vendoring (during `build`, in
 /// `package::build::cas::build`).
 pub(crate) fn resolve_all(
@@ -209,36 +211,61 @@ pub(crate) fn resolve_all(
         .collect()
 }
 
-/// For every declared dependency: resolve it, verify its hash, and produce
-/// its schema sources, each namespaced under the dependency's own declared
-/// name — `shared_types = { path = "../shared-types" }`'s `foo.ids` becomes
-/// `shared_types::foo` in the consuming project, so `use shared_types::foo::X`
-/// resolves the normal way. Called from `package::build::interpret_schemas`.
-pub(crate) fn resolve_dependency_sources(
+/// Every declared dependency's own schemas, as its own compile froze them.
+pub(crate) struct DependencySchemas {
+    /// Each schema, namespaced under the dependency's declared name, with
+    /// its frozen units already in place (`compile_state.complete`).
+    pub schemas: Vec<SchemaContext>,
+    /// Their sources, for finding the std schemas they import.
+    pub sources: Vec<(Vec<String>, String)>,
+}
+
+/// For every declared dependency: resolve it, verify its hash, and take its
+/// own schemas from its own compile, each namespaced under the dependency's
+/// declared name - `shared_types = { path = "../shared-types" }`'s `foo.ids`
+/// becomes `shared_types::foo` in the consuming project, so
+/// `use shared_types::foo::X` resolves the normal way. They're not compiled
+/// again: a dependency is judged once, by its own package (its settings, its
+/// default handshake), and the consumer sees the IR its authors built. Only
+/// the `Namespace` unit changes, to the prefixed name. Called from
+/// `package::build::interpret_schemas`.
+pub(crate) fn resolve_dependency_schemas(
     context: &ProjectContext,
     project_root: &Path,
     in_progress: &mut HashSet<PathBuf>,
-) -> Result<(Vec<(Vec<String>, String)>, BTreeMap<String, DependencyPackage>)> {
-    let mut sources = Vec::new();
-    let mut packages = BTreeMap::new();
+) -> Result<DependencySchemas> {
+    let mut found = DependencySchemas { schemas: Vec::new(), sources: Vec::new() };
     for resolved in resolve_all(context, project_root, in_progress)? {
+        // Its own schemas only: the std schemas and any dependencies of its
+        // own that its compile pulled in aren't part of what it publishes.
         for (namespace, source) in
             crate::package::build::glob_schema_sources(&resolved.resolved_path)?
         {
+            let compiled = resolved
+                .context
+                .schema_contexts
+                .iter()
+                .find(|schema| schema.borrow().namespace == namespace)
+                .ok_or_else(|| eyre!("dependency '{}': schema '{}' wasn't compiled", resolved.name, namespace.join("::")))?;
+            let mut schema = compiled.borrow().clone();
             let mut prefixed = vec![resolved.name.clone()];
             prefixed.extend(namespace);
-            sources.push((prefixed, source));
+            let joined = prefixed.join("::");
+            if let Some(units) = schema.frozen_schema.get_mut() {
+                for unit in units {
+                    if let FrozenUnit::Namespace(name) = unit {
+                        *name = joined.clone();
+                    }
+                }
+            }
+            // Its warnings are its authors' to act on.
+            schema.warnings.get_mut().clear();
+            schema.namespace = prefixed.clone();
+            found.schemas.push(schema);
+            found.sources.push((prefixed, source));
         }
-        let frozen = resolved.context.config_frozen.as_deref().unwrap_or_default();
-        packages.insert(
-            resolved.name.clone(),
-            DependencyPackage {
-                settings: crate::settings::effective::package_settings(&resolved.context),
-                handshake: crate::package::config::ir::frozen::handshake(frozen).to_string(),
-            },
-        );
     }
-    Ok((sources, packages))
+    Ok(found)
 }
 
 /// A resolved dependency's effective version: whatever its own `.comline/`
