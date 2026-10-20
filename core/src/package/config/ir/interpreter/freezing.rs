@@ -133,6 +133,14 @@ pub fn interpret_assignment(
                 }
             }
         }
+        "handshake" => {
+            let Value::String(name) = &node.value else {
+                return Err("'handshake' should be a string, like \"comline@1\"".into())
+            };
+            let written = crate::package::config::dependency::strip_quotes(&name.value);
+            let name = crate::schema::idl::annotations::check_handshake(&written)?;
+            vec![FrozenUnit::Handshake(name.to_string())]
+        }
         any => return Err(format!("'{any}' is not a recognised package-manifest key").into()),
     };
 

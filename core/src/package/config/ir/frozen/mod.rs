@@ -31,6 +31,9 @@ pub enum FrozenUnit {
     CodeGeneration(LanguageDetails),
     PublishRegistry((String, PublishRegistry)),
     Settings(crate::settings::SettingsDict),
+    /// `handshake = "..."`: the handshake a protocol without its own
+    /// `@handshake` runs, canonical. Absent means `comline@1`.
+    Handshake(String),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -136,3 +139,14 @@ pub fn settings(units: &[FrozenUnit]) -> Option<&crate::settings::SettingsDict> 
     })
 }
 
+/// The package's default handshake: its `handshake = "..."`, else
+/// [`DEFAULT_HANDSHAKE`](crate::schema::idl::annotations::DEFAULT_HANDSHAKE).
+pub fn handshake(units: &[FrozenUnit]) -> &str {
+    units
+        .iter()
+        .find_map(|unit| match unit {
+            FrozenUnit::Handshake(name) => Some(name.as_str()),
+            _ => None,
+        })
+        .unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
+}

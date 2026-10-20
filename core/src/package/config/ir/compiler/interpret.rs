@@ -14,6 +14,8 @@ use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
+use crate::schema::idl::annotations::DEFAULT_HANDSHAKE;
+use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::settings::effective::package_settings;
 
 // External Uses
@@ -26,6 +28,12 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
     let mut schema_errors: Vec<String> = vec![];
     let package_settings_dict = package_settings(project_context);
+    let package_handshake = project_context
+        .config_frozen
+        .as_deref()
+        .map(crate::package::config::ir::frozen::handshake)
+        .unwrap_or(DEFAULT_HANDSHAKE)
+        .to_string();
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
     // package-level value falls back to usage-site-only diagnostics, same
@@ -84,6 +92,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
+        apply_package_handshake(&mut frozen_units, &package_handshake);
 
         let imports = ProjectImports {
             declarations: &declarations,
@@ -229,4 +238,29 @@ fn visit_for_cycle(
     visited.insert(node.to_string());
 
     None
+}
+
+/// Freeze the package's default handshake into every protocol that doesn't
+/// name its own, so the choice is part of each protocol's frozen IR (and its
+/// hash): changing the package default then shows up as a change to the
+/// protocols it reaches. `comline@1` is what an absent `@handshake` already
+/// means, so it's left implicit and existing IR hashes don't move.
+fn apply_package_handshake(units: &mut [FrozenUnit], package_handshake: &str) {
+    if package_handshake == DEFAULT_HANDSHAKE {
+        return;
+    }
+    for unit in units {
+        let FrozenUnit::Protocol { parameters, .. } = unit else {
+            continue;
+        };
+        let declared = parameters
+            .iter()
+            .any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == "handshake"));
+        if !declared {
+            parameters.push(FrozenUnit::Property {
+                name: "handshake".to_string(),
+                value: ConfigValue::Str(package_handshake.to_string()),
+            });
+        }
+    }
 }

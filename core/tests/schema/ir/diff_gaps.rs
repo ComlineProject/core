@@ -256,3 +256,22 @@ fn schema_files_are_paired_by_namespace_not_position() {
         [BreakingChange::RemovedStruct { name }] if name == "A"
     ));
 }
+
+#[test]
+fn a_handshake_change_is_breaking_but_spelling_out_the_default_is_not() {
+    let plain = "protocol P {\n    function f();\n}\n";
+    let explicit = "@handshake = \"comline@1\"\nprotocol P {\n    function f();\n}\n";
+    let none = "@handshake = \"none\"\nprotocol P {\n    function f();\n}\n";
+
+    let spelled_out = diff(plain, explicit);
+    assert!(spelled_out.breaking_changes.is_empty(), "{:?}", spelled_out.breaking_changes);
+    assert!(spelled_out.modifications.is_empty(), "{:?}", spelled_out.modifications);
+
+    for (old, new) in [(plain, none), (explicit, none), (none, plain)] {
+        let changes = diff(old, new);
+        assert!(matches!(
+            changes.breaking_changes.as_slice(),
+            [BreakingChange::ChangedWireAnnotation { key, .. }] if key == "handshake"
+        ));
+    }
+}

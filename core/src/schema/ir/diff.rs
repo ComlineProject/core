@@ -901,6 +901,11 @@ fn format_function_signature(args: &[FrozenArgument], ret: &Option<TypeRef>) -> 
     format!("({}) -> {}", args.join(", "), ret_type)
 }
 
+/// A rendered `@handshake` value as the handshake it selects.
+fn effective_handshake(rendered: &Option<String>) -> &str {
+    rendered.as_deref().unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
+}
+
 /// Compare a declaration's annotations: `@key = value` properties,
 /// `@deprecated`, and the validators applied to it.
 fn compare_parameters(
@@ -919,10 +924,15 @@ fn compare_parameters(
         if old_value == new_value {
             continue;
         }
+        // An absent `@handshake` means `comline@1`; spelling it out changes
+        // nothing a peer sees.
+        if key == "handshake" && effective_handshake(&old_value) == effective_handshake(&new_value) {
+            continue;
+        }
         match key {
             // Build-time only: it never reaches a peer or generated code.
             "settings" => {}
-            "framing" => changes
+            "framing" | "handshake" => changes
                 .breaking_changes
                 .push(BreakingChange::ChangedWireAnnotation {
                     target: target.to_string(),
