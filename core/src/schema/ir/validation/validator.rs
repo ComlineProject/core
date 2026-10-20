@@ -57,6 +57,10 @@ const VALIDATOR_PROPERTY_UNUSED: DiagnosticCode =
     DiagnosticCode::warning("validation::validator-property-unused");
 const MESSAGE_NOT_INTERPOLATED: DiagnosticCode =
     DiagnosticCode::warning("validation::message-not-interpolated");
+const PROVIDER_CONSUMER_MISMATCH: DiagnosticCode =
+    DiagnosticCode::error("validation::provider-consumer-mismatch");
+const REVERSE_CALLS_NEED_FRAMING: DiagnosticCode =
+    DiagnosticCode::error("validation::reverse-calls-need-framing");
 const UNVERIFIED_MISSING_MARKER: DiagnosticCode =
     DiagnosticCode::error("unverified::missing-marker");
 const UNVERIFIED_MISSING_REASON: DiagnosticCode =
@@ -536,6 +540,7 @@ pub fn validate_with(
 
     check_annotation_values(units, &mut errors);
     check_unverified(units, &mut errors, &mut warnings);
+    check_provider(units, &mut errors);
     validate_throws(units, &mut errors);
 
     if errors.is_empty() {
@@ -1020,6 +1025,77 @@ fn check_unverified(
                         guarantee.describe()
                     ),
                 )
+                .maybe_span(Some(*span)),
+            );
+        }
+    }
+}
+
+/// `@provider` and `@consumer`: if both are written they have to be
+/// counterparts, and calls to a protocol the client provides (or both
+/// sides do) need a framing whose frames tell requests from replies.
+/// `datagram` (`@1`) can't: a frame the server starts would be read as a
+/// reply.
+fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    for unit in units {
+        let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
+            continue;
+        };
+        let side = |key: &str| {
+            parameters.iter().find_map(|p| match p {
+                FrozenUnit::Property { name, value: ConfigValue::Name(side) } if name == key => {
+                    annotations::SIDES.contains(&side.as_str()).then_some(side.as_str())
+                }
+                _ => None,
+            })
+        };
+        let provider = side("provider");
+        if let (Some(provider), Some(consumer)) = (provider, side("consumer")) {
+            let counterpart = match provider {
+                "Server" => "Client",
+                "Client" => "Server",
+                _ => "Multiple",
+            };
+            if consumer != counterpart {
+                errors.push(
+                    Diagnostic::new(
+                        PROVIDER_CONSUMER_MISMATCH,
+                        format!(
+                            "protocol `{name}` is provided by `{provider}`, so its consumer is                              `{counterpart}`, not `{consumer}`"
+                        ),
+                    )
+                    .with_help(format!(
+                        "remove `@consumer`, which follows from `@provider`, or write                          `@consumer = {counterpart}`"
+                    ))
+                    .maybe_span(Some(*span)),
+                );
+            }
+        }
+
+        if !matches!(provider, Some("Client" | "Multiple")) {
+            continue;
+        }
+        let framing = parameters.iter().find_map(|p| match p {
+            FrozenUnit::Property { name, value: ConfigValue::Str(f) } if name == "framing" => {
+                Some(annotations::canonical_value("framing", f).unwrap_or(f.as_str()))
+            }
+            _ => None,
+        });
+        if matches!(framing, None | Some("datagram")) {
+            let provider = provider.unwrap_or_default();
+            errors.push(
+                Diagnostic::new(
+                    REVERSE_CALLS_NEED_FRAMING,
+                    format!(
+                        "protocol `{name}` is provided by `{provider}`, so the server calls it,                          and the {} framing can't tell the server's requests from replies",
+                        framing.map_or("default (`datagram`)".to_string(), |f| format!("`{f}`"))
+                    ),
+                )
+                .with_help(format!(
+                    "use `@framing = \"{}\"` on the protocol (or `\"jsonrpc\"`), and allow \
+                     `@framing` in settings (`annotations.framing.allowed = true`)",
+                    annotations::FRAMING_DATAGRAM2
+                ))
                 .maybe_span(Some(*span)),
             );
         }

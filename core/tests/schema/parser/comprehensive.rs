@@ -136,7 +136,7 @@ struct AllTypes {
         // tree-sitter parse-table conflict between structurally identical
         // repeats) - confirm adjacent declarations of different kinds,
         // each with their own annotations, still resolve independently.
-        let code = "@provider=Any\nprotocol P { function f() -> u64; }\n@indexed=true\nstruct Foo { id: u64 }";
+        let code = "@provider=Server\nprotocol P { function f() -> u64; }\n@indexed=true\nstruct Foo { id: u64 }";
         assert!(grammar::parse(code).is_ok());
     }
 
