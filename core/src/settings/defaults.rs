@@ -6,20 +6,27 @@ use super::value::{SettingsDict, SettingsValue};
 ///
 /// `@framing` changes a protocol's wire-level framing (`jsonrpc` vs
 /// `datagram`), which an organization should opt into deliberately rather
-/// than have any protocol silently flip on its own.
-const FORBIDDEN_BY_DEFAULT: &str = "framing";
+/// than have any protocol silently flip on its own. `@unverified` gives up
+/// guarantees peers rely on, which is the same kind of deliberate choice.
+const FORBIDDEN_BY_DEFAULT: &[&str] = &["framing", "unverified"];
 
-/// Comline's one built-in default policy: `@framing` is forbidden until
-/// some level explicitly sets `annotations.framing.allowed = true`. Every
-/// other annotation and validator stays allowed by default.
+/// Comline's built-in default policy: `@framing` and `@unverified` are
+/// forbidden until some level explicitly sets
+/// `annotations.<key>.allowed = true`. Every other annotation and validator
+/// stays allowed by default.
 ///
 /// Built through the registry rather than by hand-nesting dictionaries, so
 /// the key cannot drift from the one `enforcement` actually looks up -
 /// `built_in_keys_are_all_recognised` pins that.
 pub fn built_in() -> SettingsDict {
-    let key = keys::annotations_allowed().key(None, Some(FORBIDDEN_BY_DEFAULT));
-    let path: Vec<String> = key.split('.').map(str::to_string).collect();
-    desugar_lenient(&[(path, SettingsValue::Bool(false))])
+    let entries: Vec<(Vec<String>, SettingsValue)> = FORBIDDEN_BY_DEFAULT
+        .iter()
+        .map(|name| {
+            let key = keys::annotations_allowed().key(None, Some(name));
+            (key.split('.').map(str::to_string).collect(), SettingsValue::Bool(false))
+        })
+        .collect();
+    desugar_lenient(&entries)
 }
 
 #[cfg(test)]
@@ -31,6 +38,14 @@ mod tests {
         let dict = built_in();
         assert_eq!(
             dict.get_path("annotations.framing.allowed"),
+            Some(&SettingsValue::Bool(false))
+        );
+    }
+
+    #[test]
+    fn unverified_is_forbidden_by_default() {
+        assert_eq!(
+            built_in().get_path("annotations.unverified.allowed"),
             Some(&SettingsValue::Bool(false))
         );
     }

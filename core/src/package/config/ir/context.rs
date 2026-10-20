@@ -1,6 +1,7 @@
 // Standard Uses
 use std::rc::Rc;
 use std::cell::RefCell;
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
 // Crate Uses
@@ -24,6 +25,19 @@ pub struct ProjectContext {
     pub config_frozen: Option<Vec<FrozenUnit>>,
     pub schema_contexts: Vec<Rc<RefCell<SchemaContext>>>,
     pub relative_projects: Vec<ProjectContext>,
+    /// For each dependency whose schemas were merged in under its name
+    /// (`<dependency>::...`), what its own package says about them. They're
+    /// judged by their own package, not by this one: its settings decide
+    /// which annotations they may use, its `handshake` is their default.
+    pub dependency_packages: BTreeMap<String, DependencyPackage>,
+}
+
+/// The parts of a dependency's own `config.idp` its schemas keep when a
+/// consumer recompiles them.
+#[derive(Debug, Clone, Default)]
+pub struct DependencyPackage {
+    pub settings: crate::settings::SettingsDict,
+    pub handshake: String,
 }
 
 
@@ -35,6 +49,7 @@ impl ProjectContext {
             config, config_frozen: None,
             relative_projects: vec![],
             schema_contexts: vec![],
+            dependency_packages: BTreeMap::new(),
         }
     }
 
@@ -44,6 +59,7 @@ impl ProjectContext {
             config, config_frozen: None,
             relative_projects: vec![],
             schema_contexts: vec![],
+            dependency_packages: BTreeMap::new(),
         }
     }
 

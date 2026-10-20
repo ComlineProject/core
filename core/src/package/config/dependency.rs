@@ -1,10 +1,11 @@
 // Dependency configuration structures
 // Parsed from congregation config dependencies block
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 use crate::package::build::cas::storage::Hash;
+use crate::schema::ir::frozen::unit::Guarantee;
 
 /// Where a package's `Git` dependencies get checked out, relative to the
 /// package's own directory.
@@ -21,6 +22,11 @@ pub fn git_checkout_dir(cache_dir: &Path, uri: &str, commit: &str) -> PathBuf {
 pub struct DependencyConfig {
     pub name: String,
     pub source: DependencySource,
+    /// `accept_unverified = { Billing = ["schema_agreement"] }`: the
+    /// dependency's `@unverified` protocols this package accepts, each with
+    /// the set of guarantees it was accepted for. A snapshot: if the
+    /// dependency gives up more, the build stops until it's accepted again.
+    pub accept_unverified: BTreeMap<String, Vec<Guarantee>>,
 }
 
 /// Source of a dependency
@@ -146,6 +152,7 @@ impl DependencyConfig {
         let mut commit = None;
         let mut path = None;
         let mut signature = None;
+        let mut accept_unverified = BTreeMap::new();
 
         // Parse assignments in the dictionary
         for assignment in &dict.assignments {
@@ -186,6 +193,9 @@ impl DependencyConfig {
                         signature = Some(strip_quotes(&s.value));
                     }
                 }
+                "accept_unverified" => {
+                    accept_unverified = parse_accept_unverified(&name, &assignment.value)?;
+                }
                 _ => {}
             }
         }
@@ -215,7 +225,7 @@ impl DependencyConfig {
             }
         };
 
-        Ok(DependencyConfig { name, source })
+        Ok(DependencyConfig { name, source, accept_unverified })
     }
 
     /// Parse a `dependencies = { name = {...}, ... }` dictionary's *inner*
@@ -416,3 +426,51 @@ mod tests {
     }
 }
 
+/// `accept_unverified = { Proto = ["schema_agreement", ...], ... }`.
+fn parse_accept_unverified(
+    dependency: &str,
+    value: &crate::package::config::idl::grammar::Value,
+) -> Result<BTreeMap<String, Vec<Guarantee>>, String> {
+    use crate::package::config::idl::grammar::{Key, Value};
+
+    let shape = || {
+        format!(
+            "dependency '{dependency}': 'accept_unverified' should be a dictionary of protocol \
+             names to lists of guarantees, like {{ Billing = [\"schema_agreement\"] }}"
+        )
+    };
+    let Value::Dictionary(dict) = value else {
+        return Err(shape());
+    };
+    let mut accepted = BTreeMap::new();
+    for assignment in &dict.assignments {
+        let assignment = &assignment.value;
+        let Key::Identifier(protocol) = &assignment.key else {
+            return Err(shape());
+        };
+        let Value::List(list) = &assignment.value else {
+            return Err(shape());
+        };
+        let mut set = Vec::new();
+        for item in &list.items {
+            let Value::String(s) = item else {
+                return Err(shape());
+            };
+            let written = strip_quotes(&s.value);
+            let guarantee = Guarantee::from_name(&written).ok_or_else(|| {
+                let known: Vec<&str> = Guarantee::ALL.iter().map(|g| g.name()).collect();
+                format!(
+                    "dependency '{dependency}': '{written}' in accept_unverified.{} isn't a \
+                     guarantee; expected one of {}",
+                    protocol.value,
+                    known.join(", ")
+                )
+            })?;
+            set.push(guarantee);
+        }
+        set.sort();
+        set.dedup();
+        accepted.insert(protocol.value.clone(), set);
+    }
+    Ok(accepted)
+}

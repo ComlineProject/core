@@ -256,11 +256,10 @@ fn interpret_schemas(
     in_progress: &mut HashSet<PathBuf>,
 ) -> Result<()> {
     let mut sources = glob_schema_sources(package_path)?;
-    sources.extend(crate::package::deps::resolve_dependency_sources(
-        context,
-        package_path,
-        in_progress,
-    )?);
+    let (dependency_sources, dependency_packages) =
+        crate::package::deps::resolve_dependency_sources(context, package_path, in_progress)?;
+    sources.extend(dependency_sources);
+    context.dependency_packages = dependency_packages;
     interpret_schema_sources(context, &with_std(sources))
 }
 

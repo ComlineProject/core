@@ -194,6 +194,19 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
+        key: "unverified",
+        scopes: &[AnnotationScope::Leading],
+        authority: AnnotationAuthority::Core,
+        description: "Gives up guarantees Comline otherwise gives this protocol's peers, with \
+                       the reason why. Core works out which (a `none` handshake gives up schema \
+                       and encoding agreement), and every consumer has to accept them. Required \
+                       where something is given up; off by default \
+                       (`annotations.unverified.allowed`).",
+        default: "nothing given up",
+        value: ValueType::Str,
+        consumed_by: &["core's validation pass", "the consumer's `accept_unverified`"],
+    },
+    AnnotationInfo {
         key: "settings",
         scopes: &[AnnotationScope::Universal],
         authority: AnnotationAuthority::Core,
@@ -281,8 +294,9 @@ mod tests {
         assert!(lookup("nope").is_none());
         // timeout_ms, idempotent (both Function), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
-        // framing, handshake, deprecated (all Leading), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 4);
+        // framing, handshake, unverified, deprecated (all Leading), plus
+        // settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 5);
         // validators, deprecated, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();

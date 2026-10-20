@@ -14,14 +14,14 @@
 // the feature and is unaffected.
 
 // Standard Uses
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 use std::path::{Path, PathBuf};
 
 // Crate Uses
 use crate::package::build::cas::storage::{to_cbor, Hash};
 use crate::package::build::compile_package_with;
 use crate::package::config::dependency::{git_checkout_dir, DependencyConfig, DependencySource, DEPS_CACHE_DIR};
-use crate::package::config::ir::context::ProjectContext;
+use crate::package::config::ir::context::{DependencyPackage, ProjectContext};
 
 // External Uses
 use eyre::{bail, eyre, Result};
@@ -127,6 +127,8 @@ pub(crate) fn resolve_with(
         }
     }
 
+    check_accepted(dep, &context)?;
+
     let version = resolved_version(&resolved_path);
 
     Ok(ResolvedDependency {
@@ -136,6 +138,47 @@ pub(crate) fn resolve_with(
         content_hash,
         version,
     })
+}
+
+/// Every `@unverified` protocol in a dependency has to be accepted by the
+/// consumer, under that dependency in its `config.idp`, for exactly the set
+/// it gives up. Not a diagnostic with a level: if it could be lowered,
+/// accepting would mean nothing.
+fn check_accepted(dep: &DependencyConfig, context: &ProjectContext) -> Result<()> {
+    use crate::schema::ir::unverified;
+
+    let mut problems = Vec::new();
+    for schema_ctx in &context.schema_contexts {
+        let schema_ref = schema_ctx.borrow();
+        let frozen_ref = schema_ref.frozen_schema.borrow();
+        let Some(units) = frozen_ref.as_ref() else { continue };
+        for (protocol, set, reason) in unverified::protocols(units) {
+            let accepted = dep.accept_unverified.get(protocol);
+            if accepted.map(Vec::as_slice) == Some(set) {
+                continue;
+            }
+            let given_up = unverified::describe(set);
+            let reason = reason.map(|r| format!(": \"{r}\"")).unwrap_or_default();
+            let what = match accepted {
+                None => format!("protocol `{protocol}` is unverified, giving up {given_up}{reason}"),
+                Some(old) => format!(
+                    "protocol `{protocol}` now gives up {given_up}{reason}; it was accepted for {}",
+                    if old.is_empty() { "nothing".to_string() } else { unverified::describe(old) }
+                ),
+            };
+            problems.push(format!(
+                "{what}\n  help: accept it under the dependency in config.idp:\n    \
+                 {} = {{ accept_unverified = {{ {protocol} = {} }} }}",
+                dep.name,
+                unverified::written(set)
+            ));
+        }
+    }
+    if problems.is_empty() {
+        Ok(())
+    } else {
+        bail!("dependency '{}':\n{}", dep.name, problems.join("\n"))
+    }
 }
 
 /// Resolve every dependency declared in `context`'s raw congregation, in a
@@ -175,8 +218,9 @@ pub(crate) fn resolve_dependency_sources(
     context: &ProjectContext,
     project_root: &Path,
     in_progress: &mut HashSet<PathBuf>,
-) -> Result<Vec<(Vec<String>, String)>> {
+) -> Result<(Vec<(Vec<String>, String)>, BTreeMap<String, DependencyPackage>)> {
     let mut sources = Vec::new();
+    let mut packages = BTreeMap::new();
     for resolved in resolve_all(context, project_root, in_progress)? {
         for (namespace, source) in
             crate::package::build::glob_schema_sources(&resolved.resolved_path)?
@@ -185,8 +229,16 @@ pub(crate) fn resolve_dependency_sources(
             prefixed.extend(namespace);
             sources.push((prefixed, source));
         }
+        let frozen = resolved.context.config_frozen.as_deref().unwrap_or_default();
+        packages.insert(
+            resolved.name.clone(),
+            DependencyPackage {
+                settings: crate::settings::effective::package_settings(&resolved.context),
+                handshake: crate::package::config::ir::frozen::handshake(frozen).to_string(),
+            },
+        );
     }
-    Ok(sources)
+    Ok((sources, packages))
 }
 
 /// A resolved dependency's effective version: whatever its own `.comline/`
@@ -360,6 +412,7 @@ fn git_output(dir: &Path, args: &[&str]) -> Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::ir::frozen::unit::Guarantee;
 
     /// End to end: a consumer package whose schema `use`s a type from a
     /// `Path` dependency compiles, and the cross-package reference resolves
@@ -608,6 +661,143 @@ mod tests {
         assert!(err.to_string().contains("cycle"), "got: {err}");
     }
 
+    /// A package whose `Billing` protocol runs no handshake, marked.
+    fn write_unverified_package(dir: &Path) {
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("config.idp"),
+            "congregation billing\nspecification_version = 1\n\
+             settings = { annotations = { unverified = { allowed = true } } }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.join("src/api.ids"),
+            "@handshake = \"none\"\n@unverified = \"the 2009 gateway\"\n\
+             protocol Billing {\n    function charge();\n}\n",
+        )
+        .unwrap();
+    }
+
+    fn accepting(set: &[Guarantee]) -> DependencyConfig {
+        let mut dep = path_dep("billing", "billing", None);
+        dep.accept_unverified.insert("Billing".to_string(), set.to_vec());
+        dep
+    }
+
+    #[test]
+    fn an_unverified_protocol_has_to_be_accepted_for_exactly_its_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_unverified_package(&tmp.path().join("billing"));
+        let cache = tmp.path().join("cache");
+        let resolve = |dep: &DependencyConfig| resolve(dep, tmp.path(), &cache).map(|_| ());
+
+        let err = resolve(&path_dep("billing", "billing", None)).unwrap_err().to_string();
+        assert!(err.contains("protocol `Billing` is unverified"), "{err}");
+        assert!(err.contains("the 2009 gateway"), "{err}");
+        assert!(
+            err.contains(
+                "billing = { accept_unverified = { Billing = \
+                 [\"schema_agreement\", \"encoding_agreement\"] } }"
+            ),
+            "{err}"
+        );
+
+        // Accepted for less than it now gives up: stopped again.
+        let stale = resolve(&accepting(&[Guarantee::SchemaAgreement])).unwrap_err().to_string();
+        assert!(stale.contains("it was accepted for schema agreement"), "{stale}");
+
+        resolve(&accepting(&[Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]))
+            .expect("accepted for its whole set");
+    }
+
+    #[test]
+    fn a_consumer_judges_a_dependencys_schemas_by_the_dependencys_own_package() {
+        use crate::schema::ir::frozen::unit::FrozenUnit;
+        use crate::schema::ir::unverified;
+
+        // The dependency allows `@unverified` and defaults to no handshake;
+        // its protocol relies on that default.
+        let tmp = tempfile::tempdir().unwrap();
+        let billing = tmp.path().join("billing");
+        std::fs::create_dir_all(billing.join("src")).unwrap();
+        std::fs::write(
+            billing.join("config.idp"),
+            "congregation billing\nspecification_version = 1\nhandshake = \"none\"\n\
+             settings = { annotations = { unverified = { allowed = true } } }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            billing.join("src/api.ids"),
+            "@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n",
+        )
+        .unwrap();
+
+        // The consumer allows neither, and only accepts.
+        let app = tmp.path().join("app");
+        std::fs::create_dir_all(app.join("src")).unwrap();
+        std::fs::write(app.join("src/a.ids"), "struct A {\n    x: u32\n}\n").unwrap();
+        let write_config = |accept: &str| {
+            std::fs::write(
+                app.join("config.idp"),
+                format!(
+                    "congregation app\nspecification_version = 1\ndependencies = {{\n    \
+                     billing = {{\n        path = \"../billing\"\n        {accept}\n    }}\n}}\n"
+                ),
+            )
+            .unwrap();
+        };
+
+        write_config("");
+        let err = crate::package::build::compile_package(&app).unwrap_err().to_string();
+        assert!(err.contains("protocol `Billing` is unverified"), "{err}");
+
+        write_config(
+            "accept_unverified = { Billing = [\"schema_agreement\", \"encoding_agreement\"] }",
+        );
+        let context = crate::package::build::compile_package(&app).expect("accepted");
+        let merged = context
+            .schema_contexts
+            .iter()
+            .find(|s| s.borrow().namespace == ["billing", "api"])
+            .unwrap()
+            .borrow()
+            .frozen_schema
+            .borrow()
+            .clone()
+            .unwrap();
+        let params = merged
+            .iter()
+            .find_map(|u| match u {
+                FrozenUnit::Protocol { parameters, .. } => Some(parameters.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(unverified::handshake(&params), "none");
+        assert_eq!(unverified::frozen_set(&params).len(), 2);
+    }
+
+    #[test]
+    fn accept_unverified_is_parsed_and_checked() {
+        let parse = |entry: &str| {
+            let src = format!(
+                "congregation app\nspecification_version = 1\ndependencies = {{\n    \
+                 billing = {{\n        path = \"../billing\"\n        {entry}\n    }}\n}}\n"
+            );
+            let context = crate::package::config::ir::interpreter::ProjectInterpreter::from_config_source(&src)
+                .unwrap();
+            DependencyConfig::parse_dependencies(&context.config.assignments)
+        };
+        let deps = parse("accept_unverified = { Billing = [\"encoding_agreement\", \"schema_agreement\"] }")
+            .unwrap();
+        assert_eq!(
+            deps["billing"].accept_unverified["Billing"],
+            [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+        );
+
+        let err = parse("accept_unverified = { Billing = [\"schema\"] }").unwrap_err();
+        assert!(err.contains("'schema' in accept_unverified.Billing isn't a guarantee"), "{err}");
+    }
+
     fn write_minimal_package(dir: &Path, congregation_name: &str) {
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(
@@ -621,6 +811,7 @@ mod tests {
     fn path_dep(name: &str, path: &str, hash: Option<&str>) -> DependencyConfig {
         DependencyConfig {
             name: name.to_string(),
+            accept_unverified: Default::default(),
             source: DependencySource::Path {
                 path: PathBuf::from(path),
                 hash: hash.map(str::to_string),
@@ -667,6 +858,7 @@ mod tests {
 
         let dep = DependencyConfig {
             name: "shared_types".to_string(),
+            accept_unverified: Default::default(),
             source: DependencySource::Git {
                 version: "1.0.0".to_string(),
                 uri: repo.path().to_string_lossy().to_string(),
@@ -692,6 +884,7 @@ mod tests {
     fn git_dep(repo: &Path, sha: &str) -> DependencyConfig {
         DependencyConfig {
             name: "shared_types".to_string(),
+            accept_unverified: Default::default(),
             source: DependencySource::Git {
                 version: "1.0.0".to_string(),
                 uri: repo.to_string_lossy().to_string(),
@@ -817,6 +1010,7 @@ mod tests {
     fn registry_sources_are_rejected_with_a_clear_error() {
         let dep = DependencyConfig {
             name: "std".to_string(),
+            accept_unverified: Default::default(),
             source: DependencySource::Registry {
                 version: "1.0.0".to_string(),
                 uri: "comline://registry.comline.io/std".to_string(),
