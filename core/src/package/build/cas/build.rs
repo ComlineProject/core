@@ -13,7 +13,8 @@ use std::path::Path;
 use super::object_store::ObjectStore;
 use super::objects::{Commit, EntryMode, Tree};
 use super::refs::{main_ref, read_ref, ref_exists, update_ref};
-use super::version::VersionBump;
+use super::storage::Hash;
+use super::version::{dev_version, next_release, VersionBump};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::{analyze_config_changes, ConfigChanges};
 use crate::package::config::ir::frozen::cas::blob as config_blob;
@@ -26,7 +27,13 @@ use eyre::Result;
 
 /// Information returned from build processing
 pub struct BuildInfo {
+    /// The bump this build's own changes call for, against the build before.
     pub version_bump: VersionBump,
+    /// The bump everything since the last release calls for: what
+    /// `comline release` would apply now.
+    pub release_bump: VersionBump,
+    /// The last release, if there is one.
+    pub last_release: Option<String>,
     pub previous_version: Option<String>,
     pub current_version: String,
     pub schema_changes: Option<SchemaChanges>,
@@ -94,7 +101,6 @@ fn vendor_dependencies(
 
 /// A vendored dependency's own schema files, one entry per file, for
 /// `analyze_package_changes` to pair by namespace.
-#[cfg(feature = "deps")]
 fn load_dependency_schemas(
     store: &ObjectStore,
     dep_tree: &Tree,
@@ -121,6 +127,100 @@ fn changes_bump(changes: &SchemaChanges) -> VersionBump {
         VersionBump::Patch
     } else {
         VersionBump::None
+    }
+}
+
+/// What changed between two stored trees, and the bump that calls for.
+#[derive(Debug)]
+pub struct Comparison {
+    pub schema_changes: SchemaChanges,
+    /// Changes inside dependencies present in both trees, per dependency.
+    pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
+    pub config_changes: ConfigChanges,
+    pub bump: VersionBump,
+}
+
+/// Compare two root trees from the store: the package's own schema files
+/// (paired by namespace), every dependency vendored into both, and the
+/// congregation.
+pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison> {
+    use crate::schema::ir::diff::{analyze_package_changes, DependencyChanges};
+    use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
+
+    // `schema_{idx}` entries only: a `dep_<name>` entry is a vendored
+    // dependency, compared on its own below.
+    let local = |tree: &Tree| -> Result<Vec<_>> {
+        let mut schemas = vec![];
+        for entry in &tree.entries {
+            if entry.mode == EntryMode::Tree && entry.name.starts_with("schema_") {
+                let schema_tree = Tree::from_bytes(&store.read(&entry.hash)?)?;
+                schemas.push(load_schema_from_tree(store, &schema_tree)?);
+            }
+        }
+        Ok(schemas)
+    };
+    // Files are paired by namespace, not by their position in the glob:
+    // adding, renaming or reordering a file must not pair the wrong schemas.
+    let schema_changes = analyze_package_changes(&local(old)?, &local(new)?);
+    let mut bump = changes_bump(&schema_changes);
+
+    // A dependency present in both gets the real bump its own schema changes
+    // imply, and its changes are listed, not only counted. A brand-new or
+    // removed one needs nothing here: `analyze_config_changes`'s
+    // `DependencyAdded`/`DependencyRemoved` cover it from the config alone.
+    let mut dependency_changes = vec![];
+    for entry in &new.entries {
+        let Some(name) = entry.name.strip_prefix("dep_") else { continue };
+        if entry.mode != EntryMode::Tree {
+            continue;
+        }
+        let Some(old_entry) =
+            old.entries.iter().find(|e| e.name == entry.name && e.mode == EntryMode::Tree)
+        else {
+            continue;
+        };
+        let before = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&old_entry.hash)?)?)?;
+        let after = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&entry.hash)?)?)?;
+        let changes = analyze_package_changes(&before, &after);
+        bump = bump.max(changes_bump(&changes));
+        if !changes.is_empty() {
+            dependency_changes.push(DependencyChanges { name: name.to_string(), changes });
+        }
+    }
+
+    // Congregation changes. Only units that affect the schema API count
+    // (spec version, dependencies). A tree from before config was stored
+    // has none.
+    let config = |tree: &Tree| -> Result<Vec<_>> {
+        Ok(tree
+            .entries
+            .iter()
+            .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
+            .map(|e| config_blob::read_config(store, &e.hash))
+            .transpose()?
+            .unwrap_or_default())
+    };
+    let config_changes = analyze_config_changes(&config(old)?, &config(new)?);
+    bump = bump.max(config_changes.bump());
+
+    Ok(Comparison { schema_changes, dependency_changes, config_changes, bump })
+}
+
+/// The last release at or before `from`, and how many builds come after it
+/// up to and including `from`. `None` when the history has no release yet.
+pub fn last_release(store: &ObjectStore, from: Hash) -> Result<(Option<(Hash, Commit)>, u64)> {
+    let mut hash = from;
+    let mut builds = 0;
+    loop {
+        let commit = Commit::from_bytes(&store.read(&hash)?)?;
+        if commit.is_release() {
+            return Ok((Some((hash, commit)), builds));
+        }
+        builds += 1;
+        match commit.parents.first() {
+            Some(parent) => hash = *parent,
+            None => return Ok((None, builds)),
+        }
     }
 }
 
@@ -170,9 +270,9 @@ pub fn process_initial_freezing(
     let root_tree_bytes = root_tree.to_bytes()?;
     let root_tree_hash = store.write(&root_tree_bytes)?;
 
-    // Create initial commit
-    let initial_version = "0.0.1";
-    let commit = create_initial_commit(root_tree_hash, initial_version);
+    // Create initial commit: a build leading to the first release, 0.1.0.
+    let initial_version = dev_version(&next_release(None, VersionBump::None), 1).to_string();
+    let commit = create_initial_commit(root_tree_hash, &initial_version);
     let commit_bytes = commit.to_bytes()?;
     let commit_hash = store.write(&commit_bytes)?;
 
@@ -183,8 +283,10 @@ pub fn process_initial_freezing(
 
     Ok(BuildInfo {
         version_bump: VersionBump::None,
+        release_bump: VersionBump::None,
+        last_release: None,
         previous_version: None,
-        current_version: initial_version.to_string(),
+        current_version: initial_version,
         schema_changes: None,
         dependency_changes: vec![],
         config_changes: ConfigChanges::default(),
@@ -214,15 +316,12 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
 
     // Build new tree from current schemas
     let mut root_tree = Tree::new();
-    let mut current_schemas = vec![];
 
     for (idx, schema_ctx) in latest_project.schema_contexts.iter().enumerate() {
         let schema_ref = schema_ctx.borrow();
         let frozen_ref = schema_ref.frozen_schema.borrow();
 
         if let Some(frozen_schema) = frozen_ref.as_ref() {
-            current_schemas.push(frozen_schema.clone());
-
             // Build subtree for this schema
             let schema_tree = build_tree_from_schema(frozen_schema, &store)?;
             let tree_bytes = schema_tree.to_bytes()?;
@@ -235,11 +334,9 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     }
 
     // Vendor every declared dependency's own frozen schema (feature = "deps"),
-    // same as process_initial_freezing. Kept around (rather than discarded
-    // like the initial-freezing call) so the diffing pass below can compare
-    // against last build's vendored content without re-resolving everything.
+    // same as process_initial_freezing; `compare` diffs the vendored content.
     #[cfg(feature = "deps")]
-    let resolved_deps = vendor_dependencies(project_path, latest_project, &store, &mut root_tree)?;
+    vendor_dependencies(project_path, latest_project, &store, &mut root_tree)?;
 
     // Record the frozen congregation (see process_initial_freezing). A config
     // change alters the root tree, so a rebuild that only touches config still
@@ -257,8 +354,11 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     if root_tree_hash == parent_commit.tree {
         // No changes
         tracing::debug!("CAS: No changes detected");
+        let (release, _) = last_release(&store, parent_hash)?;
         return Ok(BuildInfo {
             version_bump: VersionBump::None,
+            release_bump: VersionBump::None,
+            last_release: release.map(|(_, commit)| commit.version),
             previous_version: Some(parent_commit.version.clone()),
             current_version: parent_commit.version.clone(),
             schema_changes: None,
@@ -267,113 +367,33 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         });
     }
 
-    // Analyze schema changes, pairing schema files by namespace
-    use crate::schema::ir::diff::{analyze_package_changes, DependencyChanges};
-    use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
+    // What this build changed, against the one before it.
+    let Comparison { schema_changes: all_changes, dependency_changes, config_changes, bump } =
+        compare(&store, &prev_tree, &root_tree)?;
+    let version_bump = bump;
 
-    // Load all previous *local* schemas — `schema_{idx}` entries only. A
-    // `dep_<name>` entry is also `EntryMode::Tree` but is a vendored
-    // dependency, not a local schema file; it gets its own diffing pass
-    // below, keyed by name.
-    let mut prev_schemas = vec![];
-    for entry in &prev_tree.entries {
-        if entry.mode == EntryMode::Tree && entry.name.starts_with("schema_") {
-            let prev_schema_tree_bytes = store.read(&entry.hash)?;
-            let prev_schema_tree = Tree::from_bytes(&prev_schema_tree_bytes)?;
-            let prev_schema = load_schema_from_tree(&store, &prev_schema_tree)?;
-            prev_schemas.push(prev_schema);
+    // Its version: the release it leads to - the last release bumped by
+    // everything since - plus a count of builds since that release. A build
+    // whose changes call for no bump is still a patch ahead, so it never
+    // sorts before the release it follows.
+    let (release, builds_since) = last_release(&store, parent_hash)?;
+    let (release_bump, last_release_version) = match &release {
+        Some((_, commit)) => {
+            let release_tree = Tree::from_bytes(&store.read(&commit.tree)?)?;
+            let bump = compare(&store, &release_tree, &root_tree)?.bump;
+            (bump, Some(semver::Version::parse(&commit.version)?))
         }
-    }
-
-    // Files are paired by namespace, not by their position in the glob:
-    // adding, renaming or reordering a file must not pair the wrong schemas.
-    let all_changes = analyze_package_changes(&prev_schemas, &current_schemas);
-    let mut aggregated_bump = changes_bump(&all_changes);
-
-    // 3b. Dependency content changes (feature = "deps") — this is the piece
-    // `ConfigChange::DependencyVersionChanged`'s doc comment calls out as
-    // pending: "conservatively breaking until dependency resolution can diff
-    // the two dependency schemas (core#6)". A dependency present in both the
-    // parent commit and this build gets the *real* bump its own schema
-    // changes imply, and its changes are listed, not only counted. A
-    // brand-new or fully-removed dependency needs no extra signal here:
-    // `analyze_config_changes`'s `DependencyAdded`/`DependencyRemoved`
-    // (Minor/Major) already covers those from the frozen config alone.
-    #[allow(unused_mut)]
-    let mut dependency_changes: Vec<DependencyChanges> = vec![];
-    #[cfg(feature = "deps")]
-    for resolved in &resolved_deps {
-        let entry_name = format!("dep_{}", resolved.name);
-        let Some(prev_entry) = prev_tree
-            .entries
-            .iter()
-            .find(|e| e.name == entry_name && e.mode == EntryMode::Tree)
-        else {
-            continue; // new dependency — DependencyAdded already covers it
-        };
-
-        let prev_dep_tree = Tree::from_bytes(&store.read(&prev_entry.hash)?)?;
-        let prev_schemas = load_dependency_schemas(&store, &prev_dep_tree)?;
-        let cur_schemas = load_dependency_schemas(
-            &store,
-            &Tree::from_bytes(
-                &store.read(
-                    &root_tree
-                        .entries
-                        .iter()
-                        .find(|e| e.name == entry_name)
-                        .expect("just vendored this dependency above")
-                        .hash,
-                )?,
-            )?,
-        )?;
-
-        let changes = analyze_package_changes(&prev_schemas, &cur_schemas);
-        aggregated_bump = aggregated_bump.max(changes_bump(&changes));
-        if !changes.is_empty() {
-            dependency_changes.push(DependencyChanges {
-                name: resolved.name.clone(),
-                changes,
-            });
-        }
-    }
-
-    // 4. Congregation changes. Only units that affect the schema API count
-    //    (spec version, dependencies); code_generation / publish_registries /
-    //    namespace are excluded. `prev_config` is empty for a commit that
-    //    predates config being stored in CAS.
-    let prev_config = prev_tree
-        .entries
-        .iter()
-        .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
-        .map(|e| config_blob::read_config(&store, &e.hash))
-        .transpose()?
-        .unwrap_or_default();
-    let cur_config = latest_project.config_frozen.as_deref().unwrap_or_default();
-    let config_changes = analyze_config_changes(&prev_config, cur_config);
-    aggregated_bump = aggregated_bump.max(config_changes.bump());
-
-    let version_bump = aggregated_bump;
-
-    // Parse and bump version
-    let prev_version = semver::Version::parse(&parent_commit.version)?;
-    let new_version = match version_bump {
-        VersionBump::Major => semver::Version::new(prev_version.major + 1, 0, 0),
-        VersionBump::Minor => semver::Version::new(prev_version.major, prev_version.minor + 1, 0),
-        VersionBump::Patch => semver::Version::new(
-            prev_version.major,
-            prev_version.minor,
-            prev_version.patch + 1,
-        ),
-        VersionBump::None => prev_version.clone(),
+        None => (VersionBump::None, None),
     };
+    let target = next_release(last_release_version.as_ref(), release_bump.max(VersionBump::Patch));
+    let new_version = dev_version(&target, builds_since + 1);
 
     // Create new commit
     let commit = create_version_commit(
         root_tree_hash,
         parent_hash,
         &new_version.to_string(),
-        &format!("{:?} version bump", version_bump),
+        &format!("Build ({version_bump:?} change)"),
     );
     let commit_bytes = commit.to_bytes()?;
     let commit_hash = store.write(&commit_bytes)?;
@@ -392,6 +412,8 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
 
     Ok(BuildInfo {
         version_bump,
+        release_bump,
+        last_release: release.map(|(_, commit)| commit.version),
         previous_version: Some(parent_commit.version.clone()),
         current_version: new_version.to_string(),
         schema_changes: merged_changes,

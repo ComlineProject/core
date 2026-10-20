@@ -84,7 +84,8 @@ fn a_breaking_change_in_the_dependency_bumps_the_consumer_major() {
     write_consumer(&consumer_dir, CONSUMER_SCHEMA);
 
     let v1 = build(&consumer_dir).unwrap().current_version;
-    assert_eq!(v1, "0.0.1");
+    assert_eq!(v1, "0.1.0-dev.1");
+    comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
 
     // Remove `id` from the dependency's struct — breaking.
     write_dependency(&dep_dir, "struct Thing {\n    name: string\n}\n");
@@ -96,7 +97,7 @@ fn a_breaking_change_in_the_dependency_bumps_the_consumer_major() {
         "a real breaking change in the dependency's schema, diffed for real, \
          not the config-level blanket Major"
     );
-    assert_eq!(res.current_version, "1.0.0");
+    assert_eq!(res.current_version, "0.2.0-dev.1");
 }
 
 #[test]
@@ -108,6 +109,7 @@ fn an_additive_change_in_the_dependency_bumps_the_consumer_minor_not_major() {
     write_consumer(&consumer_dir, CONSUMER_SCHEMA);
 
     build(&consumer_dir).unwrap();
+    comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
 
     // Add an optional field — additive, not breaking. This is the exact case
     // the old blanket "any dependency change = Major" got wrong.
@@ -122,7 +124,7 @@ fn an_additive_change_in_the_dependency_bumps_the_consumer_minor_not_major() {
         VersionBump::Minor,
         "an additive dependency change should bump minor, not the old blanket major"
     );
-    assert_eq!(res.current_version, "0.1.0");
+    assert_eq!(res.current_version, "0.1.1-dev.1");
 }
 
 #[test]
