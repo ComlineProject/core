@@ -82,6 +82,41 @@ const FRAMINGS: &[StrVariant] = &[
     StrVariant::with_aliases("datagram", &["comline.datagram"]),
 ];
 
+/// The handshakes `@handshake` and the package's `handshake = "..."` accept.
+/// Versioned like encodings; `none` has nothing to version. A namespaced
+/// custom one (`com.acme.hello@1`) arrives with third-party encodings
+/// (core#120) - see [`check_handshake`].
+const HANDSHAKES: &[StrVariant] = &[
+    StrVariant::new(DEFAULT_HANDSHAKE),
+    StrVariant::new(HANDSHAKE_NONE),
+];
+
+/// The handshake a protocol runs when neither it nor its package names one.
+pub const DEFAULT_HANDSHAKE: &str = "comline@1";
+/// The official "no handshake": nothing sent, nothing checked.
+pub const HANDSHAKE_NONE: &str = "none";
+
+/// Check a written handshake name, returning its canonical spelling. The
+/// error is a full sentence: a namespaced custom name gets its own, since
+/// it's well-formed and only waiting on core#120, not a typo.
+pub fn check_handshake(written: &str) -> Result<&'static str, String> {
+    if let Some(known) = canonical_value("handshake", written) {
+        return Ok(known);
+    }
+    let known = format!("`{DEFAULT_HANDSHAKE}` or `{HANDSHAKE_NONE}`");
+    match written.split_once('@') {
+        Some((name, version))
+            if name.contains('.') && !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) =>
+        {
+            Err(format!(
+                "handshake `{written}` isn't known: only {known} exist yet; custom handshakes \
+                 arrive with third-party encodings (core#120)"
+            ))
+        }
+        _ => Err(format!("handshake `{written}` isn't known: expected {known}")),
+    }
+}
+
 /// Everything known about one `@key`.
 pub struct AnnotationInfo {
     pub key: &'static str,
@@ -144,6 +179,18 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                        No effect on a struct.",
         default: "datagram — Comline's compact binary framing",
         value: ValueType::StrEnum(FRAMINGS),
+        consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
+    },
+    AnnotationInfo {
+        key: "handshake",
+        scopes: &[AnnotationScope::Leading],
+        authority: AnnotationAuthority::Target,
+        description: "What runs on a connection before the first call: `comline@1` checks that \
+                       both ends share the schema, format and framing; `none` sends and checks \
+                       nothing. Overrides the package's `handshake` in `config.idp`. No effect \
+                       on a struct.",
+        default: "the package's `handshake`, else comline@1",
+        value: ValueType::StrEnum(HANDSHAKES),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -234,8 +281,8 @@ mod tests {
         assert!(lookup("nope").is_none());
         // timeout_ms, idempotent (both Function), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
-        // framing, deprecated (both Leading), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 3);
+        // framing, handshake, deprecated (all Leading), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 4);
         // validators, deprecated, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();
@@ -281,6 +328,22 @@ mod tests {
         let framing = lookup("framing").unwrap();
         assert!(describe_value(framing).contains("jsonrpc"));
         assert_eq!(describe_value(lookup("timeout_ms").unwrap()), "an integer");
+    }
+
+    #[test]
+    fn handshake_names_are_checked_and_canonical() {
+        assert_eq!(check_handshake("comline@1"), Ok("comline@1"));
+        assert_eq!(check_handshake("none"), Ok("none"));
+        assert_eq!(value_spellings("handshake"), vec!["comline@1", "none"]);
+
+        let custom = check_handshake("com.acme.hello@1").unwrap_err();
+        assert!(custom.contains("core#120"), "{custom}");
+
+        for typo in ["comline", "comline@2", "None", "hello@1", "com.acme.hello"] {
+            let err = check_handshake(typo).unwrap_err();
+            assert!(!err.contains("core#120"), "{typo}: {err}");
+            assert!(err.contains("`comline@1` or `none`"), "{typo}: {err}");
+        }
     }
 
     #[test]

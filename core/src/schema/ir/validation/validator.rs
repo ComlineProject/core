@@ -953,6 +953,18 @@ fn check_params(
         let Some(info) = annotations::lookup(name) else {
             continue;
         };
+        // A handshake name gets the sentence `check_handshake` writes, which
+        // tells a custom one apart from a typo.
+        if let (true, ConfigValue::Str(written)) = (name == "handshake", value) {
+            if let Err(message) = annotations::check_handshake(written) {
+                errors.push(
+                    Diagnostic::new(ANNOTATION_VALUE_MISMATCH, message)
+                        .with_context(context.to_string())
+                        .maybe_span(span),
+                );
+            }
+            continue;
+        }
         if let Err(mismatch) = config_value::check(&info.value, value.form()) {
             errors.push(
                 Diagnostic::new(
