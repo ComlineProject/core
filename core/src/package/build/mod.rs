@@ -47,6 +47,22 @@ pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
     }
 }
 
+/// [`compile_package`], resolving dependencies only from what's already on
+/// disk (see [`crate::package::deps::without_fetching`]): nothing is
+/// fetched, and nothing in a dependency cache is changed. Without the `deps`
+/// feature, [`compile_package`] resolves no dependencies at all, so the two
+/// are the same.
+pub fn compile_package_without_fetching(package_path: &Path) -> Result<ProjectContext> {
+    #[cfg(feature = "deps")]
+    {
+        crate::package::deps::without_fetching(|| compile_package(package_path))
+    }
+    #[cfg(not(feature = "deps"))]
+    {
+        compile_package(package_path)
+    }
+}
+
 /// [`compile_package`], threading the dependency-cycle-guard set — shared
 /// across every recursive dependency compile in one traversal (a cross-
 /// package `settings` reference's resolution, and ordinary schema-level

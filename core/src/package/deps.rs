@@ -49,6 +49,28 @@ pub struct ResolvedDependency {
     pub version: String,
 }
 
+thread_local! {
+    /// Whether resolving may fetch a git dependency. Off only inside
+    /// [`without_fetching`].
+    static FETCHING: std::cell::Cell<bool> = const { std::cell::Cell::new(true) };
+}
+
+/// Run `f` with dependency resolution limited to what's already on disk:
+/// path dependencies, and git dependencies `comline check` has fetched. One
+/// that isn't there is an error rather than a fetch, and nothing in the
+/// cache is changed. For an editor, which mustn't reach the network or
+/// rewrite the cache as the user types.
+pub fn without_fetching<T>(f: impl FnOnce() -> T) -> T {
+    struct Restore(bool);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            FETCHING.set(self.0);
+        }
+    }
+    let _restore = Restore(FETCHING.replace(false));
+    f()
+}
+
 /// Resolve one dependency: fetch its source (if needed), compile it, and
 /// verify its content hash. `project_root` is the *consuming* package's
 /// directory (a `Path` dependency resolves relative to it); `cache_dir` is
@@ -335,7 +357,13 @@ fn resolve_git(uri: &str, commit: &str, cache_dir: &Path) -> Result<PathBuf> {
         if is_checked_out_at(&checkout_path, commit) {
             return Ok(checkout_path);
         }
+        if !FETCHING.get() {
+            bail!("'{uri}' at {commit} isn't fetched correctly — run `comline check` to fetch it again");
+        }
         remove_dir(&checkout_path)?;
+    }
+    if !FETCHING.get() {
+        bail!("'{uri}' at {commit} isn't fetched yet — run `comline check` to fetch it");
     }
 
     let mut staging_name = checkout_path.file_name().unwrap_or_default().to_os_string();
@@ -961,6 +989,68 @@ mod tests {
 
         let resolved = resolve(&dep, consumer.path(), &cache).expect("repairs the half-made checkout");
         assert_eq!(resolved.context.schema_contexts.len(), 1);
+    }
+
+    #[test]
+    fn without_fetching_an_unfetched_git_dependency_is_an_error_not_a_fetch() {
+        let (repo, sha) = local_git_fixture();
+        let consumer = tempfile::tempdir().unwrap();
+        let cache = consumer.path().join(".comline/deps-cache");
+        let dep = git_dep(repo.path(), &sha);
+
+        let Err(error) = without_fetching(|| resolve(&dep, consumer.path(), &cache)) else {
+            panic!("nothing is fetched yet")
+        };
+        assert!(error.to_string().contains("isn't fetched yet"), "{error}");
+        assert!(!cache.exists(), "nothing written to the cache");
+        assert!(FETCHING.get(), "fetching is allowed again afterwards");
+
+        // Fetched once, normally: from then on it resolves without fetching.
+        resolve(&dep, consumer.path(), &cache).unwrap();
+        let resolved = without_fetching(|| resolve(&dep, consumer.path(), &cache)).unwrap();
+        assert_eq!(resolved.context.schema_contexts.len(), 1);
+    }
+
+    #[test]
+    fn without_fetching_a_half_made_checkout_is_left_alone() {
+        let (repo, sha) = local_git_fixture();
+        let consumer = tempfile::tempdir().unwrap();
+        let cache = consumer.path().join(".comline/deps-cache");
+        let dep = git_dep(repo.path(), &sha);
+
+        let checkout = git_checkout_dir(&cache, &repo.path().to_string_lossy(), &sha);
+        std::fs::create_dir_all(&checkout).unwrap();
+        run_git(&checkout, &["init", "--quiet"]).unwrap();
+
+        let Err(error) = without_fetching(|| resolve(&dep, consumer.path(), &cache)) else {
+            panic!("the checkout never reached the commit")
+        };
+        assert!(error.to_string().contains("isn't fetched correctly"), "{error}");
+        assert!(checkout.join(".git").exists(), "the checkout is left for `comline check` to repair");
+    }
+
+    /// What the editor needs: a dependency whose schemas import its own
+    /// dependency compiles on its own, as long as everything is on disk.
+    #[test]
+    fn without_fetching_a_dependencys_own_path_dependencies_still_resolve() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_minimal_package(&tmp.path().join("base"), "base");
+        let middle = tmp.path().join("middle");
+        std::fs::create_dir_all(middle.join("src")).unwrap();
+        std::fs::write(
+            middle.join("config.idp"),
+            "congregation middle\nspecification_version = 1\n\n\
+             dependencies = {\n    base = {\n        path = \"../base\"\n    }\n}\n",
+        )
+        .unwrap();
+        std::fs::write(
+            middle.join("src/wrapper.ids"),
+            "use base::api::Thing\n\nstruct Wrapper {\n    thing: Thing\n}\n",
+        )
+        .unwrap();
+
+        let context = crate::package::build::compile_package_without_fetching(&middle).unwrap();
+        assert_eq!(context.schema_contexts.len(), 2);
     }
 
     #[test]
