@@ -41,16 +41,13 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     let package_settings_spans = crate::settings::SettingsSpans::default();
 
     for schema_context in project_context.schema_contexts.iter() {
+        // A dependency's schemas arrive compiled by its own package (its
+        // settings, its default handshake); they're only resolved against.
+        if schema_context.borrow().compile_state.borrow().complete {
+            continue;
+        }
         let declarations = { schema_context.borrow().declarations.clone() };
         let namespace = { schema_context.borrow().namespace.clone() };
-        // A dependency's schemas are judged by its own package.
-        let (package_settings_dict, package_handshake) = match namespace
-            .first()
-            .and_then(|first| project_context.dependency_packages.get(first))
-        {
-            Some(dependency) => (&dependency.settings, dependency.handshake.as_str()),
-            None => (&own_settings, own_handshake.as_str()),
-        };
 
         if let Err(errors) = check_imports(&declarations, &namespace, project_context) {
             let rendered: Vec<String> = errors
@@ -100,7 +97,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
-        apply_package_handshake(&mut frozen_units, package_handshake);
+        apply_package_handshake(&mut frozen_units, &own_handshake);
         crate::schema::ir::unverified::freeze(&mut frozen_units);
 
         let imports = ProjectImports {
@@ -111,7 +108,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         match validation::validate_with(&frozen_units, &imports) {
             Ok(warnings) => {
                 let (warnings, fatal) = resolve_diagnostic_overrides(
-                    &frozen_units, warnings, package_settings_dict, &package_settings_spans,
+                    &frozen_units, warnings, &own_settings, &package_settings_spans,
                 );
                 schema_context.borrow().warnings.borrow_mut().extend(warnings);
                 if !fatal.is_empty() {
@@ -140,7 +137,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         }
 
         if let Err(errors) =
-            check_settings_enforcement(&frozen_units, package_settings_dict, &package_settings_spans)
+            check_settings_enforcement(&frozen_units, &own_settings, &package_settings_spans)
         {
             let rendered: Vec<String> = errors
                 .iter()

@@ -246,23 +246,33 @@ pub(crate) fn glob_schema_sources(package_path: &Path) -> Result<Vec<(Vec<String
 }
 
 /// Local schemas, plus — behind `feature = "deps"` — every declared
-/// dependency's own schemas, namespaced under the dependency's name
-/// (`shared_types = { path = "../shared-types" }`'s `foo.ids` becomes
-/// `shared_types::foo` here), plus the std schemas any of them import
-/// (see [`with_std`]), merged into one [`interpret_schema_sources`] pass so
-/// cross-package `use` resolves normally.
+/// dependency's own schemas as its own compile froze them, namespaced under
+/// the dependency's name (`shared_types = { path = "../shared-types" }`'s
+/// `foo.ids` becomes `shared_types::foo` here), plus the std schemas any of
+/// them import (see [`with_std`]). Local schemas are interpreted; a
+/// dependency's are already compiled and only resolved against, so
+/// cross-package `use` works normally.
 #[cfg(feature = "deps")]
 fn interpret_schemas(
     context: &mut ProjectContext,
     package_path: &Path,
     in_progress: &mut HashSet<PathBuf>,
 ) -> Result<()> {
-    let mut sources = glob_schema_sources(package_path)?;
-    let (dependency_sources, dependency_packages) =
-        crate::package::deps::resolve_dependency_sources(context, package_path, in_progress)?;
-    sources.extend(dependency_sources);
-    context.dependency_packages = dependency_packages;
-    interpret_schema_sources(context, &with_std(sources))
+    let local = glob_schema_sources(package_path)?;
+    let dependencies =
+        crate::package::deps::resolve_dependency_schemas(context, package_path, in_progress)?;
+
+    let mut all = local.clone();
+    all.extend(dependencies.sources);
+    let std = crate::package::stdlib::used_by(&all);
+
+    // Same order as before: local, dependencies, std.
+    add_schema_sources(context, &local)?;
+    for schema in dependencies.schemas {
+        context.add_schema_context(Rc::new(RefCell::new(schema)));
+    }
+    add_schema_sources(context, &std)?;
+    compiler::interpret::interpret_context(context)
 }
 
 #[cfg(not(feature = "deps"))]
@@ -287,6 +297,13 @@ fn interpret_schema_sources(
     context: &mut ProjectContext,
     schemas: &[(Vec<String>, String)],
 ) -> Result<()> {
+    add_schema_sources(context, schemas)?;
+    compiler::interpret::interpret_context(context)
+}
+
+/// Parse each `(namespace segments, source)` and register a `SchemaContext`
+/// for it on `context`, uninterpreted.
+fn add_schema_sources(context: &mut ProjectContext, schemas: &[(Vec<String>, String)]) -> Result<()> {
     for (namespace, source) in schemas {
         let name = format!("{}.{}", namespace.join("/"), SCHEMA_EXTENSION);
 
@@ -325,8 +342,7 @@ fn interpret_schema_sources(
             }
         }
     }
-
-    compiler::interpret::interpret_context(context)
+    Ok(())
 }
 
 // Removed: freeze_project_auto() - no longer needed with CAS
