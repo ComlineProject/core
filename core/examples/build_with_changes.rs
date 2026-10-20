@@ -80,6 +80,7 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 BreakingChange::RemovedError { name } => {
                     println!("  - Removed error `{}`", name);
                 }
+                other => println!("  - {:?}", other),
             }
         }
     }
@@ -111,6 +112,7 @@ fn display_schema_changes(changes: &SchemaChanges) {
                 NewFeature::AddedError { name, field_count } => {
                     println!("  + Added error `{}` ({} fields)", name, field_count);
                 }
+                other => println!("  + {:?}", other),
             }
         }
     }
@@ -120,12 +122,10 @@ fn display_schema_changes(changes: &SchemaChanges) {
         println!("\n🔵 Modifications ({}):", changes.modifications.len());
         for modification in &changes.modifications {
             match modification {
-                comline_core::schema::ir::diff::Modification::FieldMadeOptional { type_name, field_name } => {
-                    println!("  ~ Field `{}.{}` marked as optional", type_name, field_name);
-                }
                 comline_core::schema::ir::diff::Modification::DocstringChanged { name } => {
                     println!("  ~ Docstring changed for `{}`", name);
                 }
+                other => println!("  ~ {:?}", other),
             }
         }
     }

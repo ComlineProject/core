@@ -196,6 +196,7 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
         previous_version: build_info.previous_version,
         current_version: build_info.current_version,
         schema_changes: build_info.schema_changes,
+        dependency_changes: build_info.dependency_changes,
         config_changes: build_info.config_changes,
         version_bump: build_info.version_bump,
         context: latest_project,
@@ -344,6 +345,10 @@ pub struct BuildResult {
     pub current_version: String,
     /// Detected schema changes (None if initial build)
     pub schema_changes: Option<SchemaChanges>,
+    /// Changes inside dependencies present in both builds, per dependency
+    /// (empty if none / initial build). Their bump is already part of
+    /// `version_bump`.
+    pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     /// Detected congregation changes that moved the version (empty if none / initial build)
     pub config_changes: crate::package::config::ir::diff::ConfigChanges,
     /// The type of version bump applied
