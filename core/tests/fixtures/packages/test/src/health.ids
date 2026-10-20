@@ -5,7 +5,7 @@ struct Capabilities {
 }
 
 /// Health check an address
-@provider=Any
+@provider=Server
 protocol HealthCheck {
     function alive() -> bool;
     function capabilities() -> Capabilities;

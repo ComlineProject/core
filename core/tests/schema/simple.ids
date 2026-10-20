@@ -38,7 +38,7 @@ error RecipientNotFoundError {
 }
 
 /// Mail API for receiving and sending emails.
-@provider = Any
+@provider = Server
 protocol Mail {
     @timeout_ms = 1000
     function send_message(message: Message) -> string ! RecipientNotFoundError;

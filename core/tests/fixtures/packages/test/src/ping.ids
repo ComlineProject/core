@@ -5,7 +5,7 @@ const LOW_PING_RATE: u16 = 20
 
 
 /// Ping another address
-@provider=Any
+@provider=Server
 protocol Ping {
     function ping() -> bool;
 

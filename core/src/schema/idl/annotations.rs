@@ -80,7 +80,18 @@ pub enum AnnotationAuthority {
 const FRAMINGS: &[StrVariant] = &[
     StrVariant::with_aliases("jsonrpc", &["json-rpc", "jsonrpc-2.0"]),
     StrVariant::with_aliases("datagram", &["comline.datagram"]),
+    StrVariant::new(FRAMING_DATAGRAM2),
 ];
+
+/// `datagram@2`: the datagram framing whose frames say whether they're a
+/// request or a reply, and which protocol they belong to - what calls in
+/// both directions need.
+pub const FRAMING_DATAGRAM2: &str = "datagram@2";
+
+/// Which side implements a protocol (`@provider`), or calls it
+/// (`@consumer`): the side that dialled (`Client`), the side that accepted
+/// (`Server`), or both (`Multiple`).
+pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 
 /// The handshakes `@handshake` and the package's `handshake = "..."` accept.
 /// Versioned like encodings; `none` has nothing to version. A namespaced
@@ -180,6 +191,29 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         default: "datagram — Comline's compact binary framing",
         value: ValueType::StrEnum(FRAMINGS),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
+    },
+    AnnotationInfo {
+        key: "provider",
+        scopes: &[AnnotationScope::Leading],
+        authority: AnnotationAuthority::Core,
+        description: "Which side implements this protocol: `Server` (the side that accepted the \
+                       connection), `Client` (the side that dialled; the server calls it) or \
+                       `Multiple` (both, so calls go either way). Calls to a `Client` or \
+                       `Multiple` protocol need a framing that tells requests from replies \
+                       (`@framing = \"datagram@2\"` or `\"jsonrpc\"`). No effect on a struct.",
+        default: "Server",
+        value: ValueType::Keyword(SIDES),
+        consumed_by: &["core's validation pass", "comline-rust's generator", "comline-typescript's generator"],
+    },
+    AnnotationInfo {
+        key: "consumer",
+        scopes: &[AnnotationScope::Leading],
+        authority: AnnotationAuthority::Core,
+        description: "Which side calls this protocol: the counterpart of `@provider`, which it \
+                       follows from. Writing both is allowed, but they have to agree.",
+        default: "the counterpart of `@provider`",
+        value: ValueType::Keyword(SIDES),
+        consumed_by: &["core's validation pass"],
     },
     AnnotationInfo {
         key: "handshake",
@@ -294,9 +328,9 @@ mod tests {
         assert!(lookup("nope").is_none());
         // timeout_ms, idempotent (both Function), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
-        // framing, handshake, unverified, deprecated (all Leading), plus
-        // settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 5);
+        // framing, provider, consumer, handshake, unverified, deprecated (all
+        // Leading), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 7);
         // validators, deprecated, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();
@@ -319,7 +353,7 @@ mod tests {
 
     #[test]
     fn completion_offers_only_the_canonical_framings() {
-        assert_eq!(value_spellings("framing"), vec!["jsonrpc", "datagram"]);
+        assert_eq!(value_spellings("framing"), vec!["jsonrpc", "datagram", "datagram@2"]);
         // A key with no closed set has nothing to offer, rather than
         // the editor inventing something.
         assert!(value_spellings("timeout_ms").is_empty());
