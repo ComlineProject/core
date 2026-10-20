@@ -57,6 +57,20 @@ const VALIDATOR_PROPERTY_UNUSED: DiagnosticCode =
     DiagnosticCode::warning("validation::validator-property-unused");
 const MESSAGE_NOT_INTERPOLATED: DiagnosticCode =
     DiagnosticCode::warning("validation::message-not-interpolated");
+const UNVERIFIED_MISSING_MARKER: DiagnosticCode =
+    DiagnosticCode::error("unverified::missing-marker");
+const UNVERIFIED_MISSING_REASON: DiagnosticCode =
+    DiagnosticCode::error("unverified::missing-reason");
+const UNVERIFIED_NOTHING_GIVEN_UP: DiagnosticCode =
+    DiagnosticCode::warning("unverified::nothing-given-up");
+const UNVERIFIED_SCHEMA_AGREEMENT: DiagnosticCode =
+    DiagnosticCode::warning("unverified::schema-agreement");
+const UNVERIFIED_ENCODING_AGREEMENT: DiagnosticCode =
+    DiagnosticCode::warning("unverified::encoding-agreement");
+const UNVERIFIED_ENCODING_CONFORMANCE: DiagnosticCode =
+    DiagnosticCode::warning("unverified::encoding-conformance");
+const UNVERIFIED_VERSION_HONESTY: DiagnosticCode =
+    DiagnosticCode::warning("unverified::version-honesty");
 
 /// What validation needs to know about names a schema imports but whose
 /// declarations aren't among its own units. Resolution is left to the
@@ -521,6 +535,7 @@ pub fn validate_with(
     }
 
     check_annotation_values(units, &mut errors);
+    check_unverified(units, &mut errors, &mut warnings);
     validate_throws(units, &mut errors);
 
     if errors.is_empty() {
@@ -928,6 +943,85 @@ fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
                 check_params(parameters, &format!("type alias '{name}'"), Some(*span), errors);
             }
             _ => {}
+        }
+    }
+}
+
+/// `@unverified`: required on a protocol that gives up a guarantee, with a
+/// reason; a warning where nothing is given up (like an unused `unsafe`);
+/// and one informational warning per guarantee given up, each its own code
+/// so an organisation can raise or quiet it (`diagnostics.<code>.level`).
+fn check_unverified(
+    units: &[FrozenUnit],
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+) {
+    use crate::schema::ir::frozen::unit::Guarantee;
+    use crate::schema::ir::unverified;
+
+    for unit in units {
+        let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
+            continue;
+        };
+        let given_up = unverified::given_up(parameters);
+        let cause = unverified::cause(parameters);
+        let Some(marker) = unverified::marker(parameters) else {
+            if !given_up.is_empty() {
+                errors.push(
+                    Diagnostic::new(
+                        UNVERIFIED_MISSING_MARKER,
+                        format!(
+                            "protocol `{name}` gives up {} ({cause}) without `@unverified`",
+                            unverified::describe(&given_up)
+                        ),
+                    )
+                    .with_help(
+                        "say why with `@unverified = \"...\"` on the protocol, and allow the \
+                         marker in settings (`annotations.unverified.allowed = true`)"
+                            .to_string(),
+                    )
+                    .maybe_span(Some(*span)),
+                );
+            }
+            continue;
+        };
+        if matches!(marker, ConfigValue::Str(reason) if reason.trim().is_empty()) {
+            errors.push(
+                Diagnostic::new(
+                    UNVERIFIED_MISSING_REASON,
+                    format!("`@unverified` on protocol `{name}` needs a reason"),
+                )
+                .with_help("every consumer is shown it: say what replaces the check".to_string())
+                .maybe_span(Some(*span)),
+            );
+        }
+        if given_up.is_empty() {
+            warnings.push(
+                Diagnostic::new(
+                    UNVERIFIED_NOTHING_GIVEN_UP,
+                    format!("protocol `{name}` is marked `@unverified` but gives nothing up ({cause})"),
+                )
+                .with_help("remove the marker".to_string())
+                .maybe_span(Some(*span)),
+            );
+        }
+        for guarantee in given_up {
+            let code = match guarantee {
+                Guarantee::SchemaAgreement => UNVERIFIED_SCHEMA_AGREEMENT,
+                Guarantee::EncodingAgreement => UNVERIFIED_ENCODING_AGREEMENT,
+                Guarantee::EncodingConformance => UNVERIFIED_ENCODING_CONFORMANCE,
+                Guarantee::VersionHonesty => UNVERIFIED_VERSION_HONESTY,
+            };
+            warnings.push(
+                Diagnostic::new(
+                    code,
+                    format!(
+                        "protocol `{name}` is unverified: {} isn't established ({cause})",
+                        guarantee.describe()
+                    ),
+                )
+                .maybe_span(Some(*span)),
+            );
         }
     }
 }

@@ -244,6 +244,12 @@ pub enum FrozenUnit {
     /// longer the only typed one; it stays because the semantic view is a
     /// different thing from the syntactic one.
     Deprecated(DeprecatedValue),
+    /// The guarantees a protocol marked `@unverified` gives up, worked out
+    /// by core when it was built (see [`crate::schema::ir::unverified`]).
+    /// Sits in the protocol's `parameters` beside the `@unverified` reason.
+    /// Frozen rather than recomputed so a consumer's acceptance and the
+    /// version comparison see exactly what was given up at the time.
+    Unverified(Vec<Guarantee>),
 }
 
 /// What an `@key = value` annotation was written as, preserved rather than
@@ -370,4 +376,53 @@ pub fn schema_namespace_as_path(frozen: &[FrozenUnit]) -> Option<String> {
 
     // TODO: Since the variant FrozenUnit::Name was added, a split is not necessary anymore
     Some(namespace.split("::").collect::<Vec<_>>().join("/"))
+}
+
+/// A guarantee Comline gives between peers, which a protocol can give up with
+/// `@unverified`. The `snake_case` names are fixed vocabulary: diagnostics,
+/// a consumer's `accept_unverified` lists and generated docs use them.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Serialize, Deserialize)]
+pub enum Guarantee {
+    /// Both ends were built from compatible schemas (the handshake).
+    SchemaAgreement,
+    /// Both ends use the same format and framing (the handshake).
+    EncodingAgreement,
+    /// An implementation encodes what its name promises (conformance vectors).
+    EncodingConformance,
+    /// A version bump says what the change breaks (the version comparison).
+    VersionHonesty,
+}
+
+impl Guarantee {
+    pub const ALL: [Guarantee; 4] = [
+        Guarantee::SchemaAgreement,
+        Guarantee::EncodingAgreement,
+        Guarantee::EncodingConformance,
+        Guarantee::VersionHonesty,
+    ];
+
+    /// The written name: `schema_agreement`, ...
+    pub fn name(self) -> &'static str {
+        match self {
+            Guarantee::SchemaAgreement => "schema_agreement",
+            Guarantee::EncodingAgreement => "encoding_agreement",
+            Guarantee::EncodingConformance => "encoding_conformance",
+            Guarantee::VersionHonesty => "version_honesty",
+        }
+    }
+
+    /// The name in prose: `schema agreement`, ...
+    pub fn describe(self) -> &'static str {
+        match self {
+            Guarantee::SchemaAgreement => "schema agreement",
+            Guarantee::EncodingAgreement => "encoding agreement",
+            Guarantee::EncodingConformance => "encoding conformance",
+            Guarantee::VersionHonesty => "version honesty",
+        }
+    }
+
+    pub fn from_name(name: &str) -> Option<Guarantee> {
+        Guarantee::ALL.into_iter().find(|g| g.name() == name)
+    }
 }

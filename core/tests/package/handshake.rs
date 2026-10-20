@@ -5,7 +5,7 @@
 use comline_core::package::build::PackageSources;
 use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
-const SCHEMA: &str = "protocol Plain {\n    function f();\n}\n\n\
+const SCHEMA: &str = "@unverified = \"talks to a legacy peer\"\nprotocol Plain {\n    function f();\n}\n\n\
                       @handshake = \"comline@1\"\nprotocol Own {\n    function g();\n}\n\n\
                       struct S {\n    a: u32\n}\n";
 
@@ -13,7 +13,8 @@ fn config(handshake: Option<&str>) -> String {
     let line = handshake.map(|h| format!("handshake = \"{h}\"\n")).unwrap_or_default();
     format!(
         "congregation app\nspecification_version = 1\n{line}\n\
-         code_generation = {{\n    languages = {{\n        rust#1.70.0 = {{}}\n    }}\n}}\n"
+         code_generation = {{\n    languages = {{\n        rust#1.70.0 = {{}}\n    }}\n}}\n\
+         settings = {{ annotations = {{ unverified = {{ allowed = true }} }} }}\n"
     )
 }
 

@@ -2,8 +2,9 @@
 
 use crate::schema::ir::frozen::types::{Literal, TypeRef};
 use crate::schema::ir::frozen::unit::{
-    schema_namespace, ConfigValue, DeprecatedValue, FrozenArgument, FrozenUnit,
+    schema_namespace, ConfigValue, DeprecatedValue, FrozenArgument, FrozenUnit, Guarantee,
 };
+use crate::schema::ir::unverified;
 use std::collections::{BTreeMap, HashMap};
 
 /// Structured representation of schema changes between two versions
@@ -157,6 +158,12 @@ pub enum BreakingChange {
         old_value: Option<String>,
         new_value: Option<String>,
     },
+    /// A protocol gave up guarantees it used to keep (`@unverified`, or its
+    /// set growing): peers relied on them.
+    GaveUpGuarantees {
+        target: String,
+        guarantees: Vec<Guarantee>,
+    },
 }
 
 /// New features that require a minor version bump
@@ -226,6 +233,11 @@ pub enum NewFeature {
     /// `@deprecated` was added to a declaration.
     Deprecated {
         target: String,
+    },
+    /// A protocol keeps guarantees it used to give up.
+    RestoredGuarantees {
+        target: String,
+        guarantees: Vec<Guarantee>,
     },
 }
 
@@ -932,6 +944,9 @@ fn compare_parameters(
         match key {
             // Build-time only: it never reaches a peer or generated code.
             "settings" => {}
+            // Adding or removing the marker is judged by the set it freezes,
+            // below; only a reworded reason is reported here.
+            "unverified" if old_value.is_none() || new_value.is_none() => {}
             "framing" | "handshake" => changes
                 .breaking_changes
                 .push(BreakingChange::ChangedWireAnnotation {
@@ -947,6 +962,25 @@ fn compare_parameters(
                 new_value,
             }),
         }
+    }
+
+    let old_given_up = unverified::frozen_set(old);
+    let new_given_up = unverified::frozen_set(new);
+    let gave_up: Vec<Guarantee> =
+        new_given_up.iter().filter(|g| !old_given_up.contains(g)).copied().collect();
+    let restored: Vec<Guarantee> =
+        old_given_up.iter().filter(|g| !new_given_up.contains(g)).copied().collect();
+    if !gave_up.is_empty() {
+        changes.breaking_changes.push(BreakingChange::GaveUpGuarantees {
+            target: target.to_string(),
+            guarantees: gave_up,
+        });
+    }
+    if !restored.is_empty() {
+        changes.new_features.push(NewFeature::RestoredGuarantees {
+            target: target.to_string(),
+            guarantees: restored,
+        });
     }
 
     let old_deprecated = deprecation(old);
