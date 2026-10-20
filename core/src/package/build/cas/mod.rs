@@ -22,6 +22,7 @@ pub mod objects;       // Blob, Tree, Commit types
 pub mod refs;          // Git-style references management
 pub mod build;         // Build process implementation
 pub mod version;       // Version bump types
+pub mod release;       // Releases on top of builds
 mod package;
 mod schema;
 

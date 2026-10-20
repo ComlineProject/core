@@ -40,7 +40,7 @@ fn test_no_changes_no_version_bump() {
     println!("=== First Build ===");
     let result1 = build(&target).expect("First build failed");
     println!("Version: {}", result1.current_version);
-    assert_eq!(result1.current_version, "0.0.1");
+    assert_eq!(result1.current_version, "0.1.0-dev.1");
     assert!(result1.is_initial_build());
 
     // Second build with NO CHANGES
@@ -51,8 +51,8 @@ fn test_no_changes_no_version_bump() {
     println!("Bump: {:?}", result2.version_bump);
     
     // Version should NOT change
-    assert_eq!(result2.previous_version, Some("0.0.1".to_string()));
-    assert_eq!(result2.current_version, "0.0.1"); // Should stay the same!
+    assert_eq!(result2.previous_version, Some("0.1.0-dev.1".to_string()));
+    assert_eq!(result2.current_version, "0.1.0-dev.1"); // Should stay the same!
     assert_eq!(result2.version_bump, comline_core::package::build::VersionBump::None);
     
     // Schema changes should be empty

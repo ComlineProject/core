@@ -118,8 +118,35 @@ pub struct Commit {
     /// Commit message
     pub message: String,
     
-    /// Semantic version (e.g., "0.1.0")
+    /// Semantic version: a release (`0.3.0`), or a build between releases
+    /// (`0.3.0-dev.2`, the release it leads to plus a count).
     pub version: String,
+
+    /// Set on a commit `comline release` made: what was released and why.
+    /// Absent on builds, and on releases made before release records
+    /// existed (any version without a pre-release part is a release).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release: Option<Release>,
+}
+
+/// What a release was: the bump its changes called for, the one applied,
+/// and why they differ.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Release {
+    /// The bump the changes since the previous release call for.
+    pub computed: super::version::VersionBump,
+    /// The bump applied: the computed one, or raised above it.
+    pub applied: super::version::VersionBump,
+    /// Why the bump was raised, or the package made stable.
+    pub reason: Option<String>,
+    /// A raise was asked for that the computed bump already reaches: the
+    /// reason is kept as a note.
+    pub covered: bool,
+    /// This release moved the package to 1.0.0.
+    pub stable: bool,
+    /// The previous release's commit, if any: the changes behind this one
+    /// are those between the two.
+    pub since: Option<Hash>,
 }
 
 impl Commit {
@@ -139,7 +166,14 @@ impl Commit {
             timestamp,
             message,
             version,
+            release: None,
         }
+    }
+
+    /// Whether this commit is a release rather than a build between
+    /// releases.
+    pub fn is_release(&self) -> bool {
+        self.release.is_some() || super::version::is_release(&self.version)
     }
 
     /// Serialize to bytes for storage

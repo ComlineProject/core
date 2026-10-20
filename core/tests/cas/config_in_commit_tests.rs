@@ -80,10 +80,11 @@ fn a_config_only_change_commits_without_bumping_the_version() {
     let head2 = refs::read_ref(dir.path(), refs::main_ref()).unwrap();
 
     assert_ne!(head1, head2, "a config change creates a new commit");
-    assert_eq!(
-        res.current_version, v1,
-        "adding a code_generation language does not bump the version"
-    );
+    // A new build, so the next dev count; but nothing calls for a bump.
+    assert_eq!(v1, "0.1.0-dev.1");
+    assert_eq!(res.current_version, "0.1.0-dev.2");
+    assert_eq!(res.version_bump, comline_core::package::build::VersionBump::None);
+    assert_eq!(res.release_bump, comline_core::package::build::VersionBump::None);
     assert!(
         res.config_changes.is_empty(),
         "code_generation is not a versioned config unit"
@@ -94,7 +95,10 @@ fn a_config_only_change_commits_without_bumping_the_version() {
 fn changing_the_specification_version_bumps_major() {
     let dir = TempDir::new().unwrap();
     scaffold(dir.path(), CONFIG);
-    let v1 = build(dir.path()).unwrap().current_version; // 0.0.1
+    build(dir.path()).unwrap();
+    let v1 = comline_core::package::build::release(dir.path(), &Default::default())
+        .unwrap()
+        .version;
 
     scaffold(
         dir.path(),
@@ -102,7 +106,7 @@ fn changing_the_specification_version_bumps_major() {
     );
     let res = build(dir.path()).unwrap();
 
-    assert_eq!(v1, "0.0.1");
-    assert_eq!(res.current_version, "1.0.0", "spec version change is major");
+    assert_eq!(v1, "0.1.0");
+    assert_eq!(res.current_version, "0.2.0-dev.1", "spec version change is major (0.x: the minor)");
     assert!(!res.config_changes.is_empty());
 }

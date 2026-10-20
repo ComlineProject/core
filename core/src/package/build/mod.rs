@@ -199,6 +199,8 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
         dependency_changes: build_info.dependency_changes,
         config_changes: build_info.config_changes,
         version_bump: build_info.version_bump,
+        release_bump: build_info.release_bump,
+        last_release: build_info.last_release,
         context: latest_project,
     })
 }
@@ -334,6 +336,8 @@ pub struct BuildOptions {}
 
 /// Re-export VersionBump from CAS for public API
 pub use cas::VersionBump;
+pub use cas::release::{latest_release, release, ReleaseInfo, ReleaseRequest};
+pub use cas::objects::Release;
 
 /// Result of a successful build operation
 #[derive(Debug, Clone)]
@@ -350,8 +354,13 @@ pub struct BuildResult {
     pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     /// Detected congregation changes that moved the version (empty if none / initial build)
     pub config_changes: crate::package::config::ir::diff::ConfigChanges,
-    /// The type of version bump applied
+    /// The bump this build's own changes call for, against the build before
     pub version_bump: VersionBump,
+    /// The bump everything since the last release calls for: what
+    /// `comline release` would apply now
+    pub release_bump: VersionBump,
+    /// The last release, if there is one
+    pub last_release: Option<String>,
     /// The underlying project context
     pub context: ProjectContext,
 }

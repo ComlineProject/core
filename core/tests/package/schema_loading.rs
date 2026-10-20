@@ -46,7 +46,7 @@ fn test_schema_lifecycle() {
     println!("Building initial version...");
     let result = build(&package_path).expect("Initial build failed");
     
-    assert_eq!(result.current_version, "0.0.1", "Initial version should be 0.0.1");
+    assert_eq!(result.current_version, "0.1.0-dev.1", "the first build leads to 0.1.0");
     assert!(result.previous_version.is_none(), "Initial build should have no previous version");
 
     // Verify CAS structure was created
@@ -65,6 +65,10 @@ fn test_schema_lifecycle() {
     // Verify we can read the ref
     assert!(refs::ref_exists(&package_path, refs::main_ref()), "main ref should exist");
 
+    let released = comline_core::package::build::release(&package_path, &Default::default())
+        .expect("first release");
+    assert_eq!(released.version, "0.1.0");
+
     // 2. Minor Bump: Add optional field
     println!("Applying Minor change...");
     let ping_file = package_path.join("src/ping.ids");
@@ -75,21 +79,23 @@ fn test_schema_lifecycle() {
     fs::write(&ping_file, src_minor).unwrap();
 
     let result = build(&package_path).expect("Minor update build failed");
-    assert_eq!(result.current_version, "0.1.0", "Adding struct should produce 0.1.0 (Minor)");
-    assert_eq!(result.previous_version, Some("0.0.1".to_string()), "Previous version should be 0.0.1");
+    assert_eq!(result.current_version, "0.1.1-dev.1", "adding a struct is minor: 0.x bumps the patch");
+    assert_eq!(result.previous_version, Some("0.1.0".to_string()));
 
     // 3. Major change: Remove the struct we just added
     println!("Applying Major change (removing struct)...");
     fs::write(&ping_file, clean_src).unwrap();
 
     let result = build(&package_path).expect("Major update build failed");
-    // With proper schema diffing: removing a struct is detected as breaking → Major
-    assert_eq!(result.current_version, "1.0.0", "Removing struct should produce 1.0.0 (Major)");
-    assert_eq!(result.previous_version, Some("0.1.0".to_string()), "Previous version should be 0.1.0");
+    // Against the build before, removing a struct is breaking; against the
+    // release, the two builds cancel out, so the next release is still a patch.
+    assert_eq!(result.version_bump, comline_core::package::build::VersionBump::Major);
+    assert_eq!(result.release_bump, comline_core::package::build::VersionBump::None);
+    assert_eq!(result.current_version, "0.1.1-dev.2");
+    assert_eq!(result.previous_version, Some("0.1.1-dev.1".to_string()));
     
     // Verify CAS still has all commits via object store
     let store = ObjectStore::new(&package_path);
     // The fact that we got 3 successful builds means all commits are stored
-    println!("✓ Successfully built 3 versions with CAS: 0.0.1 → 0.1.0 → 1.0.0");
-    println!("✓ Proper schema diffing working: adding struct=Minor, removing struct=Major");
+    let _ = store;
 }
