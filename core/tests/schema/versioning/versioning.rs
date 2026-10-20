@@ -79,7 +79,7 @@ fn test_struct_add_required_field() {
 }
 
 #[test]
-fn test_struct_field_default_value_change_is_not_breaking() {
+fn test_struct_field_default_value_change_is_a_patch() {
     let (_temp, package_path) = setup_test_package();
 
     // Initial schema
@@ -87,18 +87,13 @@ fn test_struct_field_default_value_change_is_not_breaking() {
     build(&package_path).unwrap();
 
     // Change only the default value - same field, same type, same
-    // optionality. The diff system compares fields by type name only
-    // (`types_compatible`/`kind_to_string` never look at the embedded
-    // default), so this isn't detected as a change of any kind today -
-    // this test locks in that it's at least not misdetected as a
-    // *breaking* one. Finer-grained default-value diffing (a real Patch
-    // bump for exactly this case) is a reasonable future enhancement,
-    // not something this change attempts.
+    // optionality. A default never changes what's on the wire, only what a
+    // reader fills in, so it's a patch.
     write_schema(&package_path, "ping", "struct Foo { a: u32 = 2 }");
 
     let result = build(&package_path).unwrap();
-    assert_eq!(result.version_bump, VersionBump::None);
-    assert_eq!(result.current_version, "0.0.1");
+    assert_eq!(result.version_bump, VersionBump::Patch);
+    assert_eq!(result.current_version, "0.0.2");
 }
 
 #[test]
@@ -203,4 +198,21 @@ fn test_removed_schema() {
     let result = build(&package_path).unwrap();
     assert_eq!(result.version_bump, VersionBump::Major);
     assert_eq!(result.current_version, "1.0.0");
+}
+
+#[test]
+fn test_new_schema_sorting_first_pairs_files_by_namespace() {
+    let (_temp, package_path) = setup_test_package();
+
+    write_schema(&package_path, "zeta", "struct Zeta { a: u32 }");
+    build(&package_path).unwrap();
+
+    // `alpha` sorts before `zeta`. Paired by position, `zeta`'s old schema
+    // would be compared with `alpha` and reported as removed: a major bump.
+    write_schema(&package_path, "alpha", "struct Alpha { b: u32 }");
+
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::Minor);
+    let changes = result.schema_changes.unwrap();
+    assert!(changes.breaking_changes.is_empty(), "{changes:?}");
 }

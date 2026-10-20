@@ -1,6 +1,5 @@
 // Relative Modules
 pub mod analyze;
-pub mod versioning;
 
 pub use analyze::{analyze_config_changes, ConfigChange, ConfigChanges};
 
@@ -9,8 +8,6 @@ use std::fmt::Debug;
 
 // Crate Uses
 use crate::package::config::ir::frozen::{Dependency, FrozenUnit, FrozenWhole};
-use crate::package::config::ir::diff::versioning::Versioning;
-use crate::autodoc::document::Document;
 
 // External Uses
 use downcast_rs::{Downcast, impl_downcast};
@@ -33,28 +30,6 @@ pub trait Differ: Downcast + Debug {
     }
 }
 impl_downcast!(Differ);
-
-#[allow(unused)]
-pub fn differ(
-    previous: &[FrozenUnit], next: &[FrozenUnit],
-    document_gen: bool, auto_version: bool
-) {
-    /*
-    let mut previous_version = versioning::version_from(previous).unwrap_or(
-        &Version::parse("0.0.0").unwrap().to_string()
-    );
-    */
-
-    let mut listeners: Vec<Box<dyn Differ>> = vec![];
-
-    if document_gen { listeners.push(Document::new()) }
-    if auto_version { listeners.push(Versioning::new()) }
-
-    match_differ(&mut listeners, previous, next);
-
-    let document = listeners[0].downcast_ref::<Document>().unwrap();
-    let versioning = listeners[1].downcast_ref::<Versioning>().unwrap();
-}
 
 #[allow(unused)]
 pub fn match_differ(

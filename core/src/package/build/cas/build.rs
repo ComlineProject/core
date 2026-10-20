@@ -30,6 +30,8 @@ pub struct BuildInfo {
     pub previous_version: Option<String>,
     pub current_version: String,
     pub schema_changes: Option<SchemaChanges>,
+    /// Changes inside dependencies present in both builds, per dependency.
+    pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     pub config_changes: ConfigChanges,
 }
 
@@ -90,26 +92,36 @@ fn vendor_dependencies(
     Ok(resolved_deps)
 }
 
-/// Every `FrozenUnit` across a vendored dependency's own schema files,
-/// concatenated — enough to diff a whole dependency's content in one
-/// `analyze_schema_changes` call. Loses which specific file within the
-/// dependency a change came from; keeps whether it's breaking/additive,
-/// which is what a version bump needs.
+/// A vendored dependency's own schema files, one entry per file, for
+/// `analyze_package_changes` to pair by namespace.
 #[cfg(feature = "deps")]
-fn load_dependency_schema_units(
+fn load_dependency_schemas(
     store: &ObjectStore,
     dep_tree: &Tree,
-) -> Result<Vec<crate::schema::ir::frozen::unit::FrozenUnit>> {
+) -> Result<Vec<Vec<crate::schema::ir::frozen::unit::FrozenUnit>>> {
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
 
-    let mut units = Vec::new();
+    let mut schemas = Vec::new();
     for entry in &dep_tree.entries {
         if entry.mode == EntryMode::Tree && entry.name.starts_with("schema_") {
             let schema_tree = Tree::from_bytes(&store.read(&entry.hash)?)?;
-            units.extend(load_schema_from_tree(store, &schema_tree)?);
+            schemas.push(load_schema_from_tree(store, &schema_tree)?);
         }
     }
-    Ok(units)
+    Ok(schemas)
+}
+
+/// The bump a set of changes calls for on its own.
+fn changes_bump(changes: &SchemaChanges) -> VersionBump {
+    if changes.is_breaking() {
+        VersionBump::Major
+    } else if changes.is_feature() {
+        VersionBump::Minor
+    } else if !changes.modifications.is_empty() {
+        VersionBump::Patch
+    } else {
+        VersionBump::None
+    }
 }
 
 /// Process initial freezing using CAS (first build)
@@ -174,6 +186,7 @@ pub fn process_initial_freezing(
         previous_version: None,
         current_version: initial_version.to_string(),
         schema_changes: None,
+        dependency_changes: vec![],
         config_changes: ConfigChanges::default(),
     })
 }
@@ -249,23 +262,19 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
             previous_version: Some(parent_commit.version.clone()),
             current_version: parent_commit.version.clone(),
             schema_changes: None,
+            dependency_changes: vec![],
             config_changes: ConfigChanges::default(),
         });
     }
 
-    // Analyze schema changes using proper multi-file diffing
-    use crate::schema::ir::diff::{analyze_schema_changes, BreakingChange, NewFeature};
+    // Analyze schema changes, pairing schema files by namespace
+    use crate::schema::ir::diff::{analyze_package_changes, DependencyChanges};
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
-    use crate::schema::ir::frozen::unit::FrozenUnit;
-
-    let mut aggregated_bump = VersionBump::None;
-    let mut all_changes = SchemaChanges::default();
 
     // Load all previous *local* schemas — `schema_{idx}` entries only. A
     // `dep_<name>` entry is also `EntryMode::Tree` but is a vendored
     // dependency, not a local schema file; it gets its own diffing pass
-    // below, keyed by name rather than position (dependencies don't have a
-    // stable index the way `src/**/*.ids`'s glob order does).
+    // below, keyed by name.
     let mut prev_schemas = vec![];
     for entry in &prev_tree.entries {
         if entry.mode == EntryMode::Tree && entry.name.starts_with("schema_") {
@@ -276,111 +285,22 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         }
     }
 
-    let prev_count = prev_schemas.len();
-    let current_count = current_schemas.len();
-
-    // 1. Compare schemas that exist in both (min of the two counts)
-    let common_count = prev_count.min(current_count);
-    for idx in 0..common_count {
-        let file_changes = analyze_schema_changes(&prev_schemas[idx], &current_schemas[idx]);
-
-        let schema_bump = if file_changes.is_breaking() {
-            VersionBump::Major
-        } else if file_changes.is_feature() {
-            VersionBump::Minor
-        } else if !file_changes.modifications.is_empty() {
-            VersionBump::Patch
-        } else {
-            VersionBump::None
-        };
-
-        aggregated_bump = aggregated_bump.max(schema_bump);
-        all_changes
-            .breaking_changes
-            .extend(file_changes.breaking_changes);
-        all_changes.new_features.extend(file_changes.new_features);
-        all_changes.modifications.extend(file_changes.modifications);
-    }
-
-    // 2. Handle NEW schemas (current_count > prev_count)
-    if current_count > prev_count {
-        tracing::debug!("New schema files detected: {}", current_count - prev_count);
-
-        for idx in prev_count..current_count {
-            // All declarations in new files are new features
-            for unit in &current_schemas[idx] {
-                match unit {
-                    FrozenUnit::Struct { name, fields, .. } => {
-                        all_changes.new_features.push(NewFeature::AddedStruct {
-                            name: name.clone(),
-                            field_count: fields.len(),
-                        });
-                    }
-                    FrozenUnit::Enum { name, variants, .. } => {
-                        all_changes.new_features.push(NewFeature::AddedEnum {
-                            name: name.clone(),
-                            variant_count: variants.len(),
-                        });
-                    }
-                    FrozenUnit::Protocol {
-                        name, functions, ..
-                    } => {
-                        all_changes.new_features.push(NewFeature::AddedProtocol {
-                            name: name.clone(),
-                            function_count: functions.len(),
-                        });
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        aggregated_bump = aggregated_bump.max(VersionBump::Minor);
-    }
-
-    // 3. Handle REMOVED schemas (prev_count > current_count)
-    if prev_count > current_count {
-        tracing::debug!("Schema files removed: {}", prev_count - current_count);
-
-        for idx in current_count..prev_count {
-            // All declarations in removed files are breaking changes
-            for unit in &prev_schemas[idx] {
-                match unit {
-                    FrozenUnit::Struct { name, .. } => {
-                        all_changes
-                            .breaking_changes
-                            .push(BreakingChange::RemovedStruct { name: name.clone() });
-                    }
-                    FrozenUnit::Enum { name, .. } => {
-                        all_changes
-                            .breaking_changes
-                            .push(BreakingChange::RemovedEnum { name: name.clone() });
-                    }
-                    FrozenUnit::Protocol { name, .. } => {
-                        all_changes
-                            .breaking_changes
-                            .push(BreakingChange::RemovedProtocol { name: name.clone() });
-                    }
-                    _ => {}
-                }
-            }
-        }
-
-        aggregated_bump = VersionBump::Major;
-    }
+    // Files are paired by namespace, not by their position in the glob:
+    // adding, renaming or reordering a file must not pair the wrong schemas.
+    let all_changes = analyze_package_changes(&prev_schemas, &current_schemas);
+    let mut aggregated_bump = changes_bump(&all_changes);
 
     // 3b. Dependency content changes (feature = "deps") — this is the piece
     // `ConfigChange::DependencyVersionChanged`'s doc comment calls out as
     // pending: "conservatively breaking until dependency resolution can diff
     // the two dependency schemas (core#6)". A dependency present in both the
     // parent commit and this build gets the *real* bump its own schema
-    // changes imply — reusing `analyze_schema_changes`, the exact function
-    // already used for local schemas — instead of the blanket Major that
-    // `analyze_config_changes` still falls back to whenever it can't see
-    // schema content (no prior commit, or built without this feature). A
+    // changes imply, and its changes are listed, not only counted. A
     // brand-new or fully-removed dependency needs no extra signal here:
     // `analyze_config_changes`'s `DependencyAdded`/`DependencyRemoved`
     // (Minor/Major) already covers those from the frozen config alone.
+    #[allow(unused_mut)]
+    let mut dependency_changes: Vec<DependencyChanges> = vec![];
     #[cfg(feature = "deps")]
     for resolved in &resolved_deps {
         let entry_name = format!("dep_{}", resolved.name);
@@ -393,8 +313,8 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         };
 
         let prev_dep_tree = Tree::from_bytes(&store.read(&prev_entry.hash)?)?;
-        let prev_units = load_dependency_schema_units(&store, &prev_dep_tree)?;
-        let cur_units = load_dependency_schema_units(
+        let prev_schemas = load_dependency_schemas(&store, &prev_dep_tree)?;
+        let cur_schemas = load_dependency_schemas(
             &store,
             &Tree::from_bytes(
                 &store.read(
@@ -408,17 +328,14 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
             )?,
         )?;
 
-        let dep_changes = analyze_schema_changes(&prev_units, &cur_units);
-        let dep_bump = if dep_changes.is_breaking() {
-            VersionBump::Major
-        } else if dep_changes.is_feature() {
-            VersionBump::Minor
-        } else if !dep_changes.modifications.is_empty() {
-            VersionBump::Patch
-        } else {
-            VersionBump::None
-        };
-        aggregated_bump = aggregated_bump.max(dep_bump);
+        let changes = analyze_package_changes(&prev_schemas, &cur_schemas);
+        aggregated_bump = aggregated_bump.max(changes_bump(&changes));
+        if !changes.is_empty() {
+            dependency_changes.push(DependencyChanges {
+                name: resolved.name.clone(),
+                changes,
+            });
+        }
     }
 
     // 4. Congregation changes. Only units that affect the schema API count
@@ -478,6 +395,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         previous_version: Some(parent_commit.version.clone()),
         current_version: new_version.to_string(),
         schema_changes: merged_changes,
+        dependency_changes,
         config_changes,
     })
 }
