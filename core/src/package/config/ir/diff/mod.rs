@@ -63,9 +63,8 @@ pub fn match_differ(
                     }
                 }
             }
-            SchemaPath(_) => {}
-            Dependency(_) => {}
-            missing => panic!("Node not implemented: {:?}", missing)
+            // The rest have no listener event yet.
+            _ => {}
         }
     }
 }
@@ -90,7 +89,7 @@ pub fn search_other<'a>(
             Dependency(_) => {
                 if let SchemaPath(_) = other { return Some(other) };
             }
-            missing => { panic!("Node not implemented: {:?}", missing) }
+            _ => {}
         }
     }
 

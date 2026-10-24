@@ -141,10 +141,50 @@ pub fn interpret_assignment(
             let name = crate::schema::idl::annotations::check_handshake(&written)?;
             vec![FrozenUnit::Handshake(name.to_string())]
         }
+        "wire" => {
+            let Value::Dictionary(items) = &node.value else {
+                return Err("'wire' should be a dictionary, like \
+                            { format = \"packed@1\", framing = \"datagram@2\" }"
+                    .into());
+            };
+            interpret_assignment_wire(&items.assignments)?
+        }
         any => return Err(format!("'{any}' is not a recognised package-manifest key").into()),
     };
 
     Ok(result)
+}
+
+/// `wire = { format = "...", framing = "..." }`: both entries optional,
+/// each folded onto its canonical name.
+fn interpret_assignment_wire(
+    items: &[rust_sitter::Spanned<Assignment>],
+) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
+    let (mut format, mut framing) = (None, None);
+    for assignment in items {
+        let assignment = &assignment.value;
+        let key = match &assignment.key {
+            Key::Identifier(id) => id.value.as_str(),
+            Key::Namespaced(ns) => ns.value.as_str(),
+            Key::VersionMeta(vm) => vm.value.as_str(),
+            Key::DependencyAddress(da) => da.value.as_str(),
+        };
+        let Value::String(written) = &assignment.value else {
+            return Err(format!("'wire.{key}' should be a string, like \"packed@1\"").into());
+        };
+        let written = crate::package::config::dependency::strip_quotes(&written.value);
+        let (slot, name) = match key {
+            "format" => (&mut format, crate::schema::idl::annotations::check_format(&written)?),
+            "framing" => (&mut framing, crate::schema::idl::annotations::check_framing(&written)?),
+            other => {
+                return Err(format!("'{other}' is not allowed in 'wire': expected `format` or `framing`").into())
+            }
+        };
+        if slot.replace(name.to_string()).is_some() {
+            return Err(format!("'wire.{key}' is set twice").into());
+        }
+    }
+    Ok(vec![FrozenUnit::Wire { format, framing }])
 }
 
 fn interpret_assignment_code_generation(
