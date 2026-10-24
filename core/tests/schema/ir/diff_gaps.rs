@@ -275,3 +275,24 @@ fn a_handshake_change_is_breaking_but_spelling_out_the_default_is_not() {
         ));
     }
 }
+
+#[test]
+fn a_framing_is_compared_by_what_it_means() {
+    let protocol = |framing: &str| format!("@framing = {framing}\nprotocol P {{\n    function f();\n}}\n");
+    let shorthand = protocol("\"jsonrpc\"");
+    for same in [
+        protocol("{ name = \"jsonrpc\" }"),
+        protocol("{ name = \"json-rpc\", method_names = bare }"),
+        protocol("\"jsonrpc-2.0\""),
+    ] {
+        let changes = diff(&shorthand, &same);
+        assert!(changes.breaking_changes.is_empty(), "{same}: {:?}", changes.breaking_changes);
+        assert!(changes.modifications.is_empty(), "{same}: {:?}", changes.modifications);
+    }
+
+    let qualified = diff(&shorthand, &protocol("{ name = \"jsonrpc\", method_names = qualified }"));
+    assert!(matches!(
+        qualified.breaking_changes.as_slice(),
+        [BreakingChange::ChangedWireAnnotation { key, .. }] if key == "framing"
+    ));
+}

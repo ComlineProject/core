@@ -85,3 +85,60 @@ fn only_the_three_sides_are_accepted() {
     let err = compile(&config(""), &protocol("@provider = \"Client\"\n")).unwrap_err().to_string();
     assert!(err.contains("'@provider' must be"), "{err}");
 }
+
+#[test]
+fn a_framing_can_be_a_dictionary_naming_it() {
+    let units = compile(
+        &config(ALLOW_FRAMING),
+        &protocol("@provider = Client\n@framing = { name = \"jsonrpc\", method_names = qualified }\n"),
+    )
+    .unwrap();
+    let parameters = units
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Protocol { parameters, .. } => Some(parameters),
+            _ => None,
+        })
+        .unwrap();
+    assert!(parameters.contains(&FrozenUnit::Property {
+        name: "framing".to_string(),
+        value: ConfigValue::Dict(vec![
+            ("name".to_string(), ConfigValue::Str("jsonrpc".to_string())),
+            ("method_names".to_string(), ConfigValue::Name("qualified".to_string())),
+        ]),
+    }));
+
+    // `method_names` as a string works too, and so does the dictionary for
+    // the check that calls the server starts need a framing that marks them.
+    compile(
+        &config(ALLOW_FRAMING),
+        &protocol("@provider = Multiple\n@framing = { name = \"datagram@2\" }\n"),
+    )
+    .unwrap();
+    compile(
+        &config(ALLOW_FRAMING),
+        &protocol("@provider = Client\n@framing = { name = \"jsonrpc\", method_names = \"bare\" }\n"),
+    )
+    .unwrap();
+    let err = compile(&config(ALLOW_FRAMING), &protocol("@provider = Client\n@framing = { name = \"datagram\" }\n"))
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("validation::reverse-calls-need-framing"), "{err}");
+}
+
+#[test]
+fn a_framing_dictionary_is_checked_key_by_key() {
+    for (framing, expected) in [
+        ("{ method_names = qualified }", "`name` is missing"),
+        ("{ name = \"jsonrpc\", method_names = loud }", "'method_names' must be"),
+        ("{ name = \"jsonrpc\", colour = \"red\" }", "there's no key `colour`"),
+        ("{ name = \"carrier-pigeon\" }", "'name' must be one of"),
+        ("{ name = \"datagram@2\", method_names = qualified }", "`method_names` applies to JSON-RPC, not `datagram@2`"),
+    ] {
+        let err = compile(&config(ALLOW_FRAMING), &protocol(&format!("@framing = {framing}\n")))
+            .unwrap_err()
+            .to_string();
+        assert!(err.contains("validation::annotation-value-mismatch"), "{framing}: {err}");
+        assert!(err.contains(expected), "{framing}: {err}");
+    }
+}

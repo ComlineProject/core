@@ -52,6 +52,19 @@ pub enum ValueType {
     BoolOrStr,
     /// A list of validator calls (`@validators = [StringBounds(min = 3)]`).
     ValidatorList,
+    /// Any one of these (`@framing`: a name, or a dictionary naming it).
+    AnyOf(&'static [ValueType]),
+    /// `{ key = value, ... }` with these keys. [`check`] answers only that a
+    /// dictionary was written; [`check_entries`] checks what's in it.
+    Dict(&'static [DictKey]),
+}
+
+/// One key a [`ValueType::Dict`] accepts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct DictKey {
+    pub key: &'static str,
+    pub value: ValueType,
+    pub required: bool,
 }
 
 /// One member of a [`ValueType::StrEnum`]: the spelling to emit, plus every
@@ -161,6 +174,8 @@ pub fn check(expected: &ValueType, found: ValueForm<'_>) -> Result<(), TypeMisma
         (ValueType::Name, ValueForm::Name(_)) => true,
         (ValueType::BoolOrStr, ValueForm::Bool(_) | ValueForm::Str(_)) => true,
         (ValueType::ValidatorList, ValueForm::List) => true,
+        (ValueType::AnyOf(types), found) => types.iter().any(|ty| check(ty, found).is_ok()),
+        (ValueType::Dict(_), ValueForm::Dict) => true,
         _ => false,
     };
 
@@ -198,7 +213,59 @@ pub fn describe(ty: &ValueType) -> String {
         ValueType::Name => "a bare name".to_string(),
         ValueType::BoolOrStr => "a boolean or a string message".to_string(),
         ValueType::ValidatorList => "a list of validator calls".to_string(),
+        // `, or` keeps each type's own `a or b` readable.
+        ValueType::AnyOf(types) => types.iter().map(describe).collect::<Vec<_>>().join(", or "),
+        ValueType::Dict(keys) => {
+            let keys: Vec<String> = keys
+                .iter()
+                .map(|k| if k.required { format!("`{}`", k.key) } else { format!("optional `{}`", k.key) })
+                .collect();
+            format!("a dictionary of {}", join_and(&keys))
+        }
     }
+}
+
+/// The keys `ty` accepts as a dictionary, itself or one of its
+/// [`ValueType::AnyOf`]'s types.
+pub fn dict_keys(ty: &ValueType) -> Option<&'static [DictKey]> {
+    match ty {
+        ValueType::Dict(keys) => Some(keys),
+        ValueType::AnyOf(types) => types.iter().find_map(dict_keys),
+        _ => None,
+    }
+}
+
+/// Check a dictionary's entries against the keys its [`ValueType::Dict`]
+/// accepts: no unknown or repeated key, every required one present, and
+/// each value of its key's type. One sentence per problem, naming the key.
+pub fn check_entries<'a>(
+    keys: &[DictKey],
+    entries: impl IntoIterator<Item = (&'a str, ValueForm<'a>)>,
+) -> Result<(), Vec<String>> {
+    let mut problems = Vec::new();
+    let mut seen: Vec<&str> = Vec::new();
+    for (key, found) in entries {
+        if seen.contains(&key) {
+            problems.push(format!("`{key}` is written twice"));
+            continue;
+        }
+        seen.push(key);
+        match keys.iter().find(|k| k.key == key) {
+            Some(k) => {
+                if let Err(mismatch) = check(&k.value, found) {
+                    problems.push(mismatch.message(key));
+                }
+            }
+            None => {
+                let known: Vec<String> = keys.iter().map(|k| format!("`{}`", k.key)).collect();
+                problems.push(format!("there's no key `{key}`: expected {}", join_or(&known)));
+            }
+        }
+    }
+    for k in keys.iter().filter(|k| k.required && !seen.contains(&k.key)) {
+        problems.push(format!("`{}` is missing", k.key));
+    }
+    if problems.is_empty() { Ok(()) } else { Err(problems) }
 }
 
 /// Every spelling a value of this type may be written as, canonical and
@@ -208,6 +275,15 @@ pub fn spellings(ty: &ValueType) -> Vec<&'static str> {
     match ty {
         ValueType::StrEnum(variants) => variants.iter().map(|v| v.canonical).collect(),
         ValueType::Keyword(allowed) => allowed.to_vec(),
+        ValueType::AnyOf(types) => {
+            let mut all: Vec<&'static str> = Vec::new();
+            for spelling in types.iter().flat_map(spellings) {
+                if !all.contains(&spelling) {
+                    all.push(spelling);
+                }
+            }
+            all
+        }
         _ => Vec::new(),
     }
 }
@@ -222,6 +298,7 @@ pub fn canonicalize(ty: &ValueType, text: &str) -> Option<&'static str> {
             variants.iter().find(|v| v.accepts(text)).map(|v| v.canonical)
         }
         ValueType::Keyword(allowed) => allowed.iter().copied().find(|k| *k == text),
+        ValueType::AnyOf(types) => types.iter().find_map(|ty| canonicalize(ty, text)),
         _ => None,
     }
 }
@@ -229,10 +306,19 @@ pub fn canonicalize(ty: &ValueType, text: &str) -> Option<&'static str> {
 /// `a`, `b` or `c` - Oxford-comma-free, matching the existing diagnostic
 /// prose style.
 fn join_or(items: &[String]) -> String {
+    join_with(items, "or")
+}
+
+/// `a`, `b` and `c`.
+fn join_and(items: &[String]) -> String {
+    join_with(items, "and")
+}
+
+fn join_with(items: &[String], word: &str) -> String {
     match items {
         [] => String::new(),
         [one] => one.clone(),
-        [rest @ .., last] => format!("{} or {}", rest.join(", "), last),
+        [rest @ .., last] => format!("{} {word} {}", rest.join(", "), last),
     }
 }
 
@@ -331,6 +417,45 @@ mod tests {
         for ty in [ValueType::Bool, ValueType::Str, ValueType::Integer, ValueType::Name] {
             assert!(check(&ty, ValueForm::Dict).is_err());
         }
+    }
+
+    const MODES: ValueType = ValueType::Keyword(&["bare", "qualified"]);
+    const KEYS: &[DictKey] = &[
+        DictKey { key: "name", value: ValueType::StrEnum(FRAMING), required: true },
+        DictKey { key: "mode", value: MODES, required: false },
+    ];
+    const NAME_OR_DICT: ValueType = ValueType::AnyOf(&[ValueType::StrEnum(FRAMING), ValueType::Dict(KEYS)]);
+
+    #[test]
+    fn any_of_accepts_each_of_its_types() {
+        assert!(check(&NAME_OR_DICT, ValueForm::Str("json-rpc")).is_ok());
+        assert!(check(&NAME_OR_DICT, ValueForm::Dict).is_ok());
+        let err = check(&NAME_OR_DICT, ValueForm::Integer(1)).unwrap_err();
+        assert_eq!(
+            err.expected,
+            r#"one of `"jsonrpc"` or `"datagram"`, or a dictionary of `name` and optional `mode`"#
+        );
+        assert_eq!(canonicalize(&NAME_OR_DICT, "json-rpc"), Some("jsonrpc"));
+        assert_eq!(spellings(&NAME_OR_DICT), vec!["jsonrpc", "datagram"]);
+    }
+
+    #[test]
+    fn a_dicts_entries_are_checked_by_key() {
+        assert!(check_entries(KEYS, [("name", ValueForm::Str("jsonrpc"))]).is_ok());
+        assert!(check_entries(KEYS, [("name", ValueForm::Str("jsonrpc")), ("mode", ValueForm::Name("bare"))]).is_ok());
+        assert_eq!(
+            check_entries(
+                KEYS,
+                [("mode", ValueForm::Name("loud")), ("colour", ValueForm::Str("red")), ("mode", ValueForm::Name("bare"))]
+            )
+            .unwrap_err(),
+            vec![
+                "'mode' must be one of the bare keywords `bare` or `qualified`, got loud".to_string(),
+                "there's no key `colour`: expected `name` or `mode`".to_string(),
+                "`mode` is written twice".to_string(),
+                "`name` is missing".to_string(),
+            ]
+        );
     }
 
     const LEVELS: &[StrVariant] = &[

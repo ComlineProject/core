@@ -1076,11 +1076,12 @@ fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
             continue;
         }
         let framing = parameters.iter().find_map(|p| match p {
-            FrozenUnit::Property { name, value: ConfigValue::Str(f) } if name == "framing" => {
-                Some(annotations::canonical_value("framing", f).unwrap_or(f.as_str()))
+            FrozenUnit::Property { name, value } if name == "framing" => {
+                Some(annotations::FramingValue::of(value).map_or_else(|| value.source_text(), |f| f.name.to_string()))
             }
             _ => None,
         });
+        let framing = framing.as_deref();
         if matches!(framing, None | Some("datagram")) {
             let provider = provider.unwrap_or_default();
             errors.push(
@@ -1145,6 +1146,36 @@ fn check_params(
                 .with_help(format!("'@{name}' takes {}", mismatch.expected))
                 .maybe_span(span),
             );
+            continue;
+        }
+        if let (ConfigValue::Dict(entries), Some(keys)) = (value, config_value::dict_keys(&info.value)) {
+            let checked = config_value::check_entries(keys, entries.iter().map(|(k, v)| (k.as_str(), v.form())));
+            if let Err(problems) = checked {
+                for problem in problems {
+                    errors.push(
+                        Diagnostic::new(ANNOTATION_VALUE_MISMATCH, format!("'@{name}': {problem}"))
+                            .with_context(context.to_string())
+                            .with_help(format!("'@{name}' takes {}", config_value::describe(&info.value)))
+                            .maybe_span(span),
+                    );
+                }
+                continue;
+            }
+        }
+        // `method_names` says how JSON-RPC names a call; another framing
+        // has nothing it could change.
+        if name == "framing" && value.entry("method_names").is_some() {
+            if let Some(framing) = annotations::FramingValue::of(value).filter(|f| f.name != annotations::FRAMING_JSONRPC) {
+                errors.push(
+                    Diagnostic::new(
+                        ANNOTATION_VALUE_MISMATCH,
+                        format!("'@framing': `method_names` applies to JSON-RPC, not `{}`", framing.name),
+                    )
+                    .with_context(context.to_string())
+                    .with_help("remove `method_names`, or use `name = \"jsonrpc\"`".to_string())
+                    .maybe_span(span),
+                );
+            }
         }
     }
 }

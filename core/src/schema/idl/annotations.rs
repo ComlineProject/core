@@ -26,7 +26,8 @@
 //! a future registry would only need to change how [`lookup`]/[`for_scope`]
 //! are implemented, not [`AnnotationInfo`]'s shape.
 
-use crate::config_value::{StrVariant, ValueType};
+use crate::config_value::{DictKey, StrVariant, ValueType};
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
 /// Which declaration an `@key=value` annotation attaches to. The grammar
 /// permits annotations on a `struct`, an `error`, a `Field`, a `protocol`,
@@ -87,6 +88,87 @@ const FRAMINGS: &[StrVariant] = &[
 /// request or a reply, and which protocol they belong to - what calls in
 /// both directions need.
 pub const FRAMING_DATAGRAM2: &str = "datagram@2";
+
+/// JSON-RPC's canonical name.
+pub const FRAMING_JSONRPC: &str = "jsonrpc";
+
+/// How JSON-RPC names a call on a connection, `@framing`'s `method_names`:
+/// the function alone (`send`), or with its protocol (`chat.Chat/send`).
+pub const METHOD_NAMES: &[&str] = &["bare", "qualified"];
+const METHOD_NAME_STRINGS: &[StrVariant] = &[StrVariant::new("bare"), StrVariant::new("qualified")];
+
+/// `@framing`'s dictionary form. The bare name is shorthand for
+/// `{ name = ... }`.
+const FRAMING_KEYS: &[DictKey] = &[
+    DictKey { key: "name", value: ValueType::StrEnum(FRAMINGS), required: true },
+    DictKey {
+        key: "method_names",
+        value: ValueType::AnyOf(&[ValueType::Keyword(METHOD_NAMES), ValueType::StrEnum(METHOD_NAME_STRINGS)]),
+        required: false,
+    },
+];
+
+/// How JSON-RPC names calls (`@framing`'s `method_names`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum MethodNames {
+    /// The function's name alone. The default.
+    #[default]
+    Bare,
+    /// `namespace.Protocol/function`.
+    Qualified,
+}
+
+/// A protocol's framing, read from either form of `@framing`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct FramingValue {
+    /// The canonical name (`jsonrpc`, `datagram`, `datagram@2`).
+    pub name: &'static str,
+    /// Meaningful under JSON-RPC only.
+    pub method_names: MethodNames,
+}
+
+impl FramingValue {
+    /// A framing written by name: `"jsonrpc"`, or a package's
+    /// `default_framing`. `None` for a name that isn't known.
+    pub fn named(written: &str) -> Option<FramingValue> {
+        Some(FramingValue { name: canonical_value("framing", written)?, method_names: MethodNames::Bare })
+    }
+
+    /// `@framing`'s value, `"name"` or `{ name = ..., method_names = ... }`.
+    /// **Every consumer reads `@framing` through this**, so the two forms
+    /// can't be told apart anywhere they mean the same. `None` for a value
+    /// that isn't a valid framing, which validation reports.
+    pub fn of(value: &ConfigValue) -> Option<FramingValue> {
+        match value {
+            ConfigValue::Str(name) => FramingValue::named(name),
+            ConfigValue::Dict(_) => {
+                let name = match value.entry("name")? {
+                    ConfigValue::Str(name) => name,
+                    _ => return None,
+                };
+                let method_names = match value.entry("method_names") {
+                    None => MethodNames::Bare,
+                    Some(ConfigValue::Str(m) | ConfigValue::Name(m)) => match m.as_str() {
+                        "bare" => MethodNames::Bare,
+                        "qualified" => MethodNames::Qualified,
+                        _ => return None,
+                    },
+                    Some(_) => return None,
+                };
+                Some(FramingValue { method_names, ..FramingValue::named(name)? })
+            }
+            _ => None,
+        }
+    }
+
+    /// A protocol's own `@framing`, from its parameters.
+    pub fn of_protocol(parameters: &[FrozenUnit]) -> Option<FramingValue> {
+        parameters.iter().find_map(|p| match p {
+            FrozenUnit::Property { name, value } if name == "framing" => FramingValue::of(value),
+            _ => None,
+        })
+    }
+}
 
 /// Which side implements a protocol (`@provider`), or calls it
 /// (`@consumer`): the side that dialled (`Client`), the side that accepted
@@ -186,10 +268,13 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         key: "framing",
         scopes: &[AnnotationScope::Leading],
         authority: AnnotationAuthority::Target,
-        description: "The wire framing the generated client/server use for this protocol. \
+        description: "The wire framing the generated client/server use for this protocol: \
+                       its name, or `{ name = \"jsonrpc\", method_names = qualified }` to set \
+                       how JSON-RPC names calls (`bare`, the default: `send`; `qualified`: \
+                       `chat.Chat/send`, which several protocols on one connection may need). \
                        No effect on a struct.",
         default: "datagram — Comline's compact binary framing",
-        value: ValueType::StrEnum(FRAMINGS),
+        value: ValueType::AnyOf(&[ValueType::StrEnum(FRAMINGS), ValueType::Dict(FRAMING_KEYS)]),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -349,6 +434,27 @@ mod tests {
             assert_eq!(canonical_value("framing", spelling), Some("datagram"), "{spelling}");
         }
         assert_eq!(canonical_value("framing", "nonsense"), None);
+    }
+
+    #[test]
+    fn a_framing_reads_the_same_in_either_form() {
+        let dict = |entries: &[(&str, ConfigValue)]| {
+            ConfigValue::Dict(entries.iter().map(|(k, v)| (k.to_string(), v.clone())).collect())
+        };
+        let str = |s: &str| ConfigValue::Str(s.to_string());
+        let jsonrpc = FramingValue { name: "jsonrpc", method_names: MethodNames::Bare };
+        assert_eq!(FramingValue::of(&str("json-rpc")), Some(jsonrpc));
+        assert_eq!(FramingValue::of(&dict(&[("name", str("jsonrpc"))])), Some(jsonrpc));
+        let qualified = FramingValue { method_names: MethodNames::Qualified, ..jsonrpc };
+        for written in [ConfigValue::Name("qualified".into()), str("qualified")] {
+            assert_eq!(
+                FramingValue::of(&dict(&[("name", str("jsonrpc")), ("method_names", written)])),
+                Some(qualified)
+            );
+        }
+        assert_eq!(FramingValue::of(&dict(&[("method_names", str("bare"))])), None, "no name");
+        assert_eq!(FramingValue::of(&dict(&[("name", str("jsonrpc")), ("method_names", str("loud"))])), None);
+        assert_eq!(FramingValue::of(&ConfigValue::Name("jsonrpc".into())), None, "unquoted");
     }
 
     #[test]
