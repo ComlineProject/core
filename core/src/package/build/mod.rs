@@ -182,7 +182,7 @@ fn default_congregation() -> String {
     "congregation playground\n\
      specification_version = 1\n\
      \n\
-     code_generation = {\n    languages = {\n        rust#1.70.0 = {}\n    }\n}\n"
+     code_generation = {\n    languages = {\n        rust#1.85.0 = {}\n    }\n}\n"
         .to_string()
 }
 
@@ -192,7 +192,22 @@ fn default_congregation() -> String {
 /// - Generate code for targets (optional)
 /// - Document changes (optional)
 pub fn build(package_path: &Path) -> Result<BuildResult> {
+    build_with(package_path, |_| Ok(()))
+}
+
+/// [`build`], with `check` run on the compiled package before anything is
+/// frozen: an error from it fails the build and leaves `.comline/`
+/// untouched.
+///
+/// For what core can't judge itself. The CLI checks every target declared
+/// under `code_generation.languages` against the generators it was built
+/// with, since core knows no generators.
+pub fn build_with(
+    package_path: &Path,
+    check: impl FnOnce(&ProjectContext) -> Result<()>,
+) -> Result<BuildResult> {
     let latest_project = compile_package(package_path)?;
+    check(&latest_project)?;
 
     // Discard any `.comline/` left behind by a different IR format before
     // trusting it for anything below - see `ensure_compatible_store`.
