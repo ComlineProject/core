@@ -14,7 +14,9 @@ use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
-use crate::schema::idl::annotations::DEFAULT_HANDSHAKE;
+use crate::schema::idl::annotations::{
+    FramingValue, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, FORMAT_JSON, FRAMING_JSONRPC,
+};
 use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::settings::effective::package_settings;
 
@@ -34,6 +36,13 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         .map(crate::package::config::ir::frozen::handshake)
         .unwrap_or(DEFAULT_HANDSHAKE)
         .to_string();
+    let (own_format, own_framing) = project_context
+        .config_frozen
+        .as_deref()
+        .map(crate::package::config::ir::frozen::wire)
+        .unwrap_or((None, None));
+    let own_format = own_format.map(str::to_string);
+    let own_framing = own_framing.unwrap_or(DEFAULT_FRAMING).to_string();
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
     // package-level value falls back to usage-site-only diagnostics, same
@@ -99,6 +108,14 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
         apply_package_handshake(&mut frozen_units, &own_handshake);
         crate::schema::ir::unverified::freeze(&mut frozen_units);
+        // Settings gate what the schema's author wrote; the package's
+        // framing is the package's choice, so it's added after the snapshot
+        // enforcement checks.
+        let written_units = frozen_units.clone();
+        apply_package_framing(&mut frozen_units, &own_framing);
+        if let Some(format) = &own_format {
+            schema_errors.extend(jsonrpc_with_a_format(&frozen_units, format, &namespace_joined));
+        }
 
         let imports = ProjectImports {
             declarations: &declarations,
@@ -137,7 +154,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         }
 
         if let Err(errors) =
-            check_settings_enforcement(&frozen_units, &own_settings, &package_settings_spans)
+            check_settings_enforcement(&written_units, &own_settings, &package_settings_spans)
         {
             let rendered: Vec<String> = errors
                 .iter()
@@ -244,6 +261,56 @@ fn visit_for_cycle(
     visited.insert(node.to_string());
 
     None
+}
+
+/// Freeze the package's `wire.framing` into every protocol without its own
+/// `@framing`, as [`apply_package_handshake`] does the handshake: the choice
+/// is then part of each protocol's IR and hash, and every consumer reads it
+/// from the one place. The built-in default stays implicit, so protocols
+/// that take it keep their IR.
+fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
+    if package_framing == DEFAULT_FRAMING {
+        return;
+    }
+    for unit in units {
+        let FrozenUnit::Protocol { parameters, .. } = unit else {
+            continue;
+        };
+        let declared = parameters
+            .iter()
+            .any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == "framing"));
+        if !declared {
+            parameters.push(FrozenUnit::Property {
+                name: "framing".to_string(),
+                value: ConfigValue::Str(package_framing.to_string()),
+            });
+        }
+    }
+}
+
+/// JSON-RPC is JSON by definition, so a package that declares another
+/// `wire.format` can't mean it for a JSON-RPC protocol. One error per such
+/// protocol. Leaving `wire.format` out is fine: the default then applies to
+/// the package's other protocols only.
+fn jsonrpc_with_a_format(units: &[FrozenUnit], format: &str, namespace: &str) -> Vec<String> {
+    if format == FORMAT_JSON {
+        return vec![];
+    }
+    units
+        .iter()
+        .filter_map(|unit| match unit {
+            FrozenUnit::Protocol { name, parameters, .. }
+                if FramingValue::of_protocol(parameters).map(|f| f.name) == Some(FRAMING_JSONRPC) =>
+            {
+                Some(format!(
+                    "Schema '{namespace}': protocol `{name}` uses JSON-RPC, which carries JSON, but \
+                     the package declares `wire.format = \"{format}\"`; declare `\"{FORMAT_JSON}\"`, \
+                     leave `wire.format` out, or give `{name}` another framing"
+                ))
+            }
+            _ => None,
+        })
+        .collect()
 }
 
 /// Freeze the package's default handshake into every protocol that doesn't

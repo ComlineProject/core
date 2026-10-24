@@ -55,12 +55,19 @@ fn a_server_provided_protocol_needs_nothing() {
 }
 
 #[test]
+fn a_client_provided_protocol_is_on_a_connection_by_default() {
+    // No `@framing` means `datagram@2`, which marks requests and replies.
+    compile(&config(""), &protocol("@provider = Client\n")).unwrap();
+}
+
+#[test]
 fn calls_the_server_starts_need_a_framing_that_marks_them() {
-    for annotations in [
-        "@provider = Client\n",
-        "@provider = Multiple\n@framing = \"datagram\"\n",
+    for (config, annotations) in [
+        (config(ALLOW_FRAMING), "@provider = Multiple\n@framing = \"datagram\"\n"),
+        (config(ALLOW_FRAMING), "@provider = Client\n@framing = \"datagram@1\"\n"),
+        // The package's framing reaches the protocol like its own would.
+        (config("wire = { framing = \"datagram@1\" }\n"), "@provider = Client\n"),
     ] {
-        let config = config(ALLOW_FRAMING);
         let err = compile(&config, &protocol(annotations)).unwrap_err().to_string();
         assert!(err.contains("validation::reverse-calls-need-framing"), "{annotations}: {err}");
         assert!(err.contains("datagram@2"), "{err}");

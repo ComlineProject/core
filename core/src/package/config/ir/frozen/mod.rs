@@ -34,6 +34,13 @@ pub enum FrozenUnit {
     /// `handshake = "..."`: the handshake a protocol without its own
     /// `@handshake` runs, canonical. Absent means `comline@1`.
     Handshake(String),
+    /// `wire = { format = "...", framing = "..." }`: what the package speaks
+    /// when a protocol doesn't say, each canonical. An entry left out is
+    /// `None`, and means the built-in default.
+    Wire {
+        format: Option<String>,
+        framing: Option<String>,
+    },
 }
 
 #[derive(Deserialize, Serialize)]
@@ -149,4 +156,28 @@ pub fn handshake(units: &[FrozenUnit]) -> &str {
             _ => None,
         })
         .unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
+}
+
+/// The package's declared `wire` entries, `(format, framing)`, as written
+/// (canonical). `None` for one it leaves out.
+pub fn wire(units: &[FrozenUnit]) -> (Option<&str>, Option<&str>) {
+    units
+        .iter()
+        .find_map(|unit| match unit {
+            FrozenUnit::Wire { format, framing } => Some((format.as_deref(), framing.as_deref())),
+            _ => None,
+        })
+        .unwrap_or((None, None))
+}
+
+/// The package's wire format: its `wire.format`, else
+/// [`DEFAULT_FORMAT`](crate::schema::idl::annotations::DEFAULT_FORMAT).
+pub fn wire_format(units: &[FrozenUnit]) -> &str {
+    wire(units).0.unwrap_or(crate::schema::idl::annotations::DEFAULT_FORMAT)
+}
+
+/// The package's default framing: its `wire.framing`, else
+/// [`DEFAULT_FRAMING`](crate::schema::idl::annotations::DEFAULT_FRAMING).
+pub fn wire_framing(units: &[FrozenUnit]) -> &str {
+    wire(units).1.unwrap_or(crate::schema::idl::annotations::DEFAULT_FRAMING)
 }

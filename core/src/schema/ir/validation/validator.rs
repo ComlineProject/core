@@ -1081,20 +1081,21 @@ fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
             }
             _ => None,
         });
-        let framing = framing.as_deref();
-        if matches!(framing, None | Some("datagram")) {
+        // No `@framing` (written or the package's) means `datagram@2`,
+        // which carries calls both ways.
+        if framing.as_deref() == Some(annotations::FRAMING_DATAGRAM) {
             let provider = provider.unwrap_or_default();
             errors.push(
                 Diagnostic::new(
                     REVERSE_CALLS_NEED_FRAMING,
                     format!(
-                        "protocol `{name}` is provided by `{provider}`, so the server calls it,                          and the {} framing can't tell the server's requests from replies",
-                        framing.map_or("default (`datagram`)".to_string(), |f| format!("`{f}`"))
+                        "protocol `{name}` is provided by `{provider}`, so the server calls it, \
+                         and the `datagram@1` framing can't tell the server's requests from replies"
                     ),
                 )
                 .with_help(format!(
-                    "use `@framing = \"{}\"` on the protocol (or `\"jsonrpc\"`), and allow \
-                     `@framing` in settings (`annotations.framing.allowed = true`)",
+                    "drop the `datagram@1` framing for `{}` (the default), or `\"jsonrpc\"`; \
+                     if the package's `wire.framing` set it, give this protocol its own `@framing`",
                     annotations::FRAMING_DATAGRAM2
                 ))
                 .maybe_span(Some(*span)),

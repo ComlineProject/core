@@ -80,9 +80,14 @@ pub enum AnnotationAuthority {
 /// JSON-RPC protocol as datagram.
 const FRAMINGS: &[StrVariant] = &[
     StrVariant::with_aliases("jsonrpc", &["json-rpc", "jsonrpc-2.0"]),
-    StrVariant::with_aliases("datagram", &["comline.datagram"]),
+    StrVariant::with_aliases(FRAMING_DATAGRAM, &["datagram@1", "comline.datagram"]),
     StrVariant::new(FRAMING_DATAGRAM2),
 ];
+
+/// The original datagram framing (`datagram@1`): a request names its call
+/// but not its protocol, so a transport carries one protocol, called one
+/// way.
+pub const FRAMING_DATAGRAM: &str = "datagram";
 
 /// `datagram@2`: the datagram framing whose frames say whether they're a
 /// request or a reply, and which protocol they belong to - what calls in
@@ -91,6 +96,48 @@ pub const FRAMING_DATAGRAM2: &str = "datagram@2";
 
 /// JSON-RPC's canonical name.
 pub const FRAMING_JSONRPC: &str = "jsonrpc";
+
+/// The framing a protocol gets when neither it (`@framing`) nor its package
+/// (`wire.framing`) names one: a connection, so several protocols share a
+/// transport and calls go both ways.
+pub const DEFAULT_FRAMING: &str = FRAMING_DATAGRAM2;
+
+/// The wire formats a package's `wire.format` accepts, by the names the
+/// runtimes put in the handshake.
+const FORMATS: &[StrVariant] = &[
+    StrVariant::new(FORMAT_PACKED),
+    StrVariant::new(FORMAT_JSON),
+    StrVariant::new(FORMAT_MSGPACK),
+];
+
+/// `packed@1`: fixed-width fields back to back, varint lengths, no tags.
+pub const FORMAT_PACKED: &str = "packed@1";
+/// JSON, a struct as an object.
+pub const FORMAT_JSON: &str = "json@1";
+/// MessagePack, a struct as an array.
+pub const FORMAT_MSGPACK: &str = "msgpack@1";
+
+/// The format a package speaks when its `wire.format` doesn't say.
+pub const DEFAULT_FORMAT: &str = FORMAT_PACKED;
+
+/// Check a written wire format name, returning its canonical spelling.
+pub fn check_format(written: &str) -> Result<&'static str, String> {
+    crate::config_value::canonicalize(&ValueType::StrEnum(FORMATS), written).ok_or_else(|| {
+        let known: Vec<String> = FORMATS.iter().map(|f| format!("`{}`", f.canonical)).collect();
+        format!("wire format `{written}` isn't known: expected one of {}", known.join(", "))
+    })
+}
+
+/// Check a written framing name for the package's `wire.framing`,
+/// returning its canonical spelling.
+pub fn check_framing(written: &str) -> Result<&'static str, String> {
+    canonical_value("framing", written).ok_or_else(|| {
+        format!(
+            "framing `{written}` isn't known: expected one of {}",
+            value_spellings("framing").iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+        )
+    })
+}
 
 /// How JSON-RPC names a call on a connection, `@framing`'s `method_names`:
 /// the function alone (`send`), or with its protocol (`chat.Chat/send`).
@@ -129,7 +176,7 @@ pub struct FramingValue {
 
 impl FramingValue {
     /// A framing written by name: `"jsonrpc"`, or a package's
-    /// `default_framing`. `None` for a name that isn't known.
+    /// `wire.framing`. `None` for a name that isn't known.
     pub fn named(written: &str) -> Option<FramingValue> {
         Some(FramingValue { name: canonical_value("framing", written)?, method_names: MethodNames::Bare })
     }
@@ -273,7 +320,8 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                        how JSON-RPC names calls (`bare`, the default: `send`; `qualified`: \
                        `chat.Chat/send`, which several protocols on one connection may need). \
                        No effect on a struct.",
-        default: "datagram — Comline's compact binary framing",
+        default: "the package's `wire.framing`, else `datagram@2` — Comline's compact binary \
+                  framing on a connection (`datagram@1`: one protocol per transport)",
         value: ValueType::AnyOf(&[ValueType::StrEnum(FRAMINGS), ValueType::Dict(FRAMING_KEYS)]),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
@@ -430,7 +478,7 @@ mod tests {
         for spelling in ["jsonrpc", "json-rpc", "jsonrpc-2.0"] {
             assert_eq!(canonical_value("framing", spelling), Some("jsonrpc"), "{spelling}");
         }
-        for spelling in ["datagram", "comline.datagram"] {
+        for spelling in ["datagram", "datagram@1", "comline.datagram"] {
             assert_eq!(canonical_value("framing", spelling), Some("datagram"), "{spelling}");
         }
         assert_eq!(canonical_value("framing", "nonsense"), None);
@@ -455,6 +503,19 @@ mod tests {
         assert_eq!(FramingValue::of(&dict(&[("method_names", str("bare"))])), None, "no name");
         assert_eq!(FramingValue::of(&dict(&[("name", str("jsonrpc")), ("method_names", str("loud"))])), None);
         assert_eq!(FramingValue::of(&ConfigValue::Name("jsonrpc".into())), None, "unquoted");
+    }
+
+    #[test]
+    fn wire_names_are_checked_and_canonical() {
+        assert_eq!(check_format("packed@1"), Ok("packed@1"));
+        assert_eq!(check_format("msgpack@1"), Ok("msgpack@1"));
+        let err = check_format("packed").unwrap_err();
+        assert!(err.contains("`packed@1`, `json@1`, `msgpack@1`"), "{err}");
+        assert_eq!(check_framing("datagram@1"), Ok("datagram"));
+        assert_eq!(check_framing("json-rpc"), Ok("jsonrpc"));
+        assert!(check_framing("datagram@3").unwrap_err().contains("`datagram@2`"));
+        assert_eq!(DEFAULT_FRAMING, FRAMING_DATAGRAM2);
+        assert_eq!(DEFAULT_FORMAT, FORMAT_PACKED);
     }
 
     #[test]
