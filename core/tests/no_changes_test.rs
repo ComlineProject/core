@@ -62,3 +62,31 @@ fn test_no_changes_no_version_bump() {
 
     println!("✅ Test passed: No changes = no version bump");
 }
+
+/// `build_with`'s check runs on the compiled package before anything is
+/// frozen: an error from it fails the build, and `.comline/` isn't written.
+#[test]
+fn a_failing_build_check_freezes_nothing() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let target = root.join("target/tmp/failing_build_check");
+    if target.exists() {
+        fs::remove_dir_all(&target).unwrap();
+    }
+    copy_dir_all(root.join("tests/fixtures/packages/test"), &target).unwrap();
+
+    let mut saw_config = false;
+    let error = comline_core::package::build::build_with(&target, |context| {
+        saw_config = context.config_frozen.is_some();
+        Err(eyre::eyre!("`rust#1.70.0` is older than the rust generator handles"))
+    })
+    .expect_err("the check's error fails the build");
+
+    assert!(saw_config, "the check sees the compiled package");
+    assert!(error.to_string().contains("older than the rust generator"), "{error}");
+    assert!(!target.join(".comline").exists(), "nothing was frozen");
+
+    // And with a check that passes, it builds as `build` does.
+    let result = comline_core::package::build::build_with(&target, |_| Ok(())).expect("builds");
+    assert!(result.is_initial_build());
+    assert!(target.join(".comline").exists());
+}

@@ -23,3 +23,6 @@ jobs:
       - run: cargo build --verbose
       - run: cargo test --verbose
 
+      # Dependency resolution is behind `deps` (the CLI turns it on), and so
+      # are its tests.
+      - run: cargo test --verbose -p comline-core --features deps

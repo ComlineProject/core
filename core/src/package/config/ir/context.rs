@@ -24,6 +24,11 @@ pub struct ProjectContext {
     pub config_frozen: Option<Vec<FrozenUnit>>,
     pub schema_contexts: Vec<Rc<RefCell<SchemaContext>>>,
     pub relative_projects: Vec<ProjectContext>,
+    /// Every dependency's frozen config, under its declared name: the
+    /// direct ones, then theirs. Its schemas arrive in `schema_contexts`,
+    /// but what it declares about itself (`code_generation.languages`, say)
+    /// is only here. Empty without the `deps` feature.
+    pub dependency_configs: Vec<(String, Vec<FrozenUnit>)>,
 }
 
 
@@ -34,6 +39,7 @@ impl ProjectContext {
             origin,
             config, config_frozen: None,
             relative_projects: vec![],
+            dependency_configs: vec![],
             schema_contexts: vec![],
         }
     }
@@ -43,6 +49,7 @@ impl ProjectContext {
             origin: Origin::Virtual,
             config, config_frozen: None,
             relative_projects: vec![],
+            dependency_configs: vec![],
             schema_contexts: vec![],
         }
     }
