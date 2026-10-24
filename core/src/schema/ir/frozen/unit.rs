@@ -269,7 +269,8 @@ pub enum FrozenUnit {
 /// needed).
 ///
 /// One variant per [`crate::schema::idl::grammar::Expression`] arm, plus
-/// [`ConfigValue::Marker`] for a bare `@key` with no `= value`. A list
+/// [`ConfigValue::Marker`] for a bare `@key` with no `= value` and
+/// [`ConfigValue::Dict`] for `@key = { k = v, ... }`. A list
 /// (`@validators = [...]`) is not here: it freezes as sibling
 /// [`FrozenUnit::ValidatorRef`] units, unchanged.
 #[derive(Deserialize, Serialize)]
@@ -288,6 +289,8 @@ pub enum ConfigValue {
     Path(String),
     /// An f-string, with its `{...}` placeholders intact.
     FString(String),
+    /// `{ key = value, ... }`, its entries in the order written.
+    Dict(Vec<(String, ConfigValue)>),
 }
 
 impl ConfigValue {
@@ -302,6 +305,29 @@ impl ConfigValue {
             ConfigValue::Name(n) => ValueForm::Name(n),
             ConfigValue::Path(p) => ValueForm::Path(p),
             ConfigValue::FString(s) => ValueForm::FString(s),
+            ConfigValue::Dict(_) => ValueForm::Dict,
+        }
+    }
+
+    /// A dictionary's entry `key`, if this is a dictionary that has one.
+    pub fn entry(&self, key: &str) -> Option<&ConfigValue> {
+        match self {
+            ConfigValue::Dict(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    /// The value as it would be written in source: a string quoted, a
+    /// dictionary as `{ key = value, ... }`.
+    pub fn source_text(&self) -> String {
+        match self {
+            ConfigValue::Str(s) => format!("{s:?}"),
+            ConfigValue::Dict(entries) => {
+                let entries: Vec<String> =
+                    entries.iter().map(|(k, v)| format!("{k} = {}", v.source_text())).collect();
+                format!("{{ {} }}", entries.join(", "))
+            }
+            other => other.as_text().map(|t| t.into_owned()).unwrap_or_default(),
         }
     }
 
@@ -327,6 +353,7 @@ impl ConfigValue {
             | ConfigValue::FString(s) => Some(Cow::Borrowed(s)),
             ConfigValue::Bool(b) => Some(Cow::Owned(b.to_string())),
             ConfigValue::Integer(i) => Some(Cow::Owned(i.to_string())),
+            ConfigValue::Dict(_) => Some(Cow::Owned(self.source_text())),
         }
     }
 

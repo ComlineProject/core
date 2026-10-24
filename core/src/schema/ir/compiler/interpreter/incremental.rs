@@ -519,7 +519,8 @@ fn frozen_error(
 /// with the value's own typed form. A list `@key = [Name(k = v, ...), ...]`
 /// (only `@validators` today) becomes one `FrozenUnit::ValidatorRef { name,
 /// args }` per call, keeping the applied name and its keyword arguments
-/// structured. `@deprecated` is the one special case: it freezes to
+/// structured. A dictionary `@key = { k = v, ... }` becomes one `Property`
+/// carrying `ConfigValue::Dict`, its entries in source order. `@deprecated` is the one special case: it freezes to
 /// `FrozenUnit::Deprecated`, which carries its *semantics* (is-deprecated
 /// plus an optional message) rather than its syntax - see
 /// `deprecated_value`.
@@ -538,6 +539,15 @@ fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
             AnnotationValue::Scalar(expression) => units.push(FrozenUnit::Property {
                 name: a.key(),
                 value: config_value_of(expression),
+            }),
+            AnnotationValue::Dict(dict) => units.push(FrozenUnit::Property {
+                name: a.key(),
+                value: ConfigValue::Dict(
+                    dict.entries
+                        .iter()
+                        .map(|e| (e.name.text.clone(), config_value_of(&e.value)))
+                        .collect(),
+                ),
             }),
             AnnotationValue::List(list) => {
                 for call in &list.items {

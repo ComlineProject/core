@@ -707,12 +707,29 @@ pub mod grammar {
         pub value: AnnotationValue,
     }
 
-    /// An annotation's value: a scalar (`@timeout_ms = 1000`), or a list of
-    /// calls (`@validators = [StringBounds(min_chars = 3, max_chars = 12)]`).
+    /// An annotation's value: a scalar (`@timeout_ms = 1000`), a list of
+    /// calls (`@validators = [StringBounds(min_chars = 3, max_chars = 12)]`),
+    /// or a dictionary (`@framing = { name = "jsonrpc", method_names = qualified }`).
     #[derive(Debug, Clone)]
     pub enum AnnotationValue {
         Scalar(Expression),
         List(AnnotationList),
+        Dict(AnnotationDict),
+    }
+
+    /// `{ key = value, key = value }` - the same `key = value` entries a
+    /// call's arguments are.
+    #[derive(Debug, Clone)]
+    pub struct AnnotationDict {
+        #[rust_sitter::leaf(text = "{")]
+        _open: (),
+        #[rust_sitter::delimited(
+            #[rust_sitter::leaf(text = ",")]
+            ()
+        )]
+        pub entries: Vec<AnnotationArg>,
+        #[rust_sitter::leaf(text = "}")]
+        _close: (),
     }
 
     /// `[Call(args), Call(args), ...]`
@@ -1672,6 +1689,14 @@ pub mod grammar {
                         })
                         .collect();
                     format!("[{}]", calls.join(", "))
+                }
+                AnnotationValue::Dict(dict) => {
+                    let entries: Vec<String> = dict
+                        .entries
+                        .iter()
+                        .map(|e| format!("{} = {}", e.name.text, e.value.as_text()))
+                        .collect();
+                    format!("{{ {} }}", entries.join(", "))
                 }
             }
         }

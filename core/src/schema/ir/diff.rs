@@ -941,6 +941,18 @@ fn compare_parameters(
         if key == "handshake" && effective_handshake(&old_value) == effective_handshake(&new_value) {
             continue;
         }
+        // `"jsonrpc"` is shorthand for `{ name = "jsonrpc" }`, and an alias
+        // spells the same framing: compared by what they mean.
+        if key == "framing" {
+            let meaning = |props: &BTreeMap<&str, &ConfigValue>| {
+                props.get(key).and_then(|v| crate::schema::idl::annotations::FramingValue::of(v))
+            };
+            if let (Some(old), Some(new)) = (meaning(&old_props), meaning(&new_props)) {
+                if old == new {
+                    continue;
+                }
+            }
+        }
         match key {
             // Build-time only: it never reaches a peer or generated code.
             "settings" => {}
