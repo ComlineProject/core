@@ -283,3 +283,33 @@ fn a_dependency_keeps_its_own_settings_and_default_handshake() {
         value: ConfigValue::Str("none".to_string()),
     }));
 }
+
+/// What a dependency declares about itself, its `code_generation.languages`
+/// say, reaches the consumer's context under the dependency's name, even
+/// though only its schemas are merged.
+#[test]
+fn a_dependencys_config_reaches_the_consumers_context() {
+    use comline_core::package::config::ir::frozen::FrozenUnit as ConfigUnit;
+
+    let workspace = TempDir::new().unwrap();
+    let dependency = workspace.path().join("shared-types");
+    write_dependency(&dependency, "struct Thing {\n    id: u64\n}\n");
+    fs::write(
+        dependency.join("config.idp"),
+        "congregation shared_types\nspecification_version = 1\n\n\
+         code_generation = {\n    languages = {\n        rust#1.90.0 = {}\n    }\n}\n",
+    )
+    .unwrap();
+    let consumer_dir = workspace.path().join("consumer");
+    write_consumer(&consumer_dir, CONSUMER_SCHEMA);
+
+    let context = comline_core::package::build::compile_package(&consumer_dir).unwrap();
+    let [(name, config)] = context.dependency_configs.as_slice() else {
+        panic!("one dependency, got {:?}", context.dependency_configs.iter().map(|(n, _)| n).collect::<Vec<_>>());
+    };
+    assert_eq!(name, "shared_types");
+    assert!(
+        config.iter().any(|u| matches!(u, ConfigUnit::CodeGeneration(g) if g.name == "rust#1.90.0")),
+        "{config:?}"
+    );
+}

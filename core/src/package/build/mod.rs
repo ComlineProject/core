@@ -297,6 +297,8 @@ fn interpret_schemas(
     all.extend(dependencies.sources);
     let std = crate::package::stdlib::used_by(&all);
 
+    context.dependency_configs = dependencies.configs;
+
     // Same order as before: local, dependencies, std.
     add_schema_sources(context, &local)?;
     for schema in dependencies.schemas {

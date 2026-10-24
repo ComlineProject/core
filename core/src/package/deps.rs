@@ -240,6 +240,9 @@ pub(crate) struct DependencySchemas {
     pub schemas: Vec<SchemaContext>,
     /// Their sources, for finding the std schemas they import.
     pub sources: Vec<(Vec<String>, String)>,
+    /// Each dependency's frozen config under its declared name, then its
+    /// own dependencies' (see `ProjectContext::dependency_configs`).
+    pub configs: Vec<(String, Vec<crate::package::config::ir::frozen::FrozenUnit>)>,
 }
 
 /// For every declared dependency: resolve it, verify its hash, and take its
@@ -256,8 +259,10 @@ pub(crate) fn resolve_dependency_schemas(
     project_root: &Path,
     in_progress: &mut HashSet<PathBuf>,
 ) -> Result<DependencySchemas> {
-    let mut found = DependencySchemas { schemas: Vec::new(), sources: Vec::new() };
+    let mut found = DependencySchemas { schemas: Vec::new(), sources: Vec::new(), configs: Vec::new() };
     for resolved in resolve_all(context, project_root, in_progress)? {
+        found.configs.push((resolved.name.clone(), resolved.context.config_frozen.clone().unwrap_or_default()));
+        found.configs.extend(resolved.context.dependency_configs.iter().cloned());
         // Its own schemas only: the std schemas and any dependencies of its
         // own that its compile pulled in aren't part of what it publishes.
         for (namespace, source) in
