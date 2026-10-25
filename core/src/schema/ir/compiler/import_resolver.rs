@@ -18,6 +18,7 @@ use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreter::incremental::freeze_validator_properties;
 use crate::schema::ir::validation::ImportLookup;
+use crate::schema::ir::validation::data::{carries_data, Answers};
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
 
@@ -578,6 +579,70 @@ impl ImportLookup for ProjectImports<'_> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
         declared_validator_properties(&schema.declarations, &bare)
+    }
+
+    fn carries_data(&self, name: &str) -> Option<bool> {
+        let (schema, bare) = self.declaring_schema(name)?;
+        let schema = schema.borrow();
+        let mut declared = DeclaredData { project: self.project, answers: Answers::new() };
+        Some(declared.named(&schema.declarations, &schema.namespace, &bare))
+    }
+}
+
+/// [`carries_data`] for a type declared in another schema, read from its
+/// declarations and following its own `use`s on to further schemas. Answers
+/// are keyed by `namespace::Name`, so a cycle through several schemas ends
+/// the same way one inside a schema does.
+struct DeclaredData<'p> {
+    project: &'p ProjectContext,
+    answers: Answers,
+}
+
+impl DeclaredData<'_> {
+    fn named(
+        &mut self,
+        declarations: &[rust_sitter::Spanned<Declaration>],
+        namespace: &[String],
+        name: &str,
+    ) -> bool {
+        let bare = name.rsplit("::").next().unwrap_or(name);
+        let key = format!("{}::{bare}", namespace.join("::"));
+        match self.answers.get(&key) {
+            Some(Some(known)) => return *known,
+            Some(None) => return true,
+            None => {}
+        }
+        self.answers.insert(key.clone(), None);
+        let declared = declarations.iter().find(|decl| match &decl.value {
+            Declaration::Struct(s) => s.name() == bare,
+            Declaration::TypeAlias(a) => a.name() == bare,
+            Declaration::Enum(e) => e.name() == bare,
+            _ => false,
+        });
+        let carries = |ty: &TypeRef, this: &mut Self| {
+            carries_data(ty, &mut |name| this.named(declarations, namespace, name))
+        };
+        let answer = match declared.map(|decl| &decl.value) {
+            Some(Declaration::Struct(s)) => s.fields().iter().any(|field| {
+                field.value.optional()
+                    || carries(&TypeRef::from_grammar(field.value.field_type()), self)
+            }),
+            Some(Declaration::TypeAlias(a)) => {
+                carries(&TypeRef::from_grammar(a.target_type()), self)
+            }
+            Some(_) => true,
+            None => {
+                match find_schema_bringing_into_scope(bare, declarations, namespace, self.project) {
+                    Some(schema) => {
+                        let schema = schema.borrow();
+                        self.named(&schema.declarations, &schema.namespace, bare)
+                    }
+                    None => true,
+                }
+            }
+        };
+        self.answers.insert(key, Some(answer));
+        answer
     }
 }
 

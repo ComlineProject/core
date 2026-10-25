@@ -8,3 +8,4 @@ pub mod diagnostics;
 pub mod structured_types;
 pub mod alias_validators;
 pub mod diff_gaps;
+pub mod dataless_arrays;

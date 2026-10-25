@@ -1,3 +1,4 @@
+pub(crate) mod data;
 pub mod symbols;
 pub mod validator;
 
