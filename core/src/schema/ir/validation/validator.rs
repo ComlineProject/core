@@ -105,6 +105,13 @@ pub trait ImportLookup {
     fn is_stand_in(&self, _name: &str) -> bool {
         false
     }
+    /// Whether an imported type puts any bytes on the wire (see
+    /// `validation::data`), worked out in the schema that declares it.
+    /// `None` when the lookup can't say: the type is then taken to carry
+    /// data, and an array of it goes unchecked.
+    fn carries_data(&self, _name: &str) -> Option<bool> {
+        None
+    }
 }
 
 /// The lookup for a schema validated on its own: no imports known.
@@ -542,6 +549,7 @@ pub fn validate_with(
     check_unverified(units, &mut errors, &mut warnings);
     check_provider(units, &mut errors);
     validate_throws(units, &mut errors);
+    super::data::check_dataless_arrays(units, imports, &mut errors);
 
     if errors.is_empty() {
         Ok(warnings)
