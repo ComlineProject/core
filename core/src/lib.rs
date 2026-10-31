@@ -5,6 +5,7 @@
 // Relative Modules
 pub mod config_value;
 pub mod diagnostics;
+pub mod encodings;
 pub mod schema;
 pub mod package;
 pub mod autodoc;

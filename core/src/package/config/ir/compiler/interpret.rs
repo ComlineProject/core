@@ -43,6 +43,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         .unwrap_or((None, None));
     let own_format = own_format.map(str::to_string);
     let own_framing = own_framing.unwrap_or(DEFAULT_FRAMING).to_string();
+    check_package_encodings(project_context, own_format.as_deref(), &own_framing, &own_handshake)?;
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
     // package-level value falls back to usage-site-only diagnostics, same
@@ -175,6 +176,32 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         bail!("{}", schema_errors.join("\n\n"));
     }
 
+    Ok(())
+}
+
+/// The package's own `wire` and `handshake` names, once its dependencies
+/// are known: a namespaced one has to be declared, by this package or a
+/// dependency. Official ones were checked when the config froze.
+fn check_package_encodings(
+    project_context: &ProjectContext,
+    format: Option<&str>,
+    framing: &str,
+    handshake: &str,
+) -> Result<()> {
+    use crate::encodings::{is_declared, undeclared, EncodingKind};
+    use crate::schema::idl::annotations::is_official;
+
+    let names = [
+        (EncodingKind::Format, format, "wire.format"),
+        (EncodingKind::Framing, Some(framing), "wire.framing"),
+        (EncodingKind::Handshake, Some(handshake), "handshake"),
+    ];
+    for (kind, name, key) in names {
+        let Some(name) = name else { continue };
+        if !is_official(kind, name) && !is_declared(project_context, kind, name) {
+            bail!("config.idp's `{key}`: {}", undeclared(kind, name));
+        }
+    }
     Ok(())
 }
 
