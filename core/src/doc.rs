@@ -19,19 +19,25 @@
 //! dependency or `std` appears as a [`UnitRef`] to it.
 //!
 //! **Where the docs come from.** A unit's `///` docstring is in the frozen IR,
-//! so it's there for any built version. The `//!` headers aren't: they're
-//! read from the source a compiled context keeps (a module's) or from
-//! `config.idp` on disk (the package's), so a package compiled from memory
-//! has no package header.
+//! so it's there for any built version. The `//!` headers are frozen too, as
+//! [`FrozenDocs`]: a build stores them in its commit's root tree as a `docs`
+//! blob, next to `config`. [`frozen_docs`] reads them from a compiled context
+//! (a module's from the source the context keeps, the package's from
+//! `config.idp` on disk, so a package compiled from memory has no package
+//! header); [`read_docs`] reads them back from a built version, which
+//! [`model_frozen`] documents. A version built before headers were stored has
+//! none.
 
 // Standard Uses
 use std::collections::BTreeMap;
 
 // Crate Uses
 use crate::inspect::{self, ProtocolSummary};
+use crate::package::build::cas::objects::{Blob, EntryMode, Tree};
+use crate::package::build::cas::object_store::ObjectStore;
+use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::{Origin, ProjectContext};
 use crate::schema::idl::module_docs::module_docs;
-use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::diff::{analyze_package_changes, BreakingChange, Modification, NewFeature};
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
@@ -287,6 +293,71 @@ pub fn changelog(
     }
 }
 
+/// The `//!` headers of a package version: what a build freezes next to its
+/// schemas, so documenting a built version has them.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FrozenDocs {
+    /// The `//!` header of `config.idp`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub package: Option<String>,
+    /// Each own module's `//!` header, by its path (`api`, `types::user`).
+    /// A module without one isn't listed.
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub modules: BTreeMap<String, String>,
+}
+
+impl FrozenDocs {
+    pub fn is_empty(&self) -> bool {
+        self.package.is_none() && self.modules.is_empty()
+    }
+}
+
+/// The root tree entry a build stores [`FrozenDocs`] under.
+pub const DOCS_ENTRY: &str = "docs";
+
+/// The `//!` headers of the package `context` compiled.
+pub fn frozen_docs(context: &ProjectContext) -> FrozenDocs {
+    let index = Index::of(context);
+    let package = match &context.origin {
+        Origin::Disk(path) => std::fs::read_to_string(path)
+            .ok()
+            .and_then(|s| module_docs(&s)),
+        Origin::Virtual | Origin::Official => None,
+    };
+    let modules = context
+        .schema_contexts
+        .iter()
+        .filter_map(|schema| {
+            let schema = schema.borrow();
+            if !index.own(&schema.namespace) {
+                return None;
+            }
+            let docs = schema.codemap.files().first().and_then(|f| module_docs(f.contents()))?;
+            Some((schema.namespace.join("::"), docs))
+        })
+        .collect();
+    FrozenDocs { package, modules }
+}
+
+/// Store `docs` as a blob, for a root tree's [`DOCS_ENTRY`].
+pub fn write_docs(docs: &FrozenDocs, store: &ObjectStore) -> eyre::Result<Hash> {
+    store.write(&Blob::new(to_cbor(docs)?).to_bytes()?)
+}
+
+/// The headers a built version's root tree froze; empty for a version built
+/// before they were stored, or for a package without any.
+pub fn read_docs(store: &ObjectStore, root: &Tree) -> eyre::Result<FrozenDocs> {
+    let Some(entry) = root
+        .entries
+        .iter()
+        .find(|e| e.name == DOCS_ENTRY && e.mode == EntryMode::Blob)
+    else {
+        return Ok(FrozenDocs::default());
+    };
+    let blob = Blob::from_bytes(&store.read(&entry.hash)?)?;
+    from_cbor(&blob.content)
+}
+
 /// The frozen schemas `context` compiled for its own package, for
 /// [`changelog`].
 pub fn frozen_schemas(context: &ProjectContext) -> Vec<Vec<FrozenUnit>> {
@@ -305,15 +376,11 @@ pub fn frozen_schemas(context: &ProjectContext) -> Vec<Vec<FrozenUnit>> {
 /// (`BuildResult::current_version`, a commit's `version`), so the caller
 /// passes it.
 pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
+    let mut headers = frozen_docs(context);
     let package = Package {
         name: context.config.name.value.to_string(),
         version,
-        docs: match &context.origin {
-            Origin::Disk(path) => std::fs::read_to_string(path)
-                .ok()
-                .and_then(|s| module_docs(&s)),
-            Origin::Virtual | Origin::Official => None,
-        },
+        docs: headers.package.take(),
     };
 
     let index = Index::of(context);
@@ -333,7 +400,7 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
         let path = schema.namespace.join("::");
         let scope = Scope {
             index: &index,
-            schema: &schema,
+            namespace: path.clone(),
             units,
         };
         let units = units
@@ -350,11 +417,7 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
             })
             .collect();
         modules.push(Module {
-            docs: schema
-                .codemap
-                .files()
-                .first()
-                .and_then(|f| module_docs(f.contents())),
+            docs: headers.modules.remove(&path),
             path,
             units,
         });
@@ -363,6 +426,64 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
     DocModel {
         model_version: DOC_MODEL_VERSION,
         package,
+        modules,
+        changelog: vec![],
+    }
+}
+
+/// The documentation of a built version of package `name`: its own frozen
+/// schemas (each starting with its `Namespace` unit, as
+/// [`crate::schema::ir::frozen::cas::blob::load_schema_from_tree`] returns
+/// them) and the headers [`read_docs`] read from it.
+///
+/// A built version keeps no source, so two things are missing next to
+/// [`model`]: protocols have no wire summary (`wire` is `None`), and a type
+/// from a dependency has no target (its schemas aren't the package's).
+pub fn model_frozen(
+    name: &str,
+    version: Option<String>,
+    schemas: &[Vec<FrozenUnit>],
+    mut headers: FrozenDocs,
+) -> DocModel {
+    let namespace = |units: &[FrozenUnit]| {
+        units.iter().find_map(|u| match u {
+            FrozenUnit::Namespace(ns) => Some(ns.clone()),
+            _ => None,
+        })
+    };
+    let index = Index {
+        own_name: name.to_string(),
+        dependencies: vec![],
+        declared: schemas
+            .iter()
+            .filter_map(|units| {
+                Some((namespace(units)?, units.iter().filter_map(declared_name).collect()))
+            })
+            .collect(),
+    };
+    let modules = schemas
+        .iter()
+        .filter_map(|units| {
+            let path = namespace(units)?;
+            let scope = Scope {
+                index: &index,
+                namespace: path.clone(),
+                units,
+            };
+            Some(Module {
+                docs: headers.modules.remove(&path),
+                units: units.iter().filter_map(|u| scope.unit(u)).collect(),
+                path,
+            })
+        })
+        .collect();
+    DocModel {
+        model_version: DOC_MODEL_VERSION,
+        package: Package {
+            name: name.to_string(),
+            version,
+            docs: headers.package,
+        },
         modules,
         changelog: vec![],
     }
@@ -507,7 +628,8 @@ fn declared_name(unit: &FrozenUnit) -> Option<String> {
 /// One schema, while its units are documented.
 struct Scope<'a> {
     index: &'a Index,
-    schema: &'a SchemaContext,
+    /// The schema's namespace, `::`-joined.
+    namespace: String,
     units: &'a [FrozenUnit],
 }
 
@@ -517,8 +639,7 @@ impl Scope<'_> {
         if name.contains("::") {
             return self.index.path(name);
         }
-        let namespace = self.schema.namespace.join("::");
-        if let Some(found) = self.index.find(&namespace, name) {
+        if let Some(found) = self.index.find(&self.namespace, name) {
             return Some(found);
         }
         self.units.iter().find_map(|unit| {
