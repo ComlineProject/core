@@ -332,14 +332,29 @@ fn interpret_assignment_encodings(
             ));
         }
 
+        // Conformance vectors sit beside the profile: `profiles/x.json`'s
+        // are `profiles/x.vectors.json`. Official encodings always have them
+        // (the runtime's corpus).
+        let has_vectors = match root {
+            ProfileRoot::Official => true,
+            ProfileRoot::Dir(dir) => dir.join(vectors_path(profile_path)).is_file(),
+        };
         units.push(FrozenUnit::Encoding {
             name,
             kind,
             profile_hash: blake3::hash(&bytes).to_hex().to_string(),
             map,
+            establishes: parsed.establishes(),
+            has_vectors,
         });
     }
     Ok(units)
+}
+
+/// Where an encoding's conformance vectors sit, by convention: beside its
+/// profile, `profiles/x.json` → `profiles/x.vectors.json`.
+pub fn vectors_path(profile: &std::path::Path) -> std::path::PathBuf {
+    profile.with_extension("vectors.json")
 }
 
 /// Where a package's profile paths resolve: its directory, or the official

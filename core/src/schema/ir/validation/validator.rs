@@ -118,6 +118,12 @@ pub trait ImportLookup {
     fn encoding_declared(&self, _kind: crate::encodings::EncodingKind, _name: &str) -> bool {
         false
     }
+    /// The encoding declarations and package wire defaults the guarantee
+    /// check reads (`unverified::given_up`). Without a package, only the
+    /// official encodings.
+    fn encodings(&self) -> crate::schema::ir::unverified::Encodings<'_> {
+        Default::default()
+    }
 }
 
 /// The lookup for a schema validated on its own: no imports known.
@@ -552,7 +558,7 @@ pub fn validate_with(
     }
 
     check_annotation_values(units, imports, &mut errors);
-    check_unverified(units, &mut errors, &mut warnings);
+    check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
     check_provider(units, &mut errors);
     validate_throws(units, &mut errors);
     super::data::check_dataless_arrays(units, imports, &mut errors);
@@ -973,6 +979,7 @@ fn check_annotation_values(units: &[FrozenUnit], imports: &dyn ImportLookup, err
 /// so an organisation can raise or quiet it (`diagnostics.<code>.level`).
 fn check_unverified(
     units: &[FrozenUnit],
+    encodings: &crate::schema::ir::unverified::Encodings,
     errors: &mut Vec<Diagnostic>,
     warnings: &mut Vec<Diagnostic>,
 ) {
@@ -983,8 +990,8 @@ fn check_unverified(
         let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
             continue;
         };
-        let given_up = unverified::given_up(parameters);
-        let cause = unverified::cause(parameters);
+        let given_up = unverified::given_up(parameters, encodings);
+        let cause = unverified::cause(parameters, encodings);
         let Some(marker) = unverified::marker(parameters) else {
             if !given_up.is_empty() {
                 errors.push(
@@ -1036,8 +1043,9 @@ fn check_unverified(
                 Diagnostic::new(
                     code,
                     format!(
-                        "protocol `{name}` is unverified: {} isn't established ({cause})",
-                        guarantee.describe()
+                        "protocol `{name}` is unverified: {} isn't established ({})",
+                        guarantee.describe(),
+                        unverified::cause_of(parameters, encodings, guarantee)
                     ),
                 )
                 .maybe_span(Some(*span)),

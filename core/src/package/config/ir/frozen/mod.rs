@@ -48,11 +48,29 @@ pub enum FrozenUnit {
     /// this package declares. `profile_hash` is the blake3 of the profile
     /// file's bytes, hex, as the CAS hashes; `map` the suggested mappings,
     /// by language id.
+    ///
+    /// The two facts the guarantee check (`schema::ir::unverified`) needs
+    /// are frozen beside the hash, so a consumer reads them from the
+    /// declaration without the profile file:
+    /// - `establishes`: what a handshake's profile states as established
+    ///   (`schema_agreement`, `encoding_agreement`); empty for a format or
+    ///   framing.
+    /// - `has_vectors`: whether the package ships conformance vectors beside
+    ///   the profile (`profiles/x.vectors.json` for `profiles/x.json`).
+    ///   Always true for an official encoding.
+    ///
+    /// Both default to the strict reading, nothing established and no
+    /// vectors, so a declaration frozen before they existed claims nothing
+    /// it never proved.
     Encoding {
         name: String,
         kind: crate::encodings::EncodingKind,
         profile_hash: String,
         map: crate::encodings::EncodingMap,
+        #[serde(default)]
+        establishes: Vec<crate::schema::ir::frozen::unit::Guarantee>,
+        #[serde(default)]
+        has_vectors: bool,
     },
 }
 

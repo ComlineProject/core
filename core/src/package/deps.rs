@@ -837,6 +837,77 @@ mod tests {
     }
 
     #[test]
+    fn a_consumer_accepts_what_a_dependencys_custom_handshake_gives_up() {
+        use crate::schema::ir::frozen::unit::{FrozenUnit, Guarantee};
+        use crate::schema::ir::unverified;
+
+        // The dependency declares a handshake whose profile establishes
+        // encoding agreement only, and uses it by default.
+        let tmp = tempfile::tempdir().unwrap();
+        let billing = tmp.path().join("billing");
+        std::fs::create_dir_all(billing.join("src")).unwrap();
+        std::fs::create_dir_all(billing.join("profiles")).unwrap();
+        std::fs::write(
+            billing.join("config.idp"),
+            "congregation billing\nspecification_version = 1\n\
+             encodings = {\n    \"com.acme.hello@1\" = { kind = \"handshake\" profile = \"profiles/hello.json\" }\n}\n\
+             handshake = \"com.acme.hello@1\"\n\
+             settings = { annotations = { unverified = { allowed = true } } }\n",
+        )
+        .unwrap();
+        std::fs::write(
+            billing.join("profiles/hello.json"),
+            r#"{ "name": "com.acme.hello@1", "kind": "handshake",
+                 "facts": { "encoding_agreement": { "value": true, "proven_by": ["hello/agree"] } } }"#,
+        )
+        .unwrap();
+        std::fs::write(
+            billing.join("src/api.ids"),
+            "@unverified = \"hello checks the schema out of band\"\nprotocol Billing {\n    function charge();\n}\n",
+        )
+        .unwrap();
+
+        let app = tmp.path().join("app");
+        std::fs::create_dir_all(app.join("src")).unwrap();
+        std::fs::write(app.join("src/a.ids"), "struct A {\n    x: u32\n}\n").unwrap();
+        let write_config = |accept: &str| {
+            std::fs::write(
+                app.join("config.idp"),
+                format!(
+                    "congregation app\nspecification_version = 1\ndependencies = {{\n    \
+                     billing = {{\n        path = \"../billing\"\n        {accept}\n    }}\n}}\n"
+                ),
+            )
+            .unwrap();
+        };
+
+        write_config("");
+        let err = crate::package::build::compile_package(&app).unwrap_err().to_string();
+        assert!(err.contains("protocol `Billing` is unverified"), "{err}");
+
+        write_config("accept_unverified = { Billing = [\"schema_agreement\"] }");
+        let context = crate::package::build::compile_package(&app).expect("accepted");
+        let merged = context
+            .schema_contexts
+            .iter()
+            .find(|s| s.borrow().namespace == ["billing", "api"])
+            .unwrap()
+            .borrow()
+            .frozen_schema
+            .borrow()
+            .clone()
+            .unwrap();
+        let params = merged
+            .iter()
+            .find_map(|u| match u {
+                FrozenUnit::Protocol { parameters, .. } => Some(parameters.clone()),
+                _ => None,
+            })
+            .unwrap();
+        assert_eq!(unverified::frozen_set(&params), [Guarantee::SchemaAgreement]);
+    }
+
+    #[test]
     fn accept_unverified_is_parsed_and_checked() {
         let parse = |entry: &str| {
             let src = format!(

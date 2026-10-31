@@ -108,7 +108,10 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
         apply_package_handshake(&mut frozen_units, &own_handshake);
-        crate::schema::ir::unverified::freeze(&mut frozen_units);
+        crate::schema::ir::unverified::freeze(
+            &mut frozen_units,
+            &crate::schema::ir::unverified::Encodings::of(project_context),
+        );
         // Settings gate what the schema's author wrote; the package's
         // framing is the package's choice, so it's added after the snapshot
         // enforcement checks.
