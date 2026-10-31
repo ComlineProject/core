@@ -3,7 +3,7 @@
 //!
 //! A pinned copy of `Profile`, `ProfileKind`, `Fact` and the fact list from
 //! ComlineProject/runtime `runtime/conformance/src/lib.rs`, at rev
-//! `476c31e482a44e68671daacecf8bbc32c8894eec` (spec 0.2). The runtime corpus
+//! `64505b40b39c93c5db40e981ba3eef14ecc0fc90` (spec 0.2). The runtime corpus
 //! is where the profiles are proven; core only checks that a declared
 //! profile is one. When the runtime's schema moves, this copy moves with it,
 //! and the rev above changes.

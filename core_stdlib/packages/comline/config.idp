@@ -7,7 +7,7 @@
 //!
 //! The profiles under `profiles/` are copied from ComlineProject/runtime
 //! `runtime/conformance/profiles/` at rev
-//! 476c31e482a44e68671daacecf8bbc32c8894eec, where the conformance corpus
+//! 64505b40b39c93c5db40e981ba3eef14ecc0fc90, where the conformance corpus
 //! proves them. `comline@1`'s states that it establishes schema and encoding
 //! agreement. `none` isn't declared: it's the absence of a handshake, not
 //! one, and establishes neither.
