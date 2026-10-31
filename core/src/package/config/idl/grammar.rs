@@ -24,6 +24,9 @@ pub mod grammar {
         Namespaced(NamespacedKey),
         VersionMeta(ItemVersionMeta),
         DependencyAddress(DependencyAddress),
+        /// A quoted key, `"com.acme.x@1" = { ... }`: for a name no bare
+        /// key can spell, like an encoding's dotted, versioned name.
+        String(StringLiteral),
     }
 
     #[derive(Debug, Clone)]
@@ -149,3 +152,16 @@ pub mod grammar {
 }
 
 pub use grammar::*;
+
+impl Key {
+    /// The key as written, quotes stripped from a quoted one.
+    pub fn text(&self) -> String {
+        match self {
+            Key::Identifier(id) => id.value.clone(),
+            Key::Namespaced(ns) => ns.value.clone(),
+            Key::VersionMeta(vm) => vm.value.clone(),
+            Key::DependencyAddress(da) => da.value.clone(),
+            Key::String(s) => crate::package::config::dependency::strip_quotes(&s.value),
+        }
+    }
+}

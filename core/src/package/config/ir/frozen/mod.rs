@@ -41,6 +41,16 @@ pub enum FrozenUnit {
         format: Option<String>,
         framing: Option<String>,
     },
+    /// One entry of `encodings = { "<name>@<n>" = { ... } }`: an encoding
+    /// this package declares. `profile_hash` is the blake3 of the profile
+    /// file's bytes, hex, as the CAS hashes; `map` the suggested mappings,
+    /// by language id.
+    Encoding {
+        name: String,
+        kind: crate::encodings::EncodingKind,
+        profile_hash: String,
+        map: crate::encodings::EncodingMap,
+    },
 }
 
 #[derive(Deserialize, Serialize)]

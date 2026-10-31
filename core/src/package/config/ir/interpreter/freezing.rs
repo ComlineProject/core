@@ -1,7 +1,7 @@
 // Standard Uses
 
 // Crate Uses
-use crate::package::config::idl::grammar::{Assignment, BooleanLiteral, Key, Value};
+use crate::package::config::idl::grammar::{Assignment, BooleanLiteral, Value};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::{
     Dependency, FrozenUnit, LanguageDetails, PublishRegistry, RegistryKind,
@@ -22,16 +22,11 @@ pub fn interpret_node_into_frozen(
 }
 
 pub fn interpret_assignment(
-    _context: &ProjectContext,
+    context: &ProjectContext,
     node: &Assignment,
     cross_package_settings: Option<&crate::settings::SettingsDict>,
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
-    let key_str = match &node.key {
-        Key::Identifier(id) => id.value.clone(),
-        Key::Namespaced(ns) => ns.value.clone(),
-        Key::VersionMeta(vm) => vm.value.clone(),
-        Key::DependencyAddress(da) => da.value.clone(),
-    };
+    let key_str = node.key.text();
 
     let result = match key_str.as_str() {
         "specification_version" => {
@@ -138,8 +133,8 @@ pub fn interpret_assignment(
                 return Err("'handshake' should be a string, like \"comline@1\"".into())
             };
             let written = crate::package::config::dependency::strip_quotes(&name.value);
-            let name = crate::schema::idl::annotations::check_handshake(&written)?;
-            vec![FrozenUnit::Handshake(name.to_string())]
+            let name = crate::schema::idl::annotations::check_handshake_or_namespaced(&written)?;
+            vec![FrozenUnit::Handshake(name)]
         }
         "wire" => {
             let Value::Dictionary(items) = &node.value else {
@@ -148,6 +143,14 @@ pub fn interpret_assignment(
                     .into());
             };
             interpret_assignment_wire(&items.assignments)?
+        }
+        "encodings" => {
+            let Value::Dictionary(items) = &node.value else {
+                return Err("'encodings' should be a dictionary, like \
+                            { \"com.acme.x@1\" = { kind = \"format\", profile = \"profiles/x.json\" } }"
+                    .into());
+            };
+            interpret_assignment_encodings(context, &items.assignments)?
         }
         any => return Err(format!("'{any}' is not a recognised package-manifest key").into()),
     };
@@ -163,19 +166,16 @@ fn interpret_assignment_wire(
     let (mut format, mut framing) = (None, None);
     for assignment in items {
         let assignment = &assignment.value;
-        let key = match &assignment.key {
-            Key::Identifier(id) => id.value.as_str(),
-            Key::Namespaced(ns) => ns.value.as_str(),
-            Key::VersionMeta(vm) => vm.value.as_str(),
-            Key::DependencyAddress(da) => da.value.as_str(),
-        };
+        let key = assignment.key.text();
         let Value::String(written) = &assignment.value else {
             return Err(format!("'wire.{key}' should be a string, like \"packed@1\"").into());
         };
         let written = crate::package::config::dependency::strip_quotes(&written.value);
-        let (slot, name) = match key {
-            "format" => (&mut format, crate::schema::idl::annotations::check_format(&written)?),
-            "framing" => (&mut framing, crate::schema::idl::annotations::check_framing(&written)?),
+        // A namespaced name is checked once dependencies are known, since
+        // one of them may declare it (`compiler::interpret`).
+        let (slot, name) = match key.as_str() {
+            "format" => (&mut format, crate::schema::idl::annotations::check_format_or_namespaced(&written)?),
+            "framing" => (&mut framing, crate::schema::idl::annotations::check_framing_or_namespaced(&written)?),
             other => {
                 return Err(format!("'{other}' is not allowed in 'wire': expected `format` or `framing`").into())
             }
@@ -187,6 +187,187 @@ fn interpret_assignment_wire(
     Ok(vec![FrozenUnit::Wire { format, framing }])
 }
 
+/// `encodings = { "<name>@<n>" = { kind, profile, map }, ... }`: each entry
+/// freezes to a `FrozenUnit::Encoding`, its profile read from the package
+/// directory and checked. Errors point at the entry in `config.idp`.
+fn interpret_assignment_encodings(
+    context: &ProjectContext,
+    items: &[rust_sitter::Spanned<Assignment>],
+) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
+    use crate::diagnostics::Diagnostic;
+    use crate::encodings::{self, Profile, ProfileKind};
+    use crate::package::config::dependency::strip_quotes;
+    use crate::package::config::ir::context::Origin;
+
+    let config_path = match &context.origin {
+        Origin::Disk(path) => Some(path.as_path()),
+        Origin::Virtual => None,
+    };
+    let fail = |code, message: String, span: (usize, usize)| -> Box<dyn snafu::Error> {
+        let diagnostic = Diagnostic::new(code, message).with_span(span);
+        let source = config_path.and_then(|p| std::fs::read_to_string(p).ok());
+        match source {
+            Some(source) => crate::diagnostics::render(&diagnostic, "config.idp", &source).into(),
+            None => diagnostic.message.into(),
+        }
+    };
+    let policy = encodings::name_policy(context);
+
+    let mut units = vec![];
+    let mut seen = std::collections::HashSet::new();
+    for entry in items {
+        let name = entry.value.key.text();
+        // The key's own span: the entry starts with it.
+        let key_len = match &entry.value.key {
+            crate::package::config::idl::grammar::Key::String(s) => s.value.len(),
+            _ => name.len(),
+        };
+        let span = (entry.span.0, (entry.span.0 + key_len).min(entry.span.1));
+        encodings::check_declared_name(&name, policy)
+            .map_err(|m| fail(encodings::ENCODING_NAME, m, span))?;
+        if !seen.insert(name.clone()) {
+            return Err(fail(encodings::ENCODING_NAME, format!("encoding `{name}` is declared twice"), span));
+        }
+        let Value::Dictionary(fields) = &entry.value.value else {
+            return Err(fail(
+                encodings::ENCODING_ENTRY,
+                format!("encoding `{name}` should be a dictionary, like {{ kind = \"format\", profile = \"profiles/x.json\" }}"),
+                span,
+            ));
+        };
+
+        let (mut kind, mut profile, mut map) = (None, None, encodings::EncodingMap::new());
+        for field in &fields.assignments {
+            let key = field.value.key.text();
+            match (key.as_str(), &field.value.value) {
+                ("kind", Value::String(k)) => {
+                    kind = Some(match strip_quotes(&k.value).as_str() {
+                        "format" => ProfileKind::Format,
+                        "framing" => ProfileKind::Framing,
+                        "handshake" => ProfileKind::Handshake,
+                        other => {
+                            return Err(fail(
+                                encodings::ENCODING_ENTRY,
+                                format!("encoding `{name}`: kind `{other}` isn't one: expected `format`, `framing` or `handshake`"),
+                                span,
+                            ))
+                        }
+                    })
+                }
+                ("profile", Value::String(p)) => profile = Some(strip_quotes(&p.value)),
+                ("map", Value::Dictionary(languages)) => {
+                    for language in &languages.assignments {
+                        let id = language.value.key.text();
+                        let mapping = interpret_encoding_mapping(&language.value.value)
+                            .map_err(|m| fail(encodings::ENCODING_ENTRY, format!("encoding `{name}`, `map.{id}`: {m}"), span))?;
+                        map.insert(id, mapping);
+                    }
+                }
+                ("kind" | "profile", _) => {
+                    return Err(fail(encodings::ENCODING_ENTRY, format!("encoding `{name}`: `{key}` should be a string"), span))
+                }
+                ("map", _) => {
+                    return Err(fail(
+                        encodings::ENCODING_ENTRY,
+                        format!("encoding `{name}`: `map` should be a dictionary, like {{ rust = {{ type = \"...\" }} }}"),
+                        span,
+                    ))
+                }
+                (other, _) => {
+                    return Err(fail(
+                        encodings::ENCODING_ENTRY,
+                        format!("encoding `{name}`: `{other}` isn't allowed: expected `kind`, `profile` or `map`"),
+                        span,
+                    ))
+                }
+            }
+        }
+        let kind = kind.ok_or_else(|| fail(encodings::ENCODING_ENTRY, format!("encoding `{name}` needs a `kind`"), span))?;
+        let profile = profile.ok_or_else(|| fail(encodings::ENCODING_PROFILE, format!("encoding `{name}` needs a `profile`"), span))?;
+
+        // The profile, relative to the package root.
+        let Some(root) = config_path.and_then(|p| p.parent()) else {
+            return Err(fail(
+                encodings::ENCODING_PROFILE,
+                format!("encoding `{name}`: its profile `{profile}` can't be read without a package directory"),
+                span,
+            ));
+        };
+        let profile_path = std::path::Path::new(&profile);
+        if profile_path.is_absolute() || profile_path.components().any(|c| matches!(c, std::path::Component::ParentDir)) {
+            return Err(fail(
+                encodings::ENCODING_PROFILE,
+                format!("encoding `{name}`: its profile `{profile}` must be a path inside the package, relative to it"),
+                span,
+            ));
+        }
+        let bytes = std::fs::read(root.join(profile_path)).map_err(|e| {
+            fail(encodings::ENCODING_PROFILE, format!("encoding `{name}`: its profile `{profile}` can't be read: {e}"), span)
+        })?;
+        let parsed = Profile::parse(&bytes).map_err(|m| {
+            fail(encodings::ENCODING_PROFILE, format!("encoding `{name}`: its profile `{profile}` is malformed: {m}"), span)
+        })?;
+        if parsed.kind != kind {
+            return Err(fail(
+                encodings::ENCODING_PROFILE,
+                format!(
+                    "encoding `{name}` is a {}, but its profile `{profile}` is a {} profile",
+                    kind.as_str(),
+                    parsed.kind.as_str()
+                ),
+                span,
+            ));
+        }
+        if parsed.name != name {
+            return Err(fail(
+                encodings::ENCODING_PROFILE,
+                format!("encoding `{name}`: its profile `{profile}` is for `{}`", parsed.name),
+                span,
+            ));
+        }
+
+        units.push(FrozenUnit::Encoding {
+            name,
+            kind,
+            profile_hash: blake3::hash(&bytes).to_hex().to_string(),
+            map,
+        });
+    }
+    Ok(units)
+}
+
+/// One language's `{ type = "...", package = "...", version = "..." }`.
+fn interpret_encoding_mapping(
+    value: &Value,
+) -> Result<crate::encodings::EncodingMapping, String> {
+    use crate::package::config::dependency::strip_quotes;
+
+    let Value::Dictionary(fields) = value else {
+        return Err("should be a dictionary, like { type = \"...\" }".to_string());
+    };
+    let (mut ty, mut package, mut version) = (None, None, None);
+    for field in &fields.assignments {
+        let key = field.value.key.text();
+        let Value::String(text) = &field.value.value else {
+            return Err(format!("`{key}` should be a string"));
+        };
+        let slot = match key.as_str() {
+            "type" => &mut ty,
+            "package" => &mut package,
+            "version" => &mut version,
+            other => return Err(format!("`{other}` isn't allowed: expected `type`, `package` or `version`")),
+        };
+        if slot.replace(strip_quotes(&text.value)).is_some() {
+            return Err(format!("`{key}` is set twice"));
+        }
+    }
+    Ok(crate::encodings::EncodingMapping {
+        ty: ty.ok_or("needs a `type`")?,
+        package,
+        version,
+    })
+}
+
 fn interpret_assignment_code_generation(
     items: &[rust_sitter::Spanned<Assignment>],
 ) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
@@ -194,12 +375,7 @@ fn interpret_assignment_code_generation(
 
     for assignment in items {
         let assignment = &assignment.value;
-        let key_str = match &assignment.key {
-            Key::Identifier(id) => id.value.clone(),
-            Key::Namespaced(ns) => ns.value.clone(),
-            Key::VersionMeta(vm) => vm.value.clone(),
-            Key::DependencyAddress(da) => da.value.clone(),
-        };
+        let key_str = assignment.key.text();
 
         match key_str.as_str() {
             "languages" => {
@@ -210,12 +386,7 @@ fn interpret_assignment_code_generation(
 
                 for lang_assign in &lang_dict.assignments {
                     let lang_assign = &lang_assign.value;
-                    let lang_name = match &lang_assign.key {
-                        Key::Identifier(id) => id.value.clone(),
-                        Key::Namespaced(ns) => ns.value.clone(),
-                        Key::VersionMeta(vm) => vm.value.clone(),
-                        Key::DependencyAddress(da) => da.value.clone(),
-                    };
+                    let lang_name = lang_assign.key.text();
 
                     let Value::Dictionary(details) = &lang_assign.value else {
                         return Err(format!(
@@ -229,12 +400,7 @@ fn interpret_assignment_code_generation(
                     // versions to generate are consumer-side config, not the
                     // congregation. Write `{} = {{}}`.
                     if let Some(detail) = details.assignments.first() {
-                        let detail_key = match &detail.key {
-                            Key::Identifier(id) => id.value.as_str(),
-                            Key::Namespaced(ns) => ns.value.as_str(),
-                            Key::VersionMeta(vm) => vm.value.as_str(),
-                            Key::DependencyAddress(da) => da.value.as_str(),
-                        };
+                        let detail_key = detail.key.text();
                         return Err(format!(
                             "`code_generation.languages.{lang_name}` takes no options \
                              (got `{detail_key}`); write `{lang_name} = {{}}`"
@@ -263,12 +429,7 @@ fn interpret_assigment_publish_registries(
 
     for assignment in items {
         let assignment = &assignment.value;
-        let key_str = match &assignment.key {
-            Key::Identifier(id) => id.value.clone(),
-            Key::Namespaced(ns) => ns.value.clone(),
-            Key::VersionMeta(vm) => vm.value.clone(),
-            Key::DependencyAddress(da) => da.value.clone(),
-        };
+        let key_str = assignment.key.text();
 
         let target = match &assignment.value {
             Value::String(_name) => FrozenUnit::PublishRegistry((
@@ -302,12 +463,7 @@ fn interpret_assigment_publish_registries(
 
                 for item in &dict.assignments {
                     let item = &item.value;
-                    let item_key = match &item.key {
-                        Key::Identifier(id) => id.value.clone(),
-                        Key::Namespaced(ns) => ns.value.clone(),
-                        Key::VersionMeta(vm) => vm.value.clone(),
-                        Key::DependencyAddress(da) => da.value.clone(),
-                    };
+                    let item_key = item.key.text();
 
                     match item_key.as_str() {
                         "uri" => {
@@ -395,12 +551,7 @@ fn interpret_settings_dict(
     let mut out = SettingsDict::new();
     for assignment in &dict.assignments {
         let assignment = &assignment.value;
-        let key_str = match &assignment.key {
-            Key::Identifier(id) => id.value.clone(),
-            Key::Namespaced(ns) => ns.value.clone(),
-            Key::VersionMeta(vm) => vm.value.clone(),
-            Key::DependencyAddress(da) => da.value.clone(),
-        };
+        let key_str = assignment.key.text();
         out.0.insert(key_str, interpret_settings_value(&assignment.value)?);
     }
     Ok(out)

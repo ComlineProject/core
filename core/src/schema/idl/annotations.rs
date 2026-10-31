@@ -124,7 +124,11 @@ pub const DEFAULT_FORMAT: &str = FORMAT_PACKED;
 pub fn check_format(written: &str) -> Result<&'static str, String> {
     crate::config_value::canonicalize(&ValueType::StrEnum(FORMATS), written).ok_or_else(|| {
         let known: Vec<String> = FORMATS.iter().map(|f| format!("`{}`", f.canonical)).collect();
-        format!("wire format `{written}` isn't known: expected one of {}", known.join(", "))
+        format!(
+            "wire format `{written}` isn't known: expected one of {}, or a namespaced format \
+             this package or a dependency declares under `encodings`",
+            known.join(", ")
+        )
     })
 }
 
@@ -133,7 +137,8 @@ pub fn check_format(written: &str) -> Result<&'static str, String> {
 pub fn check_framing(written: &str) -> Result<&'static str, String> {
     canonical_value("framing", written).ok_or_else(|| {
         format!(
-            "framing `{written}` isn't known: expected one of {}",
+            "framing `{written}` isn't known: expected one of {}, or a namespaced framing this \
+             package or a dependency declares under `encodings`",
             value_spellings("framing").iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
         )
     })
@@ -236,24 +241,55 @@ pub const DEFAULT_HANDSHAKE: &str = "comline@1";
 /// The official "no handshake": nothing sent, nothing checked.
 pub const HANDSHAKE_NONE: &str = "none";
 
-/// Check a written handshake name, returning its canonical spelling. The
-/// error is a full sentence: a namespaced custom name gets its own, since
-/// it's well-formed and only waiting on core#120, not a typo.
+/// Check a written handshake name against the official ones, returning
+/// its canonical spelling. A namespaced name (`com.acme.hello@1`) is a
+/// declared one, which [`check_handshake_or_namespaced`] lets through.
 pub fn check_handshake(written: &str) -> Result<&'static str, String> {
-    if let Some(known) = canonical_value("handshake", written) {
-        return Ok(known);
+    canonical_value("handshake", written).ok_or_else(|| {
+        format!(
+            "handshake `{written}` isn't known: expected `{DEFAULT_HANDSHAKE}`, `{HANDSHAKE_NONE}`, \
+             or a namespaced handshake this package or a dependency declares under `encodings`"
+        )
+    })
+}
+
+/// An official name's canonical spelling, or a namespaced name as written:
+/// whether a namespaced one is declared is checked once the package's
+/// dependencies are known (see [`crate::encodings::is_declared`]).
+fn official_or_namespaced(
+    official: Result<&'static str, String>,
+    written: &str,
+) -> Result<String, String> {
+    match official {
+        Ok(name) => Ok(name.to_string()),
+        Err(_) if crate::encodings::is_namespaced(written) => Ok(written.to_string()),
+        Err(message) => Err(message),
     }
-    let known = format!("`{DEFAULT_HANDSHAKE}` or `{HANDSHAKE_NONE}`");
-    match written.split_once('@') {
-        Some((name, version))
-            if name.contains('.') && !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) =>
-        {
-            Err(format!(
-                "handshake `{written}` isn't known: only {known} exist yet; custom handshakes \
-                 arrive with third-party encodings (core#120)"
-            ))
-        }
-        _ => Err(format!("handshake `{written}` isn't known: expected {known}")),
+}
+
+/// [`check_format`], letting a namespaced name through.
+pub fn check_format_or_namespaced(written: &str) -> Result<String, String> {
+    official_or_namespaced(check_format(written), written)
+}
+
+/// [`check_framing`], letting a namespaced name through.
+pub fn check_framing_or_namespaced(written: &str) -> Result<String, String> {
+    official_or_namespaced(check_framing(written), written)
+}
+
+/// [`check_handshake`], letting a namespaced name through.
+pub fn check_handshake_or_namespaced(written: &str) -> Result<String, String> {
+    official_or_namespaced(check_handshake(written), written)
+}
+
+/// Whether `written` names an official encoding of `kind` (today's fixed
+/// lists, until the official encodings package replaces them).
+pub fn is_official(kind: crate::encodings::EncodingKind, written: &str) -> bool {
+    use crate::encodings::EncodingKind;
+    match kind {
+        EncodingKind::Format => check_format(written).is_ok(),
+        EncodingKind::Framing => check_framing(written).is_ok(),
+        EncodingKind::Handshake => check_handshake(written).is_ok(),
     }
 }
 
@@ -551,13 +587,14 @@ mod tests {
         assert_eq!(check_handshake("none"), Ok("none"));
         assert_eq!(value_spellings("handshake"), vec!["comline@1", "none"]);
 
-        let custom = check_handshake("com.acme.hello@1").unwrap_err();
-        assert!(custom.contains("core#120"), "{custom}");
+        // A namespaced one isn't official; whether it's declared is checked
+        // later, so the namespaced variant lets it through as written.
+        assert!(check_handshake("com.acme.hello@1").is_err());
+        assert_eq!(check_handshake_or_namespaced("com.acme.hello@1"), Ok("com.acme.hello@1".to_string()));
 
         for typo in ["comline", "comline@2", "None", "hello@1", "com.acme.hello"] {
-            let err = check_handshake(typo).unwrap_err();
-            assert!(!err.contains("core#120"), "{typo}: {err}");
-            assert!(err.contains("`comline@1` or `none`"), "{typo}: {err}");
+            let err = check_handshake_or_namespaced(typo).unwrap_err();
+            assert!(err.contains("`comline@1`, `none`"), "{typo}: {err}");
         }
     }
 

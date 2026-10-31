@@ -64,14 +64,14 @@ fn an_unknown_package_handshake_is_refused() {
     let typo = compile(Some("comline"), SCHEMA).unwrap_err().to_string();
     assert!(typo.contains("handshake `comline` isn't known"), "{typo}");
 
+    // A namespaced one has to be declared, by the package or a dependency.
     let custom = compile(Some("com.acme.hello@1"), SCHEMA).unwrap_err().to_string();
-    assert!(custom.contains("core#120"), "{custom}");
+    assert!(custom.contains("handshake `com.acme.hello@1` isn't declared"), "{custom}");
 }
 
 #[test]
 fn an_unknown_handshake_annotation_is_refused() {
     let schema = "@handshake = \"com.acme.hello@1\"\nprotocol P {\n    function f();\n}\n";
     let err = format!("{:?}", compile(None, schema).unwrap_err());
-    assert!(err.contains("handshake `com.acme.hello@1` isn't known"), "{err}");
-    assert!(err.contains("core#120"), "{err}");
+    assert!(err.contains("handshake `com.acme.hello@1` isn't declared"), "{err}");
 }

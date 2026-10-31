@@ -112,6 +112,12 @@ pub trait ImportLookup {
     fn carries_data(&self, _name: &str) -> Option<bool> {
         None
     }
+    /// Whether the package, or one of its dependencies, declares `name` as
+    /// an encoding of `kind` under `encodings` in its `config.idp`. `false`
+    /// when the lookup can't say: then only the official names are known.
+    fn encoding_declared(&self, _kind: crate::encodings::EncodingKind, _name: &str) -> bool {
+        false
+    }
 }
 
 /// The lookup for a schema validated on its own: no imports known.
@@ -545,7 +551,7 @@ pub fn validate_with(
         }
     }
 
-    check_annotation_values(units, &mut errors);
+    check_annotation_values(units, imports, &mut errors);
     check_unverified(units, &mut errors, &mut warnings);
     check_provider(units, &mut errors);
     validate_throws(units, &mut errors);
@@ -928,32 +934,33 @@ fn has_length(resolved: &TypeRef) -> bool {
 /// Only keys in [`annotations::KNOWN_ANNOTATIONS`] are checked - `@key` is
 /// an open namespace by design, so an unrecognised one is not an error and
 /// has no declared shape to check against.
-fn check_annotation_values(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+fn check_annotation_values(units: &[FrozenUnit], imports: &dyn ImportLookup, errors: &mut Vec<Diagnostic>) {
     for unit in units {
         match unit {
             FrozenUnit::Struct { name, parameters, fields, span, .. } => {
-                check_params(parameters, &format!("struct '{name}'"), Some(*span), errors);
-                check_field_params(fields, errors);
+                check_params(parameters, &format!("struct '{name}'"), Some(*span), imports, errors);
+                check_field_params(fields, imports, errors);
             }
             FrozenUnit::Error { name, parameters, fields, span, .. } => {
-                check_params(parameters, &format!("error '{name}'"), *span, errors);
-                check_field_params(fields, errors);
+                check_params(parameters, &format!("error '{name}'"), *span, imports, errors);
+                check_field_params(fields, imports, errors);
             }
             FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
-                check_params(parameters, &format!("protocol '{name}'"), Some(*span), errors);
+                check_params(parameters, &format!("protocol '{name}'"), Some(*span), imports, errors);
                 for function in functions {
                     if let FrozenUnit::Function { name: fname, parameters, span, .. } = function {
                         check_params(
                             parameters,
                             &format!("protocol '{name}', function '{fname}'"),
                             Some(*span),
+                            imports,
                             errors,
                         );
                     }
                 }
             }
             FrozenUnit::TypeAlias { name, parameters, span, .. } => {
-                check_params(parameters, &format!("type alias '{name}'"), Some(*span), errors);
+                check_params(parameters, &format!("type alias '{name}'"), Some(*span), imports, errors);
             }
             _ => {}
         }
@@ -1112,10 +1119,10 @@ fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
     }
 }
 
-fn check_field_params(fields: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+fn check_field_params(fields: &[FrozenUnit], imports: &dyn ImportLookup, errors: &mut Vec<Diagnostic>) {
     for field in fields {
         if let FrozenUnit::Field { name, parameters, span, .. } = field {
-            check_params(parameters, &format!("field '{name}'"), Some(*span), errors);
+            check_params(parameters, &format!("field '{name}'"), Some(*span), imports, errors);
         }
     }
 }
@@ -1124,8 +1131,11 @@ fn check_params(
     parameters: &[FrozenUnit],
     context: &str,
     span: Option<(usize, usize)>,
+    imports: &dyn ImportLookup,
     errors: &mut Vec<Diagnostic>,
 ) {
+    use crate::encodings::{is_namespaced, undeclared, EncodingKind};
+
     for param in parameters {
         let FrozenUnit::Property { name, value } = param else {
             continue;
@@ -1133,10 +1143,16 @@ fn check_params(
         let Some(info) = annotations::lookup(name) else {
             continue;
         };
-        // A handshake name gets the sentence `check_handshake` writes, which
-        // tells a custom one apart from a typo.
+        // A handshake name gets the sentence `check_handshake` writes, and a
+        // namespaced one has to be declared.
         if let (true, ConfigValue::Str(written)) = (name == "handshake", value) {
-            if let Err(message) = annotations::check_handshake(written) {
+            let message = match annotations::check_handshake(written) {
+                Ok(_) => None,
+                Err(_) if imports.encoding_declared(EncodingKind::Handshake, written) => None,
+                Err(_) if is_namespaced(written) => Some(undeclared(EncodingKind::Handshake, written)),
+                Err(message) => Some(message),
+            };
+            if let Some(message) = message {
                 errors.push(
                     Diagnostic::new(ANNOTATION_VALUE_MISMATCH, message)
                         .with_context(context.to_string())
@@ -1144,6 +1160,41 @@ fn check_params(
                 );
             }
             continue;
+        }
+        // A namespaced framing, `"com.acme.x@1"` or `{ name = "com.acme.x@1" }`:
+        // fine when declared, and otherwise an error saying so, never a
+        // silent default (cli#81).
+        if name == "framing" {
+            let written = match value {
+                ConfigValue::Str(written) => Some(written),
+                ConfigValue::Dict(_) => match value.entry("name") {
+                    Some(ConfigValue::Str(written)) => Some(written),
+                    _ => None,
+                },
+                _ => None,
+            };
+            if let Some(written) = written.filter(|w| is_namespaced(w)) {
+                let mut problem = None;
+                if !imports.encoding_declared(EncodingKind::Framing, written) {
+                    problem = Some(undeclared(EncodingKind::Framing, written));
+                } else if let ConfigValue::Dict(entries) = value {
+                    if let Some((key, _)) = entries.iter().find(|(k, _)| k != "name") {
+                        problem = Some(if key == "method_names" {
+                            format!("'@framing': `method_names` applies to JSON-RPC, not `{written}`")
+                        } else {
+                            format!("'@framing': `{key}` isn't allowed: expected `name`")
+                        });
+                    }
+                }
+                if let Some(message) = problem {
+                    errors.push(
+                        Diagnostic::new(ANNOTATION_VALUE_MISMATCH, message)
+                            .with_context(context.to_string())
+                            .maybe_span(span),
+                    );
+                }
+                continue;
+            }
         }
         if let Err(mismatch) = config_value::check(&info.value, value.form()) {
             errors.push(
