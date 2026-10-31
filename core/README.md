@@ -29,6 +29,19 @@ https://cs.hofstra.edu/~cscccl/rustlr_project/chapter6.html
 `comline-core` compiles a tree-sitter grammar in its build script, so a C
 compiler must be available on the build host.
 
+### Features
+
+- `compiler` (default): the parser, the `.ids`/`.idp` grammars, and
+  everything built on them - compiling, validating, diffing, building and
+  releasing packages.
+- `deps` (implies `compiler`): dependency resolution, for the CLI.
+
+With `default-features = false` the crate is the IR alone: the frozen schema
+and config units, the CBOR helpers, the IR format stamp, the annotation names
+and `unverified`. That's what a generator needs, and it has no tree-sitter in
+it, so it builds for `wasm32-wasip1` and `wasm32-unknown-unknown`. Module
+paths are the same with or without `compiler`.
+
 
 ## License
 

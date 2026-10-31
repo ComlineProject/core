@@ -14,6 +14,7 @@ use std::fmt;
 
 use serde_derive::{Deserialize, Serialize};
 
+#[cfg(feature = "compiler")]
 use crate::schema::idl::grammar;
 
 /// One of the language's primitive types. Spelled exactly as
@@ -125,6 +126,7 @@ pub enum TypeRef {
 
 impl TypeRef {
     /// The type a grammar node spells.
+    #[cfg(feature = "compiler")]
     pub fn from_grammar(ty: &grammar::Type) -> Self {
         use grammar::Type as G;
         let primitive = |p| TypeRef::Primitive(p);
@@ -238,6 +240,7 @@ pub enum Literal {
 impl Literal {
     /// The literal a value expression is, if it's one a field or constant
     /// can hold. An f-string isn't.
+    #[cfg(feature = "compiler")]
     pub fn from_grammar(expression: &grammar::Expression) -> Option<Self> {
         use grammar::Expression as E;
         Some(match expression {
@@ -314,6 +317,7 @@ pub enum Operand {
 }
 
 impl Condition {
+    #[cfg(feature = "compiler")]
     pub fn from_grammar(condition: &grammar::Condition) -> Self {
         Condition {
             first: Comparison::from_grammar(&condition.first),
@@ -333,6 +337,7 @@ impl Condition {
 }
 
 impl Comparison {
+    #[cfg(feature = "compiler")]
     fn from_grammar(comparison: &grammar::Comparison) -> Self {
         use grammar::CompareOp as G;
         Comparison {
@@ -351,6 +356,7 @@ impl Comparison {
 }
 
 impl Operand {
+    #[cfg(feature = "compiler")]
     fn from_grammar(operand: &grammar::Operand) -> Self {
         match operand {
             grammar::Operand::Path(path) => {
@@ -367,6 +373,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[cfg(feature = "compiler")]
     fn primitive_names_match_the_vocabulary() {
         let vocabulary: Vec<&str> =
             crate::schema::idl::vocabulary::PRIMITIVES.iter().map(|p| p.name).collect();

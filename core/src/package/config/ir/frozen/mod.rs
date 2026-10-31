@@ -1,5 +1,6 @@
 // Relative Modules
 pub mod cas;
+#[cfg(feature = "compiler")]
 pub mod loader;
 
 // Standard Uses
@@ -7,12 +8,14 @@ use std::slice::Iter;
 use std::iter::FilterMap;
 
 // Crate Uses
+#[cfg(feature = "compiler")]
 use crate::package::config::ir::context::ProjectContext;
 
 // External Uses
 use serde_derive::{Serialize, Deserialize};
 
 
+#[cfg(feature = "compiler")]
 pub type FrozenWhole = (ProjectContext, Vec<FrozenUnit>);
 
 

@@ -15,6 +15,7 @@ pub mod profile;
 use std::collections::BTreeMap;
 
 // Crate Uses
+#[cfg(feature = "compiler")]
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::FrozenUnit;
 
@@ -53,6 +54,7 @@ pub enum NamePolicy {
 /// package ([`official`]) may declare bare names; every other package is a
 /// [`NamePolicy::User`] one. Decided by where the package came from, not by
 /// its name, so a user package called `comline` is still a user package.
+#[cfg(feature = "compiler")]
 pub(crate) fn name_policy(context: &ProjectContext) -> NamePolicy {
     use crate::package::config::ir::context::Origin;
     match context.origin {
@@ -129,6 +131,7 @@ pub fn declared(units: &[FrozenUnit]) -> impl Iterator<Item = (&str, EncodingKin
 /// Whether `name` is declared as a `kind` by the official package, the
 /// package `context` holds, or any of its dependencies. An official name may
 /// be written as any of its spellings (`json-rpc`).
+#[cfg(feature = "compiler")]
 pub fn is_declared(context: &ProjectContext, kind: EncodingKind, name: &str) -> bool {
     if official::resolve(kind, name).is_some() {
         return true;
@@ -138,6 +141,7 @@ pub fn is_declared(context: &ProjectContext, kind: EncodingKind, name: &str) -> 
     declared_in(own.chain(dependencies), kind, name)
 }
 
+#[cfg(feature = "compiler")]
 fn declared_in<'a>(
     units: impl Iterator<Item = &'a FrozenUnit>,
     kind: EncodingKind,

@@ -1,8 +1,12 @@
 // Relative Modules
+#[cfg(feature = "compiler")]
 pub mod compiler;
+#[cfg(feature = "compiler")]
 pub mod interpreter;
+#[cfg(feature = "compiler")]
 pub mod context;
 pub mod frozen;
+#[cfg(feature = "compiler")]
 pub mod diff;
 
 // REMOVED: package_from_path_without_context()

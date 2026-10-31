@@ -8,6 +8,7 @@ pub mod diagnostics;
 pub mod encodings;
 pub mod schema;
 pub mod package;
+#[cfg(feature = "compiler")]
 pub mod autodoc;
 pub mod settings;
 pub mod utils;

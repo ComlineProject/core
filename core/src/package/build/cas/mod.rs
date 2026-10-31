@@ -19,30 +19,40 @@
 pub mod storage;       // Hash type and compression utilities
 pub mod object_store;  // CAS operations (read/write)
 pub mod objects;       // Blob, Tree, Commit types
+#[cfg(feature = "compiler")]
 pub mod refs;          // Git-style references management
+#[cfg(feature = "compiler")]
 pub mod build;         // Build process implementation
 pub mod version;       // Version bump types
+#[cfg(feature = "compiler")]
 pub mod release;       // Releases on top of builds
+#[cfg(feature = "compiler")]
 mod package;
+#[cfg(feature = "compiler")]
 mod schema;
 
 // Re-exports
 pub use storage::{Hash, compress, decompress};
 pub use object_store::ObjectStore;
+#[cfg(feature = "compiler")]
 pub use refs::{update_ref, read_ref, ref_exists, main_ref};
 pub use version::VersionBump;
 
 // Standard Uses
+#[cfg(feature = "compiler")]
 use std::path::Path;
 
 // Crate Uses
+#[cfg(feature = "compiler")]
 use crate::package::config::ir::context::ProjectContext;
 
 // External Uses
+#[cfg(feature = "compiler")]
 use eyre::Result;
 
 /// Process changes using CAS - delegates to build module
 #[allow(unused)]
+#[cfg(feature = "compiler")]
 pub fn process_changes(
     project_path: &Path,
     latest_project: &ProjectContext
@@ -53,6 +63,7 @@ pub fn process_changes(
 
 /// Process initial freezing using CAS - delegates to build module
 #[allow(unused)]
+#[cfg(feature = "compiler")]
 pub fn process_initial_freezing(
     project_path: &Path,
     latest_project: &ProjectContext
