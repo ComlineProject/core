@@ -215,3 +215,60 @@ fn a_dependent_uses_its_dependencys_format() {
     let err = format!("{:?}", compile_package(&tmp.path().join("alone")).unwrap_err());
     assert!(err.contains("format `com.acme.cbor@1` isn't declared"), "{err}");
 }
+
+/// The official encodings are declared by the embedded `comline` package,
+/// which every package sees: each name and alias works where it did, folds
+/// onto the same canonical spelling, and none of the official declarations
+/// land in the package's own frozen config.
+#[test]
+fn every_official_name_and_alias_resolves_as_before() {
+    for (written, canonical) in [
+        ("jsonrpc", "jsonrpc"),
+        ("json-rpc", "jsonrpc"),
+        ("jsonrpc-2.0", "jsonrpc"),
+        ("jsonrpc@1", "jsonrpc"),
+        ("datagram", "datagram"),
+        ("datagram@1", "datagram"),
+        ("comline.datagram", "datagram"),
+        ("datagram@2", "datagram@2"),
+    ] {
+        let config = compile_one(&format!("wire = {{ framing = \"{written}\" }}\n"), PLAIN, &[]).unwrap();
+        assert!(
+            config.contains(&ConfigUnit::Wire { format: None, framing: Some(canonical.to_string()) }),
+            "{written}: {config:?}"
+        );
+        assert!(!config.iter().any(|u| matches!(u, ConfigUnit::Encoding { .. })), "{written}: {config:?}");
+
+        let schema = format!("@framing = \"{written}\"\nprotocol P {{\n    function f();\n}}\n");
+        compile_one("", &schema, &[]).unwrap_or_else(|e| panic!("{written}: {e:?}"));
+    }
+    for format in ["packed@1", "json@1", "msgpack@1"] {
+        let config = compile_one(&format!("wire = {{ format = \"{format}\" }}\n"), PLAIN, &[]).unwrap();
+        assert!(config.contains(&ConfigUnit::Wire { format: Some(format.to_string()), framing: None }), "{format}");
+    }
+    // `none` (and `@unverified`, which it needs) is `handshake.rs`'s.
+    let config = compile_one("handshake = \"comline@1\"\n", PLAIN, &[]).unwrap();
+    assert!(config.contains(&ConfigUnit::Handshake("comline@1".to_string())), "{config:?}");
+    compile_one("", "@handshake = \"comline@1\"\nprotocol P {\n    function f();\n}\n", &[]).unwrap();
+}
+
+/// What an unknown official-looking name is told comes from the official
+/// package's declarations.
+#[test]
+fn an_unknown_name_lists_the_declared_official_ones() {
+    let err = error_of("wire = { framing = \"datagram@3\" }\n", PLAIN, &[]);
+    assert!(err.contains("expected one of `jsonrpc`, `datagram`, `datagram@2`"), "{err}");
+    let err = error_of("wire = { format = \"packed\" }\n", PLAIN, &[]);
+    assert!(err.contains("expected one of `packed@1`, `json@1`, `msgpack@1`"), "{err}");
+}
+
+/// Bare names are the official package's by where it comes from, not by
+/// its name: a user package called `comline` is refused one like any other.
+#[test]
+fn a_user_package_named_comline_cannot_declare_a_bare_name() {
+    let tmp = tempfile::tempdir().unwrap();
+    let config = LINES.replace("\"com.acme.lines@1\" =", "\"lines@1\" =").replace("com.acme.lines@1", "lines@1");
+    write_package(tmp.path(), "comline", &config, PLAIN, &[("profiles/lines.json", &FRAMING_PROFILE.replace("com.acme.lines@1", "lines@1"))]);
+    let err = format!("{:?}", compile_package(tmp.path()).unwrap_err());
+    assert!(err.contains("bare names are reserved to official encodings"), "{err}");
+}

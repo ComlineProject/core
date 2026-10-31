@@ -1,0 +1,43 @@
+{
+  "name": "packed@1",
+  "kind": "format",
+  "facts": {
+    "struct_fields": {
+      "value": "by_position",
+      "proven_by": [
+        "format-packed/decode-fields-reordered"
+      ]
+    },
+    "unknown_field": {
+      "value": "rejected",
+      "proven_by": [
+        "format-packed/decode-unknown-field"
+      ]
+    },
+    "missing_optional": {
+      "value": "rejected",
+      "proven_by": [
+        "format-packed/decode-missing-optional"
+      ]
+    },
+    "enum_variants": {
+      "value": "by_index",
+      "proven_by": [
+        "format-packed/decode-variant-reordered"
+      ]
+    },
+    "unknown_variant": {
+      "value": "rejected",
+      "proven_by": [
+        "format-packed/decode-unknown-variant"
+      ]
+    },
+    "integer_width": {
+      "value": "exact",
+      "proven_by": [
+        "format-packed/decode-wider-integer",
+        "format-packed/decode-wider-integer-overflow"
+      ]
+    }
+  }
+}

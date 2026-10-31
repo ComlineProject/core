@@ -1,0 +1,79 @@
+//! Comline's official encodings: the formats, framings and handshakes every
+//! package can use by their bare names (`packed@1`, `datagram@2`, ...).
+//!
+//! Built into the toolchain like `std`: every package sees these declarations
+//! with no entry in `config.idp`, and only this package may declare a bare
+//! name. Its version is the toolchain's.
+//!
+//! The profiles under `profiles/` are copied from ComlineProject/runtime
+//! `runtime/conformance/profiles/` at rev
+//! 257bc027d089041913a6f944072347171168472f, where the conformance corpus
+//! proves them. The runtime has no handshake profiles; `comline@1`'s is
+//! written here and states no facts. `none` isn't declared: it's the absence
+//! of a handshake, not one.
+//!
+//! The mappings are what the official generators emit today: comline-rust's
+//! `framing_for`/`format_type` and comline-typescript's `framing_for`/
+//! `codec_class`. Rust's `comline-runtime` is pinned by git rev, not by a
+//! version, so its mappings name no version. TypeScript has no MessagePack
+//! codec, so `msgpack@1` has no TypeScript mapping.
+congregation comline
+specification_version = 1
+
+encodings = {
+    "packed@1" = {
+        kind = "format"
+        profile = "profiles/packed@1.json"
+        map = {
+            rust = { type = "comline_runtime::format::Packed" package = "comline-runtime" }
+            typescript = { type = "PackedCodec" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "json@1" = {
+        kind = "format"
+        profile = "profiles/json@1.json"
+        map = {
+            rust = { type = "comline_runtime::format::Json" package = "comline-runtime" }
+            typescript = { type = "JsonCodec" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "msgpack@1" = {
+        kind = "format"
+        profile = "profiles/msgpack@1.json"
+        map = {
+            rust = { type = "comline_runtime::format::MsgPack" package = "comline-runtime" }
+        }
+    }
+    "jsonrpc@1" = {
+        kind = "framing"
+        profile = "profiles/jsonrpc@1.json"
+        map = {
+            rust = { type = "comline_runtime::framing::JsonRpcFraming" package = "comline-runtime" }
+            typescript = { type = "JsonRpcFraming" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "datagram@1" = {
+        kind = "framing"
+        profile = "profiles/datagram@1.json"
+        map = {
+            rust = { type = "comline_runtime::contract::DatagramFraming" package = "comline-runtime" }
+            typescript = { type = "DatagramFraming" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "datagram@2" = {
+        kind = "framing"
+        profile = "profiles/datagram@2.json"
+        map = {
+            rust = { type = "comline_runtime::contract::Datagram2Framing" package = "comline-runtime" }
+            typescript = { type = "Datagram2Framing" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "comline@1" = {
+        kind = "handshake"
+        profile = "profiles/comline@1.json"
+        map = {
+            rust = { type = "comline_runtime::handshake::ComlineHandshake" package = "comline-runtime" }
+            typescript = { type = "ComlineHandshake" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+}

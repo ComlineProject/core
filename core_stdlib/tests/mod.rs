@@ -25,3 +25,19 @@ fn collect(root: &Path, dir: &Path, found: &mut Vec<String>) {
         }
     }
 }
+
+/// `OFFICIAL_PROFILES` lists every profile of `packages/comline/profiles`.
+#[test]
+fn every_official_profile_is_embedded() {
+    let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("packages/comline/profiles");
+    let mut on_disk: Vec<String> = std::fs::read_dir(&dir)
+        .unwrap()
+        .map(|e| format!("profiles/{}", e.unwrap().file_name().to_string_lossy()))
+        .collect();
+    on_disk.sort();
+
+    let mut embedded: Vec<String> =
+        comline_core_stdlib::OFFICIAL_PROFILES.iter().map(|(path, _)| path.to_string()).collect();
+    embedded.sort();
+    assert_eq!(embedded, on_disk);
+}
