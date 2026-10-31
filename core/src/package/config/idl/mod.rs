@@ -1,4 +1,5 @@
 // Relative Modules
+#[cfg(feature = "compiler")]
 pub mod grammar;
 pub mod constants;
 // pub mod parser;

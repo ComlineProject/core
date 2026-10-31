@@ -15,6 +15,7 @@
 pub mod catalog;
 pub mod defaults;
 pub mod desugar;
+#[cfg(feature = "compiler")]
 pub mod effective;
 pub mod keys;
 pub mod merge;

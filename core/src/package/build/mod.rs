@@ -2,24 +2,34 @@
 pub mod cas; // CAS module (public for tests)
 
 // Standard Uses
+#[cfg(feature = "compiler")]
 use std::cell::RefCell;
 #[cfg(feature = "deps")]
 use std::collections::HashSet;
+#[cfg(feature = "compiler")]
 use std::path::Path;
 #[cfg(feature = "deps")]
 use std::path::PathBuf;
+#[cfg(feature = "compiler")]
 use std::rc::Rc;
 
 // Crate Uses
+#[cfg(feature = "compiler")]
 use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
+#[cfg(feature = "compiler")]
 use crate::package::config::ir::interpreter::ProjectInterpreter;
+#[cfg(feature = "compiler")]
 use crate::package::config::ir::{compiler, context::ProjectContext};
+#[cfg(feature = "compiler")]
 use crate::schema::idl::constants::SCHEMA_EXTENSION;
+#[cfg(feature = "compiler")]
 use crate::schema::ir::{context::SchemaContext, diff::SchemaChanges};
 
 // External Uses
+#[cfg(feature = "compiler")]
 use eyre::{bail, eyre, Result};
 
+#[cfg(feature = "compiler")]
 /// Compile and validate a package without touching CAS.
 ///
 /// This is the front half of [`build`]: it reads `config.<ext>`, interprets the
@@ -47,6 +57,7 @@ pub fn compile_package(package_path: &Path) -> Result<ProjectContext> {
     }
 }
 
+#[cfg(feature = "compiler")]
 /// [`compile_package`], resolving dependencies only from what's already on
 /// disk (see [`crate::package::deps::without_fetching`]): nothing is
 /// fetched, and nothing in a dependency cache is changed. Without the `deps`
@@ -83,6 +94,7 @@ pub(crate) fn compile_package_with(
     Ok(latest_project)
 }
 
+#[cfg(feature = "compiler")]
 #[cfg(not(feature = "deps"))]
 fn compile_package_inner(package_path: &Path) -> Result<ProjectContext> {
     let config_path = require_config_path(package_path)?;
@@ -91,6 +103,7 @@ fn compile_package_inner(package_path: &Path) -> Result<ProjectContext> {
     Ok(latest_project)
 }
 
+#[cfg(feature = "compiler")]
 fn require_config_path(package_path: &Path) -> Result<std::path::PathBuf> {
     let config_path = package_path.join(format!("config.{}", CONGREGATION_EXTENSION));
     let config_name = config_path.file_name().unwrap().to_str().unwrap();
@@ -111,6 +124,7 @@ fn canonical(path: &Path) -> PathBuf {
     path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
 }
 
+#[cfg(feature = "compiler")]
 /// Compile and validate a package from **in-memory sources** — no filesystem
 /// access. This is what the playground and other embedders use; `core` reads no
 /// files on this path.
@@ -133,6 +147,7 @@ pub struct PackageSources {
     schemas: Vec<(Vec<String>, String)>,
 }
 
+#[cfg(feature = "compiler")]
 impl PackageSources {
     pub fn new() -> Self {
         Self::default()
@@ -176,6 +191,7 @@ impl PackageSources {
     }
 }
 
+#[cfg(feature = "compiler")]
 /// A minimal congregation for the "just paste a schema" case — enough to
 /// interpret schemas and generate `rust`.
 fn default_congregation() -> String {
@@ -186,6 +202,7 @@ fn default_congregation() -> String {
         .to_string()
 }
 
+#[cfg(feature = "compiler")]
 /// Builds the package, which step-by-step means:
 /// - Compile configuration and schemas
 /// - Freeze the results into CAS (immutable storage)
@@ -195,6 +212,7 @@ pub fn build(package_path: &Path) -> Result<BuildResult> {
     build_with(package_path, |_| Ok(()))
 }
 
+#[cfg(feature = "compiler")]
 /// [`build`], with `check` run on the compiled package before anything is
 /// frozen: an error from it fails the build and leaves `.comline/`
 /// untouched.
@@ -236,6 +254,7 @@ pub fn build_with(
     })
 }
 
+#[cfg(feature = "compiler")]
 /// Glob `<package>/src/**/*.<ext>` and read each schema into a
 /// `(namespace segments, source)` pair. The namespace is the file's path
 /// under `src/`, extension dropped — shared by local-package loading and (via
@@ -308,12 +327,14 @@ fn interpret_schemas(
     compiler::interpret::interpret_context(context)
 }
 
+#[cfg(feature = "compiler")]
 #[cfg(not(feature = "deps"))]
 fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
     let sources = glob_schema_sources(package_path)?;
     interpret_schema_sources(context, &with_std(sources))
 }
 
+#[cfg(feature = "compiler")]
 /// `sources`, then the std schemas they import (`use std::…`), directly or
 /// through each other, under the `std` namespace. Appended after them, so a
 /// package's own schemas keep their order (and their CAS entry names).
@@ -323,6 +344,7 @@ fn with_std(mut sources: Vec<(Vec<String>, String)>) -> Vec<(Vec<String>, String
     sources
 }
 
+#[cfg(feature = "compiler")]
 /// Parse each `(namespace segments, source)`, register a `SchemaContext` on
 /// `context`, then run the project-aware interpretation + validation pass.
 /// Filesystem-free; shared by [`compile_package`] and [`PackageSources`].
@@ -334,6 +356,7 @@ fn interpret_schema_sources(
     compiler::interpret::interpret_context(context)
 }
 
+#[cfg(feature = "compiler")]
 /// Parse each `(namespace segments, source)` and register a `SchemaContext`
 /// for it on `context`, uninterpreted.
 fn add_schema_sources(context: &mut ProjectContext, schemas: &[(Vec<String>, String)]) -> Result<()> {
@@ -381,13 +404,18 @@ fn add_schema_sources(context: &mut ProjectContext, schemas: &[(Vec<String>, Str
 // Removed: freeze_project_auto() - no longer needed with CAS
 // CAS automatically handles freezing via process_initial_freezing/process_changes
 
+#[cfg(feature = "compiler")]
 pub struct BuildOptions {}
 
+#[cfg(feature = "compiler")]
 /// Re-export VersionBump from CAS for public API
 pub use cas::VersionBump;
+#[cfg(feature = "compiler")]
 pub use cas::release::{latest_release, release, ReleaseInfo, ReleaseRequest};
+#[cfg(feature = "compiler")]
 pub use cas::objects::Release;
 
+#[cfg(feature = "compiler")]
 /// Result of a successful build operation
 #[derive(Debug, Clone)]
 pub struct BuildResult {
@@ -414,6 +442,7 @@ pub struct BuildResult {
     pub context: ProjectContext,
 }
 
+#[cfg(feature = "compiler")]
 impl BuildResult {
     /// Get the version change as a formatted string (e.g., "0.1.0 → 0.2.0")
     pub fn version_change(&self) -> Option<String> {

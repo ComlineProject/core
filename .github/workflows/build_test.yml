@@ -4,6 +4,9 @@ on:
   push:
   pull_request:
 
+permissions:
+  contents: read
+
 env:
   CARGO_TERM_COLOR: always
 
@@ -26,3 +29,18 @@ jobs:
       # Dependency resolution is behind `deps` (the CLI turns it on), and so
       # are its tests.
       - run: cargo test --verbose -p comline-core --features deps
+
+  # The IR alone (`default-features = false`): what a generator depends on.
+  # It has no parser, so unlike the default build it compiles for WASI and
+  # the browser; this keeps tree-sitter (and anything else that can't) out.
+  ir_only:
+    name: IR only (no default features)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: rustup update stable && rustup default stable
+      - run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
+      - run: cargo build --verbose -p comline-core --no-default-features
+      - run: cargo test --verbose -p comline-core --no-default-features --lib
+      - run: cargo build --verbose -p comline-core --no-default-features --target wasm32-wasip1
+      - run: cargo build --verbose -p comline-core --no-default-features --target wasm32-unknown-unknown

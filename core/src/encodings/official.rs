@@ -25,7 +25,6 @@ use std::sync::OnceLock;
 // Crate Uses
 use super::EncodingKind;
 use crate::config_value::{canonicalize, StrVariant, ValueType};
-use crate::package::config::ir::context::Origin;
 use crate::package::config::ir::frozen::FrozenUnit;
 
 
@@ -47,28 +46,50 @@ const SPELLINGS: &[(&str, &str, &[&str])] = &[
 /// [`FrozenUnit::Encoding`] per official encoding, in the order its
 /// `config.idp` declares them.
 ///
+/// With the `compiler` feature they're frozen from the embedded
+/// `config.idp`, as any package's are. Without it (the IR-only build, which
+/// has no parser) they're read from [`SNAPSHOT`], the same units committed as
+/// JSON; a test proves the two are equal (`the_snapshot_is_what_freezes`).
+///
 /// Panics if the embedded package doesn't freeze, which a test proves it
 /// does (`every_official_encoding_freezes`).
 pub fn units() -> &'static [FrozenUnit] {
     static UNITS: OnceLock<Vec<FrozenUnit>> = OnceLock::new();
-    UNITS.get_or_init(|| {
-        let mut context = crate::package::config::ir::interpreter::ProjectInterpreter::from_config_source(
-            comline_core_stdlib::OFFICIAL_MANIFEST,
-        )
-        .unwrap_or_else(|e| panic!("the official encodings package doesn't parse: {e}"));
-        context.origin = Origin::Official;
-        // Only `encodings`: the rest of the manifest names the package.
-        context
-            .config
-            .assignments
-            .iter()
-            .filter(|assignment| assignment.key.text() == "encodings")
-            .flat_map(|assignment| {
-                crate::package::config::ir::interpreter::freezing::interpret_assignment(&context, assignment, None)
-                    .unwrap_or_else(|e| panic!("the official encodings package doesn't freeze: {e}"))
-            })
-            .collect()
-    })
+    UNITS.get_or_init(freeze)
+}
+
+/// The official units as the IR-only build reads them: what [`units`]
+/// freezes from the embedded `config.idp`, as JSON. Regenerate it after
+/// changing that manifest or the config IR with
+/// `COMLINE_BLESS=1 cargo test -p comline-core the_snapshot_is_what_freezes`.
+pub const SNAPSHOT: &str = include_str!("official_units.json");
+
+#[cfg(feature = "compiler")]
+fn freeze() -> Vec<FrozenUnit> {
+    use crate::package::config::ir::context::Origin;
+
+    let mut context = crate::package::config::ir::interpreter::ProjectInterpreter::from_config_source(
+        comline_core_stdlib::OFFICIAL_MANIFEST,
+    )
+    .unwrap_or_else(|e| panic!("the official encodings package doesn't parse: {e}"));
+    context.origin = Origin::Official;
+    // Only `encodings`: the rest of the manifest names the package.
+    context
+        .config
+        .assignments
+        .iter()
+        .filter(|assignment| assignment.key.text() == "encodings")
+        .flat_map(|assignment| {
+            crate::package::config::ir::interpreter::freezing::interpret_assignment(&context, assignment, None)
+                .unwrap_or_else(|e| panic!("the official encodings package doesn't freeze: {e}"))
+        })
+        .collect()
+}
+
+#[cfg(not(feature = "compiler"))]
+fn freeze() -> Vec<FrozenUnit> {
+    serde_json::from_str(SNAPSHOT)
+        .unwrap_or_else(|e| panic!("the official encodings snapshot doesn't load: {e}"))
 }
 
 /// Every spelling of the official encodings of `kind`, as a closed set:
@@ -117,6 +138,24 @@ pub fn names(kind: EncodingKind) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_snapshot_is_what_freezes() {
+        let frozen = units();
+        if std::env::var_os("COMLINE_BLESS").is_some() {
+            let json = serde_json::to_string_pretty(frozen).unwrap() + "\n";
+            let path = concat!(env!("CARGO_MANIFEST_DIR"), "/src/encodings/official_units.json");
+            std::fs::write(path, json).unwrap();
+            return;
+        }
+        let snapshot: Vec<FrozenUnit> = serde_json::from_str(SNAPSHOT)
+            .expect("official_units.json doesn't load; regenerate it (see SNAPSHOT)");
+        assert_eq!(
+            snapshot, frozen,
+            "official_units.json is stale; regenerate it with \
+             `COMLINE_BLESS=1 cargo test -p comline-core the_snapshot_is_what_freezes`"
+        );
+    }
 
     #[test]
     fn every_official_encoding_freezes() {

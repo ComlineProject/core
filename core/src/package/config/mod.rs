@@ -1,6 +1,7 @@
 // Relative Modules
 pub mod idl;
 pub mod ir;
+#[cfg(feature = "compiler")]
 pub mod dependency;  // NEW: Dependency configuration
 
 // Standard Uses

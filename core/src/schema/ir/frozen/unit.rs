@@ -1,6 +1,7 @@
 // Standard Uses
 
 // Crate Uses
+#[cfg(feature = "compiler")]
 use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::frozen::types::{Condition, Literal, TypeRef};
 
@@ -8,6 +9,7 @@ use crate::schema::ir::frozen::types::{Condition, Literal, TypeRef};
 use serde_derive::{Serialize, Deserialize};
 
 
+#[cfg(feature = "compiler")]
 pub type FrozenContextWhole = (SchemaContext, Vec<FrozenUnit>);
 
 

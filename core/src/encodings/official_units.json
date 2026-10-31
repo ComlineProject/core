@@ -1,0 +1,130 @@
+[
+  {
+    "Encoding": {
+      "name": "packed@1",
+      "kind": "format",
+      "profile_hash": "26f59478b6850d83093d681b35b6439bf2cd5b1a35625ce2a3f7be25683b063b",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::format::Packed",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "PackedCodec",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "json@1",
+      "kind": "format",
+      "profile_hash": "d7c426660ec824df3446698cd7c690e9fd7617d3461899992d6ebfdcf88d764e",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::format::Json",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "JsonCodec",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "msgpack@1",
+      "kind": "format",
+      "profile_hash": "c9970f9b0ba5e37be2f84cc3175574c2f657b5c429074966b1434dcb2a6dff23",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::format::MsgPack",
+          "package": "comline-runtime",
+          "version": null
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "jsonrpc@1",
+      "kind": "framing",
+      "profile_hash": "932359b98cd251cbdc7069d63816ba61138530402d4e9cae0f1e73cb8c25304c",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::framing::JsonRpcFraming",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "JsonRpcFraming",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "datagram@1",
+      "kind": "framing",
+      "profile_hash": "afd4d8115a7e32b5f8006edbef27d4666707bf096e50f901258018a92d67246a",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::contract::DatagramFraming",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "DatagramFraming",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "datagram@2",
+      "kind": "framing",
+      "profile_hash": "b5bec616814a2d24c3472b26b9974f10a176e508eb950bd97dda99c68cac840a",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::contract::Datagram2Framing",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "Datagram2Framing",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  },
+  {
+    "Encoding": {
+      "name": "comline@1",
+      "kind": "handshake",
+      "profile_hash": "826e15bc2b46c20a16a9500ffc9e8ed1d5162b75f10206407360f26ab36f711e",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::handshake::ComlineHandshake",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "ComlineHandshake",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      }
+    }
+  }
+]

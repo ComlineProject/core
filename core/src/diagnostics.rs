@@ -3,10 +3,13 @@
 //! same way via `ariadne` — instead of each pipeline stage inventing its
 //! own `Debug`-dump or ad hoc string.
 
+#[cfg(feature = "compiler")]
 use std::ops::Range;
 
+#[cfg(feature = "compiler")]
 use ariadne::{Label, Report, ReportKind, Source};
 
+#[cfg(feature = "compiler")]
 type SpanId = (String, Range<usize>);
 
 /// How urgently a diagnostic should be treated - one-to-one with LSP's four
@@ -154,8 +157,11 @@ impl Diagnostic {
     }
 }
 
+#[cfg(feature = "compiler")]
 const UNEXPECTED_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::unexpected-token");
+#[cfg(feature = "compiler")]
 const MISSING_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::missing-token");
+#[cfg(feature = "compiler")]
 const SYNTAX_ERROR: DiagnosticCode = DiagnosticCode::error("parse::syntax-error");
 const UNCLOSED_BRACKET: DiagnosticCode = DiagnosticCode::error("parse::unclosed-bracket");
 const MISSING_RETURN_TYPE: DiagnosticCode = DiagnosticCode::error("parse::missing-return-type");
@@ -169,6 +175,7 @@ const MISSING_RETURN_TYPE: DiagnosticCode = DiagnosticCode::error("parse::missin
 /// keeps the first leaf that actually names a token, the same rule
 /// `language-server`'s own (separately maintained) copy of this search
 /// uses.
+#[cfg(feature = "compiler")]
 pub fn from_parse_errors(errors: &[rust_sitter::errors::ParseError]) -> Diagnostic {
     match most_informative(errors) {
         Some((code, message, context, span, help)) => {
@@ -194,6 +201,7 @@ pub fn from_parse_errors(errors: &[rust_sitter::errors::ParseError]) -> Diagnost
 /// `FailedNode(vec![])`, emitted for an error node with no children and no
 /// text - the shape of a file cut off mid-construct, hitting EOF before
 /// completing it).
+#[cfg(feature = "compiler")]
 fn deepest_span(err: &rust_sitter::errors::ParseError) -> (usize, usize) {
     match &err.reason {
         rust_sitter::errors::ParseErrorReason::FailedNode(nested) => {
@@ -307,6 +315,7 @@ pub fn find_missing_return_types(source: &str) -> Vec<Diagnostic> {
 /// The one diagnostic for a `.ids` schema that failed to parse: an
 /// unclosed bracket first (it makes everything after it noise), then a
 /// missing return type, then the parser's own most informative error.
+#[cfg(feature = "compiler")]
 pub fn from_schema_parse_failure(
     source: &str,
     errors: &[rust_sitter::errors::ParseError],
@@ -317,6 +326,7 @@ pub fn from_schema_parse_failure(
 }
 
 #[allow(clippy::type_complexity)]
+#[cfg(feature = "compiler")]
 fn most_informative(
     errors: &[rust_sitter::errors::ParseError],
 ) -> Option<(DiagnosticCode, String, &'static str, (usize, usize), Option<String>)> {
@@ -354,6 +364,7 @@ fn most_informative(
 
 /// Suggestions for common mistakes a bare `UnexpectedToken` can't explain
 /// on its own - ported from the retired `schema::idl::diagnostics`.
+#[cfg(feature = "compiler")]
 fn get_suggestion(token: &str) -> Option<String> {
     match token {
         "int" => Some("use sized integer types like `u32`, `s32`, `u64`, etc.".to_string()),
@@ -366,6 +377,7 @@ fn get_suggestion(token: &str) -> Option<String> {
 /// Render one diagnostic as a rich, source-span-aware string via
 /// `ariadne`. Falls back to a flat `message\n  context` when there's no
 /// span, or if rendering itself fails.
+#[cfg(feature = "compiler")]
 pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
     let flat = || {
         let prefixed = format!("[{}] {}", d.code.id, d.message);
@@ -413,11 +425,13 @@ pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
 
 /// [`render`] for several diagnostics against the same source, joined with
 /// blank lines (e.g. several validation errors found in one schema).
+#[cfg(feature = "compiler")]
 pub fn render_all(ds: &[Diagnostic], filename: &str, source: &str) -> String {
     ds.iter().map(|d| render(d, filename, source)).collect::<Vec<_>>().join("\n\n")
 }
 
 #[cfg(test)]
+#[cfg(feature = "compiler")]
 mod tests {
     use super::*;
     use rust_sitter::errors::{ParseError, ParseErrorReason};
