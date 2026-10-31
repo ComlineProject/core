@@ -3,16 +3,20 @@
 //!
 //! A pinned copy of `Profile`, `ProfileKind`, `Fact` and the fact list from
 //! ComlineProject/runtime `runtime/conformance/src/lib.rs`, at rev
-//! `257bc027d089041913a6f944072347171168472f`. The runtime corpus is where
-//! the profiles are proven; core only checks that a declared profile is one.
-//! When the runtime's schema moves, this copy moves with it, and the rev
-//! above changes.
+//! `64505b40b39c93c5db40e981ba3eef14ecc0fc90` (spec 0.2). The runtime corpus
+//! is where the profiles are proven; core only checks that a declared
+//! profile is one. When the runtime's schema moves, this copy moves with it,
+//! and the rev above changes.
 //!
-//! One addition: [`ProfileKind::Handshake`]. The runtime has no handshake
-//! profiles yet, so a handshake's profile states no facts.
+//! A handshake's facts, `schema_agreement` and `encoding_agreement`, are
+//! what it establishes; one it doesn't state as `true` is given up
+//! ([`Profile::establishes`]).
 
 // Standard Uses
 use std::collections::BTreeMap;
+
+// Crate Uses
+use crate::schema::ir::frozen::unit::Guarantee;
 
 // External Uses
 use serde_derive::{Deserialize, Serialize};
@@ -34,15 +38,50 @@ pub struct Profile {
 pub enum ProfileKind {
     Format,
     Framing,
-    /// Core's addition: not in the runtime's copy yet.
+    /// A handshake: what it establishes between the two ends. A fact it
+    /// leaves out, or states `false`, isn't established.
     Handshake,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Fact {
+    /// The fact's value. A handshake's facts are JSON booleans, read as
+    /// `"true"` / `"false"`; every other fact is a string.
+    #[serde(with = "fact_value")]
     pub value: String,
+    /// The cases that prove it. A handshake fact stated `false` claims
+    /// nothing, so it names none.
+    #[serde(default)]
     pub proven_by: Vec<String>,
+}
+
+/// A fact's value: a string, or a JSON boolean (a handshake's facts), held
+/// as `"true"` / `"false"` and written back as a boolean.
+mod fact_value {
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Written {
+        Bool(bool),
+        Str(String),
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<String, D::Error> {
+        Ok(match Written::deserialize(d)? {
+            Written::Bool(b) => b.to_string(),
+            Written::Str(s) => s,
+        })
+    }
+
+    pub fn serialize<S: Serializer>(value: &str, s: S) -> Result<S::Ok, S::Error> {
+        match value {
+            "true" => s.serialize_bool(true),
+            "false" => s.serialize_bool(false),
+            other => s.serialize_str(other),
+        }
+    }
 }
 
 impl ProfileKind {
@@ -62,8 +101,17 @@ impl ProfileKind {
                 ("calls", &["by_index", "by_name", "by_id"]),
                 ("errors", &["by_ordinal", "by_name"]),
             ],
-            ProfileKind::Handshake => &[],
+            ProfileKind::Handshake => &[
+                ("schema_agreement", &["true", "false"]),
+                ("encoding_agreement", &["true", "false"]),
+            ],
         }
+    }
+
+    /// Whether a profile of this kind must state every fact. A handshake's
+    /// may leave one out, which reads as `false`: not established.
+    pub fn states_every_fact(self) -> bool {
+        !matches!(self, ProfileKind::Handshake)
     }
 
     pub fn as_str(self) -> &'static str {
@@ -97,9 +145,28 @@ impl Profile {
                 ));
             }
         }
-        if let Some((missing, _)) = known.iter().find(|(name, _)| !profile.facts.contains_key(*name)) {
-            return Err(format!("it doesn't state `{missing}`"));
+        if profile.kind.states_every_fact() {
+            if let Some((missing, _)) = known.iter().find(|(name, _)| !profile.facts.contains_key(*name)) {
+                return Err(format!("it doesn't state `{missing}`"));
+            }
         }
         Ok(profile)
+    }
+
+    /// The guarantees a handshake's profile states as established (its
+    /// facts that are `true`), sorted. Empty for a format or framing.
+    pub fn establishes(&self) -> Vec<Guarantee> {
+        if self.kind != ProfileKind::Handshake {
+            return vec![];
+        }
+        let stated = |fact: &str| self.facts.get(fact).is_some_and(|f| f.value == "true");
+        let mut set = vec![];
+        if stated("schema_agreement") {
+            set.push(Guarantee::SchemaAgreement);
+        }
+        if stated("encoding_agreement") {
+            set.push(Guarantee::EncodingAgreement);
+        }
+        set
     }
 }

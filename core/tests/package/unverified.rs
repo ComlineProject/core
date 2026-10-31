@@ -100,7 +100,7 @@ fn a_marker_where_nothing_is_given_up_is_a_warning() {
 /// The diff reads the frozen set, which a build writes; do the same here.
 fn frozen(source: &str) -> Vec<FrozenUnit> {
     let mut units = IncrementalInterpreter::from_source(source);
-    unverified::freeze(&mut units);
+    unverified::freeze(&mut units, &Default::default());
     units
 }
 
@@ -127,4 +127,23 @@ fn giving_up_is_major_restoring_is_minor_rewording_is_a_patch() {
         changes.modifications.as_slice(),
         [Modification::ChangedAnnotation { key, .. }] if key == "unverified"
     ));
+}
+
+#[test]
+fn comline_and_none_give_up_what_they_always_did() {
+    let encodings = unverified::Encodings::default();
+    let params = |handshake: &str| {
+        vec![FrozenUnit::Property {
+            name: "handshake".into(),
+            value: comline_core::schema::ir::frozen::unit::ConfigValue::Str(handshake.into()),
+        }]
+    };
+    assert!(unverified::given_up(&[], &encodings).is_empty());
+    assert!(unverified::given_up(&params("comline@1"), &encodings).is_empty());
+    assert_eq!(unverified::cause(&params("comline@1"), &encodings), "handshake `comline@1`");
+    assert_eq!(
+        unverified::given_up(&params("none"), &encodings),
+        [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+    );
+    assert_eq!(unverified::cause(&params("none"), &encodings), "handshake `none`");
 }

@@ -50,7 +50,7 @@ fn write_package(dir: &Path, name: &str, config: &str, schema: &str, files: &[(&
         dir.join("config.idp"),
         format!(
             "congregation {name}\nspecification_version = 1\n\n\
-             settings = {{ annotations = {{ framing = {{ allowed = true }} }} }}\n\n{config}"
+             settings = {{ annotations = {{ framing = {{ allowed = true }} unverified = {{ allowed = true }} }} }}\n\n{config}"
         ),
     )
     .unwrap();
@@ -74,13 +74,18 @@ fn error_of(config: &str, schema: &str, files: &[(&str, &str)]) -> String {
 
 const PLAIN: &str = "struct S {\n    a: u32\n}\n";
 
+/// A vectors file, as `comline conformance` reads it; core only looks for
+/// it beside the profile.
+const VECTORS: &str = r#"{ "feature": "lines", "cases": [] }"#;
+
 #[test]
 fn a_package_declares_a_framing_and_uses_it() {
     let schema = "@framing = \"com.acme.lines@1\"\nprotocol P {\n    function f();\n}\n";
-    let config = compile_one(LINES, schema, &[("profiles/lines.json", FRAMING_PROFILE)]).unwrap();
+    let files = [("profiles/lines.json", FRAMING_PROFILE), ("profiles/lines.vectors.json", VECTORS)];
+    let config = compile_one(LINES, schema, &files).unwrap();
 
     let encoding = config.iter().find(|u| matches!(u, ConfigUnit::Encoding { .. })).unwrap();
-    let ConfigUnit::Encoding { name, kind, profile_hash, map } = encoding else { unreachable!() };
+    let ConfigUnit::Encoding { name, kind, profile_hash, map, .. } = encoding else { unreachable!() };
     assert_eq!(name, "com.acme.lines@1");
     assert_eq!(*kind, EncodingKind::Framing);
     assert_eq!(*profile_hash, blake3::hash(FRAMING_PROFILE.as_bytes()).to_hex().to_string());
@@ -96,9 +101,9 @@ fn a_package_declares_a_framing_and_uses_it() {
 
     // The dictionary form too, and as the package's `wire.framing`.
     let schema = "@framing = { name = \"com.acme.lines@1\" }\nprotocol P {\n    function f();\n}\n";
-    compile_one(LINES, schema, &[("profiles/lines.json", FRAMING_PROFILE)]).unwrap();
+    compile_one(LINES, schema, &files).unwrap();
     let config = format!("{LINES}wire = {{ framing = \"com.acme.lines@1\" }}\n");
-    compile_one(&config, PLAIN, &[("profiles/lines.json", FRAMING_PROFILE)]).unwrap();
+    compile_one(&config, PLAIN, &files).unwrap();
 }
 
 #[test]
@@ -271,4 +276,153 @@ fn a_user_package_named_comline_cannot_declare_a_bare_name() {
     write_package(tmp.path(), "comline", &config, PLAIN, &[("profiles/lines.json", &FRAMING_PROFILE.replace("com.acme.lines@1", "lines@1"))]);
     let err = format!("{:?}", compile_package(tmp.path()).unwrap_err());
     assert!(err.contains("bare names are reserved to official encodings"), "{err}");
+}
+
+// --- What a declared encoding gives up (core#147) ---
+
+use comline_core::schema::ir::frozen::unit::{FrozenUnit, Guarantee};
+use comline_core::schema::ir::unverified;
+
+const HELLO: &str = r#"encodings = {
+    "com.acme.hello@1" = { kind = "handshake" profile = "profiles/hello.json" }
+}
+"#;
+
+fn hello_profile(facts: &str) -> String {
+    format!(r#"{{ "name": "com.acme.hello@1", "kind": "handshake", "facts": {{ {facts} }} }}"#)
+}
+
+const FULL_FACTS: &str = r#""schema_agreement": { "value": true, "proven_by": ["hello/agree", "hello/reject-schema"] },
+    "encoding_agreement": { "value": true, "proven_by": ["hello/agree", "hello/reject-encoding"] }"#;
+
+/// Compile one package; its protocol `P`'s frozen given-up set and the
+/// schema's warning codes.
+fn compile_protocol(
+    config: &str,
+    schema: &str,
+    files: &[(&str, &str)],
+) -> eyre::Result<(Vec<Guarantee>, Vec<String>)> {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package(tmp.path(), "app", config, schema, files);
+    let context = compile_package(tmp.path())?;
+    let schema = context.schema_contexts[0].borrow();
+    let units = schema.frozen_schema.borrow().clone().unwrap();
+    let set = units
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Protocol { name, parameters, .. } if name == "P" => {
+                Some(unverified::frozen_set(parameters).to_vec())
+            }
+            _ => None,
+        })
+        .unwrap();
+    let warnings = schema.warnings.borrow().iter().map(|w| w.code.id.to_string()).collect();
+    Ok((set, warnings))
+}
+
+const HELLO_P: &str = "@handshake = \"com.acme.hello@1\"\nprotocol P {\n    function f();\n}\n";
+const HELLO_P_MARKED: &str =
+    "@handshake = \"com.acme.hello@1\"\n@unverified = \"hello checks the schema out of band\"\nprotocol P {\n    function f();\n}\n";
+
+#[test]
+fn a_custom_handshake_stating_both_facts_needs_no_marker() {
+    let profile = hello_profile(FULL_FACTS);
+    let (set, warnings) = compile_protocol(HELLO, HELLO_P, &[("profiles/hello.json", &profile)]).unwrap();
+    assert!(set.is_empty());
+    assert!(warnings.is_empty(), "{warnings:?}");
+
+    // Its declaration carries what it establishes.
+    let config = compile_one(HELLO, PLAIN, &[("profiles/hello.json", &profile)]).unwrap();
+    assert!(config.iter().any(|u| matches!(
+        u,
+        ConfigUnit::Encoding { establishes, .. }
+            if establishes == &[Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+    )));
+
+    // Marked anyway: nothing is given up.
+    let (_, warnings) = compile_protocol(HELLO, HELLO_P_MARKED, &[("profiles/hello.json", &profile)]).unwrap();
+    assert!(warnings.contains(&"unverified::nothing-given-up".to_string()), "{warnings:?}");
+}
+
+#[test]
+fn a_custom_handshake_gives_up_what_its_profile_doesnt_establish() {
+    // States encoding agreement only; schema agreement left out.
+    let profile = hello_profile(
+        r#""encoding_agreement": { "value": true, "proven_by": ["hello/agree", "hello/reject-encoding"] }"#,
+    );
+    let files = [("profiles/hello.json", profile.as_str())];
+    let err = format!("{:?}", compile_protocol(HELLO, HELLO_P, &files).unwrap_err());
+    assert!(err.contains("unverified::missing-marker"), "{err}");
+    assert!(err.contains("gives up schema agreement (handshake `com.acme.hello@1` doesn't establish it)"), "{err}");
+
+    let (set, warnings) = compile_protocol(HELLO, HELLO_P_MARKED, &files).unwrap();
+    assert_eq!(set, [Guarantee::SchemaAgreement]);
+    assert_eq!(warnings, ["unverified::schema-agreement"]);
+
+    // Stated `false` reads the same as left out.
+    let profile = hello_profile(
+        r#""schema_agreement": { "value": false },
+    "encoding_agreement": { "value": true, "proven_by": ["hello/agree"] }"#,
+    );
+    let (set, _) = compile_protocol(HELLO, HELLO_P_MARKED, &[("profiles/hello.json", &profile)]).unwrap();
+    assert_eq!(set, [Guarantee::SchemaAgreement]);
+
+    // States nothing: both, as `none`.
+    let profile = hello_profile("");
+    let (set, _) = compile_protocol(HELLO, HELLO_P_MARKED, &[("profiles/hello.json", &profile)]).unwrap();
+    assert_eq!(set, [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]);
+
+    // As the package's default handshake too.
+    let config = format!("{HELLO}handshake = \"com.acme.hello@1\"\n");
+    let bare = "protocol P {\n    function f();\n}\n";
+    let err = format!("{:?}", compile_protocol(&config, bare, &[("profiles/hello.json", &profile)]).unwrap_err());
+    assert!(err.contains("unverified::missing-marker"), "{err}");
+}
+
+#[test]
+fn a_handshake_fact_takes_a_boolean() {
+    let profile = hello_profile(r#""schema_agreement": { "value": "maybe", "proven_by": [] }"#);
+    let err = error_of(HELLO, PLAIN, &[("profiles/hello.json", &profile)]);
+    assert!(err.contains("its `schema_agreement` is `maybe`: expected one of `true`, `false`"), "{err}");
+}
+
+#[test]
+fn an_encoding_without_vectors_gives_up_encoding_conformance() {
+    let unmarked = "@framing = \"com.acme.lines@1\"\nprotocol P {\n    function f();\n}\n";
+    let marked = "@framing = \"com.acme.lines@1\"\n@unverified = \"lines has no vectors yet\"\nprotocol P {\n    function f();\n}\n";
+    let profile = ("profiles/lines.json", FRAMING_PROFILE);
+
+    let err = format!("{:?}", compile_protocol(LINES, unmarked, &[profile]).unwrap_err());
+    assert!(err.contains("unverified::missing-marker"), "{err}");
+    assert!(err.contains("gives up encoding conformance (framing `com.acme.lines@1` ships no conformance vectors)"), "{err}");
+
+    let (set, warnings) = compile_protocol(LINES, marked, &[profile]).unwrap();
+    assert_eq!(set, [Guarantee::EncodingConformance]);
+    assert_eq!(warnings, ["unverified::encoding-conformance"]);
+
+    // With vectors beside the profile, nothing is given up.
+    let with_vectors = [profile, ("profiles/lines.vectors.json", VECTORS)];
+    let (set, warnings) = compile_protocol(LINES, unmarked, &with_vectors).unwrap();
+    assert!(set.is_empty());
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let config = compile_one(LINES, PLAIN, &with_vectors).unwrap();
+    assert!(config.iter().any(|u| matches!(u, ConfigUnit::Encoding { has_vectors: true, .. })));
+
+    // The package's `wire.framing`, and a `wire.format`, count for every
+    // protocol that uses them.
+    let config = format!("{LINES}wire = {{ framing = \"com.acme.lines@1\" }}\n");
+    let bare = "protocol P {\n    function f();\n}\n";
+    let err = format!("{:?}", compile_protocol(&config, bare, &[profile]).unwrap_err());
+    assert!(err.contains("ships no conformance vectors"), "{err}");
+
+    let cbor = "encodings = {\n    \"com.acme.cbor@1\" = { kind = \"format\" profile = \"profiles/cbor.json\" }\n}\n\
+                wire = { format = \"com.acme.cbor@1\" }\n";
+    let err = format!("{:?}", compile_protocol(cbor, bare, &[("profiles/cbor.json", FORMAT_PROFILE)]).unwrap_err());
+    assert!(err.contains("format `com.acme.cbor@1` ships no conformance vectors"), "{err}");
+    compile_protocol(
+        cbor,
+        bare,
+        &[("profiles/cbor.json", FORMAT_PROFILE), ("profiles/cbor.vectors.json", VECTORS)],
+    )
+    .unwrap();
 }

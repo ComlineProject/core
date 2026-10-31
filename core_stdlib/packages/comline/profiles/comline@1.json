@@ -1,5 +1,21 @@
 {
   "name": "comline@1",
   "kind": "handshake",
-  "facts": {}
+  "facts": {
+    "encoding_agreement": {
+      "value": true,
+      "proven_by": [
+        "handshake/check-agree",
+        "handshake/check-reject-format",
+        "handshake/check-reject-framing"
+      ]
+    },
+    "schema_agreement": {
+      "value": true,
+      "proven_by": [
+        "handshake/check-agree",
+        "handshake/check-reject-ir-hash"
+      ]
+    }
+  }
 }

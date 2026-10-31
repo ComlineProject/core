@@ -566,6 +566,9 @@ impl ImportLookup for ProjectImports<'_> {
     fn encoding_declared(&self, kind: crate::encodings::EncodingKind, name: &str) -> bool {
         crate::encodings::is_declared(self.project, kind, name)
     }
+    fn encodings(&self) -> crate::schema::ir::unverified::Encodings<'_> {
+        crate::schema::ir::unverified::Encodings::of(self.project)
+    }
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();

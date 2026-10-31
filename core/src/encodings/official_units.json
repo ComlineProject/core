@@ -15,7 +15,9 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
@@ -34,7 +36,9 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
@@ -48,7 +52,9 @@
           "package": "comline-runtime",
           "version": null
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
@@ -67,7 +73,9 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
@@ -86,7 +94,9 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
@@ -105,14 +115,16 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [],
+      "has_vectors": true
     }
   },
   {
     "Encoding": {
       "name": "comline@1",
       "kind": "handshake",
-      "profile_hash": "826e15bc2b46c20a16a9500ffc9e8ed1d5162b75f10206407360f26ab36f711e",
+      "profile_hash": "4a4eef3c568d4f81e12bb1ff76dc2d4f53e0cc30ff666fe9deeb841e629e76b5",
       "map": {
         "rust": {
           "type": "comline_runtime::handshake::ComlineHandshake",
@@ -124,7 +136,12 @@
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }
-      }
+      },
+      "establishes": [
+        "SchemaAgreement",
+        "EncodingAgreement"
+      ],
+      "has_vectors": true
     }
   }
 ]

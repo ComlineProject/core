@@ -7,10 +7,10 @@
 //!
 //! The profiles under `profiles/` are copied from ComlineProject/runtime
 //! `runtime/conformance/profiles/` at rev
-//! 257bc027d089041913a6f944072347171168472f, where the conformance corpus
-//! proves them. The runtime has no handshake profiles; `comline@1`'s is
-//! written here and states no facts. `none` isn't declared: it's the absence
-//! of a handshake, not one.
+//! 64505b40b39c93c5db40e981ba3eef14ecc0fc90, where the conformance corpus
+//! proves them. `comline@1`'s states that it establishes schema and encoding
+//! agreement. `none` isn't declared: it's the absence of a handshake, not
+//! one, and establishes neither.
 //!
 //! The mappings are what the official generators emit today: comline-rust's
 //! `framing_for`/`format_type` and comline-typescript's `framing_for`/
