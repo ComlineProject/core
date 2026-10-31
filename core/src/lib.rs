@@ -6,6 +6,8 @@
 pub mod config_value;
 pub mod diagnostics;
 pub mod encodings;
+#[cfg(feature = "compiler")]
+pub mod inspect;
 pub mod schema;
 pub mod package;
 #[cfg(feature = "compiler")]
