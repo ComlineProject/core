@@ -5,6 +5,8 @@
 // Relative Modules
 pub mod config_value;
 pub mod diagnostics;
+#[cfg(feature = "compiler")]
+pub mod doc;
 pub mod encodings;
 #[cfg(feature = "compiler")]
 pub mod inspect;

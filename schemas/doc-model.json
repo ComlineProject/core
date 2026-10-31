@@ -1,0 +1,1930 @@
+{
+  "$id": "https://comlineproject.github.io/docs/schemas/doc-model/1.json",
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "definitions": {
+    "Acceptance": {
+      "description": "Whether a given-up guarantee has been accepted by a consumer.",
+      "oneOf": [
+        {
+          "description": "It's held: there's nothing to accept.",
+          "properties": {
+            "state": {
+              "const": "not_needed",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The package's own protocol: its consumers accept it in their own\n`config.idp`, which a package can't see.",
+          "properties": {
+            "state": {
+              "const": "unknown",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A dependency's protocol, accepted by the inspected package (named).",
+          "properties": {
+            "by": {
+              "type": "string"
+            },
+            "state": {
+              "const": "accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state",
+            "by"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A dependency's protocol the inspected package doesn't accept (the\nbuild refuses it).",
+          "properties": {
+            "state": {
+              "const": "not_accepted",
+              "type": "string"
+            }
+          },
+          "required": [
+            "state"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Annotation": {
+      "description": "One `@key` or `@key = value` annotation.",
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "description": "The value as written; `None` for a bare `@key`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "key"
+      ],
+      "type": "object"
+    },
+    "Argument": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "type": {
+          "$ref": "#/definitions/Type"
+        }
+      },
+      "required": [
+        "name",
+        "type"
+      ],
+      "type": "object"
+    },
+    "Assert": {
+      "description": "One `assert(condition, message)` of a validator.",
+      "properties": {
+        "condition": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "condition",
+        "message"
+      ],
+      "type": "object"
+    },
+    "BreakingChange": {
+      "description": "Breaking changes that require a major version bump",
+      "oneOf": [
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_struct",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_enum",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A field disappeared, optional or not: its name is gone for every\nconsumer that reads it.",
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "removed_field",
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "field_type": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_required_field",
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name",
+            "field_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_field_type",
+              "type": "string"
+            },
+            "new_type": {
+              "type": "string"
+            },
+            "old_type": {
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name",
+            "old_type",
+            "new_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`optional` flipped, either way. Made optional: old readers may now\nreceive nothing where they expect a value. Made required: old writers\nmay still leave it out.",
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_field_optionality",
+              "type": "string"
+            },
+            "now_optional": {
+              "type": "boolean"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name",
+            "now_optional"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "enum_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "removed_enum_variant",
+              "type": "string"
+            },
+            "variant": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "enum_name",
+            "variant"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "One variant removed and one added at the same position: reported as\nthe rename it most likely is, rather than a removal plus an addition.\nStill breaking, since variants travel by name.",
+          "properties": {
+            "enum_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "renamed_enum_variant",
+              "type": "string"
+            },
+            "new_name": {
+              "type": "string"
+            },
+            "old_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "enum_name",
+            "old_name",
+            "new_name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "function_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "removed_function",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name",
+            "function_name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "details": {
+              "type": "string"
+            },
+            "function_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_function_signature",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name",
+            "function_name",
+            "details"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A function no longer declares an error it used to (`! Name`): the\ngenerated error variant disappears for its callers.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "function_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "removed_thrown_error",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name",
+            "function_name",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_protocol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_error",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The error's ordinal is what travels on the wire, and it shifts when a\nlocal error is inserted, removed or reordered before it.",
+          "properties": {
+            "kind": {
+              "const": "changed_error_ordinal",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "new_ordinal": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "old_ordinal": {
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "old_ordinal",
+            "new_ordinal"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_constant",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "changed_constant_type",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "new_type": {
+              "type": "string"
+            },
+            "old_type": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "old_type",
+            "new_type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_type_alias",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "changed_type_alias_target",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "new_target": {
+              "type": "string"
+            },
+            "old_target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "old_target",
+            "new_target"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "removed_validator",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A validator declaration's targets, properties or body changed. What\nit accepts can't be compared in general, so any change counts as\nnarrowing.",
+          "properties": {
+            "kind": {
+              "const": "changed_validator",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "The validators applied to a declaration changed other than by pure\nremoval: what's accepted may have narrowed.",
+          "properties": {
+            "kind": {
+              "const": "validation_tightened",
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An annotation that changes what travels on the wire (`@framing`).",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_wire_annotation",
+              "type": "string"
+            },
+            "new_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "old_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target",
+            "key"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A protocol gave up guarantees it used to keep (`@unverified`, or its\nset growing): peers relied on them.",
+          "properties": {
+            "guarantees": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "gave_up_guarantees",
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target",
+            "guarantees"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Changelog": {
+      "description": "What changed from one version to another, as `comline diff` reports it.\n\nNames in it are as the declarations write them, not qualified by\nmodule.",
+      "properties": {
+        "breaking": {
+          "description": "Changes an older peer can't work with: a major bump.",
+          "items": {
+            "$ref": "#/definitions/BreakingChange"
+          },
+          "type": "array"
+        },
+        "features": {
+          "description": "Additions: a minor bump.",
+          "items": {
+            "$ref": "#/definitions/NewFeature"
+          },
+          "type": "array"
+        },
+        "from": {
+          "type": "string"
+        },
+        "modifications": {
+          "description": "The rest: a patch bump.",
+          "items": {
+            "$ref": "#/definitions/Modification"
+          },
+          "type": "array"
+        },
+        "to": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "from",
+        "to",
+        "breaking",
+        "features",
+        "modifications"
+      ],
+      "type": "object"
+    },
+    "Choice": {
+      "description": "A resolved encoding: its name, its parameters and where it came from.",
+      "properties": {
+        "params": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "Its parameters (`@framing`'s dictionary form, less `name`), each\nvalue as written.",
+          "type": "object"
+        },
+        "source": {
+          "$ref": "#/definitions/Source"
+        },
+        "value": {
+          "description": "The name, canonical (`datagram@2`, `jsonrpc`, `comline@1`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "value",
+        "params",
+        "source"
+      ],
+      "type": "object"
+    },
+    "Doc": {
+      "description": "A `///` docstring: its description and its `/// @name: ...` lines.",
+      "properties": {
+        "params": {
+          "description": "The `/// @name: description` lines, in order: a field or an argument\neach.",
+          "items": {
+            "$ref": "#/definitions/DocParam"
+          },
+          "type": "array"
+        },
+        "text": {
+          "description": "Every line that isn't an `@name:` line, joined with newlines.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "text",
+        "params"
+      ],
+      "type": "object"
+    },
+    "DocParam": {
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "text"
+      ],
+      "type": "object"
+    },
+    "Field": {
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/definitions/Annotation"
+          },
+          "type": "array"
+        },
+        "default": {
+          "description": "`= value`, as written.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "docs": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Doc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "optional": {
+          "type": "boolean"
+        },
+        "type": {
+          "$ref": "#/definitions/Type"
+        }
+      },
+      "required": [
+        "name",
+        "annotations",
+        "type",
+        "optional"
+      ],
+      "type": "object"
+    },
+    "Function": {
+      "properties": {
+        "annotations": {
+          "items": {
+            "$ref": "#/definitions/Annotation"
+          },
+          "type": "array"
+        },
+        "arguments": {
+          "items": {
+            "$ref": "#/definitions/Argument"
+          },
+          "type": "array"
+        },
+        "docs": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Doc"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "returns": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/Type"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "`None` when the function has no reply at all; [`Type::Unit`] for `()`."
+        },
+        "throws": {
+          "description": "The errors it declares with `!`, each a reference to the error.",
+          "items": {
+            "$ref": "#/definitions/Type"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "name",
+        "annotations",
+        "arguments",
+        "throws"
+      ],
+      "type": "object"
+    },
+    "GuaranteeRow": {
+      "description": "One guarantee of one protocol.",
+      "properties": {
+        "acceptance": {
+          "$ref": "#/definitions/Acceptance"
+        },
+        "causes": {
+          "description": "Why it's given up, one entry per cause ([`unverified::causes`]).\nEmpty when held.",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "guarantee": {
+          "type": "string"
+        },
+        "held": {
+          "type": "boolean"
+        },
+        "reason": {
+          "description": "The `@unverified` reason, when it's given up and the marker carries\none.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "guarantee",
+        "held",
+        "causes",
+        "acceptance"
+      ],
+      "type": "object"
+    },
+    "Modification": {
+      "description": "Non-breaking modifications that may warrant a patch bump",
+      "oneOf": [
+        {
+          "description": "A declaration's own docstring text changed with nothing else about\nit - doc/comment-only changes warrant a patch bump, not a\nmajor/minor one. Only tracked at the declaration level (struct,\nenum, protocol, const, error, alias, validator) for now, not\nper-field/per-function.",
+          "properties": {
+            "kind": {
+              "const": "docstring_changed",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_field_default",
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "changed_error_message",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "An annotation that doesn't change the wire changed: `@timeout_ms`,\n`@idempotent`, `@deprecated` removed or reworded, or one core doesn't\nknow.",
+          "properties": {
+            "key": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "changed_annotation",
+              "type": "string"
+            },
+            "new_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "old_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target",
+            "key"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Module": {
+      "description": "One schema file.",
+      "properties": {
+        "docs": {
+          "description": "Its `//!` header.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "path": {
+          "description": "Its path within the package: `api`, `types::user`.",
+          "type": "string"
+        },
+        "units": {
+          "description": "What it declares, in declaration order.",
+          "items": {
+            "$ref": "#/definitions/Unit"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "path",
+        "units"
+      ],
+      "type": "object"
+    },
+    "NewFeature": {
+      "description": "New features that require a minor version bump",
+      "oneOf": [
+        {
+          "properties": {
+            "field_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "added_struct",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "field_count"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "added_enum",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "variant_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "variant_count"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "field_type": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_field",
+              "type": "string"
+            },
+            "optional": {
+              "type": "boolean"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name",
+            "field_type",
+            "optional"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "enum_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_enum_variant",
+              "type": "string"
+            },
+            "variant": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "enum_name",
+            "variant"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "function_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_function",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            },
+            "signature": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name",
+            "function_name",
+            "signature"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A function declares a new error (`! Name`). Older callers see it as\na remote error they don't know.",
+          "properties": {
+            "error": {
+              "type": "string"
+            },
+            "function_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_thrown_error",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name",
+            "function_name",
+            "error"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "function_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "added_protocol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "function_count"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "field_count": {
+              "format": "uint",
+              "minimum": 0,
+              "type": "integer"
+            },
+            "kind": {
+              "const": "added_error",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "field_count"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "added_constant",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "ty": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "ty"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A constant's value changed. Counted as minor for now: whether it\nreaches the wire (a validator argument, a default) isn't traced yet.",
+          "properties": {
+            "kind": {
+              "const": "changed_constant_value",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "new_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "old_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "added_type_alias",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "kind": {
+              "const": "added_validator",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Validators were only removed from a declaration: what's accepted\nwidens.",
+          "properties": {
+            "kind": {
+              "const": "validation_loosened",
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`@deprecated` was added to a declaration.",
+          "properties": {
+            "kind": {
+              "const": "deprecated",
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A protocol keeps guarantees it used to give up.",
+          "properties": {
+            "guarantees": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "restored_guarantees",
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target",
+            "guarantees"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Package": {
+      "properties": {
+        "docs": {
+          "description": "The `//!` header of its `config.idp`.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "description": "The version it was built as, when the caller knows it.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    },
+    "ProtocolSummary": {
+      "description": "One protocol, as [`protocols`] reports it.",
+      "properties": {
+        "dependency": {
+          "description": "Whether it's a dependency's protocol rather than the package's own.",
+          "type": "boolean"
+        },
+        "format": {
+          "$ref": "#/definitions/Choice"
+        },
+        "framing": {
+          "$ref": "#/definitions/Choice"
+        },
+        "guarantees": {
+          "description": "Every guarantee, in [`Guarantee::ALL`] order.",
+          "items": {
+            "$ref": "#/definitions/GuaranteeRow"
+          },
+          "type": "array"
+        },
+        "handshake": {
+          "$ref": "#/definitions/Choice"
+        },
+        "name": {
+          "type": "string"
+        },
+        "package": {
+          "description": "The package that declares it: the inspected package's name, or the\ndependency's, as the inspected package names it.",
+          "type": "string"
+        },
+        "schema": {
+          "description": "The schema it's in (`api`, or `billing::api` for a dependency's).",
+          "type": "string"
+        },
+        "unverified": {
+          "description": "Whether it's marked `@unverified`.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "package",
+        "dependency",
+        "schema",
+        "name",
+        "format",
+        "framing",
+        "handshake",
+        "unverified",
+        "guarantees"
+      ],
+      "type": "object"
+    },
+    "SettingsEntry": {
+      "properties": {
+        "key": {
+          "type": "string"
+        },
+        "value": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "key",
+        "value"
+      ],
+      "type": "object"
+    },
+    "Source": {
+      "description": "Where a [`Choice`] came from.",
+      "oneOf": [
+        {
+          "const": "annotation",
+          "description": "The protocol's own `@framing` or `@handshake`.",
+          "type": "string"
+        },
+        {
+          "const": "package_default",
+          "description": "The package's `wire` or `handshake` in its `config.idp`.",
+          "type": "string"
+        },
+        {
+          "const": "core_default",
+          "description": "Core's default (`packed@1`, `datagram@2`, `comline@1`).",
+          "type": "string"
+        },
+        {
+          "const": "framing",
+          "description": "The format JSON-RPC implies: JSON, when the package names no\nformat.",
+          "type": "string"
+        }
+      ]
+    },
+    "Type": {
+      "description": "A type as written, with every name in it resolved to the unit it names.",
+      "oneOf": [
+        {
+          "description": "`u32`, `string`, ...",
+          "properties": {
+            "kind": {
+              "const": "primitive",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A struct, enum, error or alias, by the name written (`User`,\n`types::User`), and the unit it resolves to; `None` when it doesn't\nresolve to a compiled unit.",
+          "properties": {
+            "kind": {
+              "const": "named",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "target": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/UnitRef"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`T[]` (`length: None`) or `T[N]`.",
+          "properties": {
+            "element": {
+              "$ref": "#/definitions/Type"
+            },
+            "kind": {
+              "const": "array",
+              "type": "string"
+            },
+            "length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "element"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`union(A B ...)`.",
+          "properties": {
+            "kind": {
+              "const": "union",
+              "type": "string"
+            },
+            "members": {
+              "items": {
+                "$ref": "#/definitions/Type"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "members"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "`()`.",
+          "properties": {
+            "kind": {
+              "const": "unit",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "Unit": {
+      "description": "A declared unit.",
+      "oneOf": [
+        {
+          "properties": {
+            "annotations": {
+              "items": {
+                "$ref": "#/definitions/Annotation"
+              },
+              "type": "array"
+            },
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/definitions/Field"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "struct",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "annotations",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "enum",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "variants": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "variants"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "annotations": {
+              "items": {
+                "$ref": "#/definitions/Annotation"
+              },
+              "type": "array"
+            },
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "functions": {
+              "items": {
+                "$ref": "#/definitions/Function"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "protocol",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "wire": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/ProtocolSummary"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "What it resolves to on the wire ([`crate::inspect`])."
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "annotations",
+            "functions"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "annotations": {
+              "items": {
+                "$ref": "#/definitions/Annotation"
+              },
+              "type": "array"
+            },
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "fields": {
+              "items": {
+                "$ref": "#/definitions/Field"
+              },
+              "type": "array"
+            },
+            "kind": {
+              "const": "error",
+              "type": "string"
+            },
+            "message": {
+              "description": "The message template, `{path}` placeholders intact.",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "ordinal": {
+              "description": "Its slot in the schema's error space.",
+              "format": "uint16",
+              "maximum": 65535,
+              "minimum": 0,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "annotations",
+            "ordinal",
+            "message",
+            "fields"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "annotations": {
+              "items": {
+                "$ref": "#/definitions/Annotation"
+              },
+              "type": "array"
+            },
+            "asserts": {
+              "items": {
+                "$ref": "#/definitions/Assert"
+              },
+              "type": "array"
+            },
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "validator",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "params": {
+              "description": "Its parameters.",
+              "items": {
+                "$ref": "#/definitions/Field"
+              },
+              "type": "array"
+            },
+            "targets": {
+              "description": "The types it applies to (after `for`).",
+              "items": {
+                "$ref": "#/definitions/Type"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "annotations",
+            "targets",
+            "params",
+            "asserts"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "constant",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "type": {
+              "$ref": "#/definitions/Type"
+            },
+            "value": {
+              "description": "The value as written.",
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "type"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "annotations": {
+              "items": {
+                "$ref": "#/definitions/Annotation"
+              },
+              "type": "array"
+            },
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "type_alias",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "target": {
+              "$ref": "#/definitions/Type"
+            }
+          },
+          "required": [
+            "kind",
+            "name",
+            "annotations",
+            "target"
+          ],
+          "type": "object"
+        },
+        {
+          "properties": {
+            "docs": {
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/Doc"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "kind": {
+              "const": "settings",
+              "type": "string"
+            },
+            "name": {
+              "description": "`None` for the schema's unnamed block.",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "values": {
+              "description": "Each leaf by its dotted key, in key order.",
+              "items": {
+                "$ref": "#/definitions/SettingsEntry"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "kind",
+            "values"
+          ],
+          "type": "object"
+        }
+      ]
+    },
+    "UnitRef": {
+      "description": "Where a unit is declared.",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "package": {
+          "description": "The package: the documented one, a dependency (by the name the\ndocumented package gives it) or `std`.",
+          "type": "string"
+        },
+        "schema": {
+          "description": "The module within that package (`api`, `validators`).",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "schema",
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  "description": "A package's documentation.",
+  "properties": {
+    "changelog": {
+      "default": [],
+      "description": "What changed, one entry per pair of versions compared. Empty unless\none was asked for.",
+      "items": {
+        "$ref": "#/definitions/Changelog"
+      },
+      "type": "array"
+    },
+    "model_version": {
+      "description": "[`DOC_MODEL_VERSION`] when it was produced.",
+      "format": "uint32",
+      "minimum": 0,
+      "type": "integer"
+    },
+    "modules": {
+      "description": "The package's modules (schemas), in the order they compiled.",
+      "items": {
+        "$ref": "#/definitions/Module"
+      },
+      "type": "array"
+    },
+    "package": {
+      "$ref": "#/definitions/Package"
+    }
+  },
+  "required": [
+    "model_version",
+    "package",
+    "modules"
+  ],
+  "title": "Comline documentation model",
+  "type": "object"
+}

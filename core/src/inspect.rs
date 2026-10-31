@@ -40,11 +40,12 @@ use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 use crate::schema::ir::unverified::{self, Encodings};
 
 // External Uses
+use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
 
 /// One protocol, as [`protocols`] reports it.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct ProtocolSummary {
     /// The package that declares it: the inspected package's name, or the
     /// dependency's, as the inspected package names it.
@@ -64,7 +65,7 @@ pub struct ProtocolSummary {
 }
 
 /// A resolved encoding: its name, its parameters and where it came from.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Choice {
     /// The name, canonical (`datagram@2`, `jsonrpc`, `comline@1`).
     pub value: String,
@@ -75,7 +76,7 @@ pub struct Choice {
 }
 
 /// Where a [`Choice`] came from.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum Source {
     /// The protocol's own `@framing` or `@handshake`.
@@ -102,9 +103,10 @@ impl Source {
 }
 
 /// One guarantee of one protocol.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct GuaranteeRow {
     #[serde(with = "guarantee_name")]
+    #[schemars(with = "String")]
     pub guarantee: Guarantee,
     pub held: bool,
     /// Why it's given up, one entry per cause ([`unverified::causes`]).
@@ -117,7 +119,7 @@ pub struct GuaranteeRow {
 }
 
 /// Whether a given-up guarantee has been accepted by a consumer.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(rename_all = "snake_case", tag = "state", content = "by")]
 pub enum Acceptance {
     /// It's held: there's nothing to accept.
