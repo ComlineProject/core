@@ -7,6 +7,9 @@ use crate::schema::ir::frozen::unit::{
 use crate::schema::ir::unverified;
 use std::collections::{BTreeMap, HashMap};
 
+use schemars::JsonSchema;
+use serde_derive::{Deserialize, Serialize};
+
 /// Structured representation of schema changes between two versions
 #[derive(Debug, Clone, Default)]
 pub struct SchemaChanges {
@@ -47,7 +50,8 @@ pub struct DependencyChanges {
 }
 
 /// Breaking changes that require a major version bump
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum BreakingChange {
     RemovedStruct {
         name: String,
@@ -162,12 +166,15 @@ pub enum BreakingChange {
     /// set growing): peers relied on them.
     GaveUpGuarantees {
         target: String,
+        #[serde(with = "guarantee_names")]
+        #[schemars(with = "Vec<String>")]
         guarantees: Vec<Guarantee>,
     },
 }
 
 /// New features that require a minor version bump
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum NewFeature {
     AddedStruct {
         name: String,
@@ -237,12 +244,36 @@ pub enum NewFeature {
     /// A protocol keeps guarantees it used to give up.
     RestoredGuarantees {
         target: String,
+        #[serde(with = "guarantee_names")]
+        #[schemars(with = "Vec<String>")]
         guarantees: Vec<Guarantee>,
     },
 }
 
+/// [`Guarantee`]s by their written names (`schema_agreement`), as
+/// `comline inspect --json` writes them.
+mod guarantee_names {
+    use crate::schema::ir::frozen::unit::Guarantee;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(guarantees: &[Guarantee], s: S) -> Result<S::Ok, S::Error> {
+        s.collect_seq(guarantees.iter().map(|g| g.name()))
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<Guarantee>, D::Error> {
+        Vec::<String>::deserialize(d)?
+            .into_iter()
+            .map(|name| {
+                Guarantee::from_name(&name)
+                    .ok_or_else(|| serde::de::Error::custom(format!("`{name}` isn't a guarantee")))
+            })
+            .collect()
+    }
+}
+
 /// Non-breaking modifications that may warrant a patch bump
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Modification {
     /// A declaration's own docstring text changed with nothing else about
     /// it - doc/comment-only changes warrant a patch bump, not a
