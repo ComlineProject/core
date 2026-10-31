@@ -1,0 +1,43 @@
+{
+  "name": "msgpack@1",
+  "kind": "format",
+  "facts": {
+    "struct_fields": {
+      "value": "by_position",
+      "proven_by": [
+        "format-msgpack/decode-fields-reordered"
+      ]
+    },
+    "unknown_field": {
+      "value": "rejected",
+      "proven_by": [
+        "format-msgpack/decode-unknown-field"
+      ]
+    },
+    "missing_optional": {
+      "value": "rejected",
+      "proven_by": [
+        "format-msgpack/decode-missing-optional"
+      ]
+    },
+    "enum_variants": {
+      "value": "by_name",
+      "proven_by": [
+        "format-msgpack/decode-variant-reordered"
+      ]
+    },
+    "unknown_variant": {
+      "value": "rejected",
+      "proven_by": [
+        "format-msgpack/decode-unknown-variant"
+      ]
+    },
+    "integer_width": {
+      "value": "by_value",
+      "proven_by": [
+        "format-msgpack/decode-wider-integer",
+        "format-msgpack/decode-wider-integer-overflow"
+      ]
+    }
+  }
+}

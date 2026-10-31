@@ -2,11 +2,13 @@
 //! formats, framings and handshakes beyond the official ones, each with a
 //! profile and suggested mappings per language (core#120).
 //!
-//! The official names (`packed@1`, `datagram@2`, ...) are still the fixed
-//! lists in `schema::idl::annotations`; a name outside them has to be
-//! declared by the package or one of its dependencies.
+//! The official names (`packed@1`, `datagram@2`, ...) are declared the same
+//! way, by the embedded official package ([`official`]), which every package
+//! sees as it sees std. Any other name has to be declared by the package or
+//! one of its dependencies.
 
 // Relative Modules
+pub mod official;
 pub mod profile;
 
 // Standard Uses
@@ -47,11 +49,16 @@ pub enum NamePolicy {
     Official,
 }
 
-/// **The hook:** which names `context` may declare. Every package is a
-/// [`NamePolicy::User`] package for now; the embedded official package
-/// (core#120 step B2) is the one this answers `Official` for.
-pub(crate) fn name_policy(_context: &ProjectContext) -> NamePolicy {
-    NamePolicy::User
+/// **The hook:** which names `context` may declare. The embedded official
+/// package ([`official`]) may declare bare names; every other package is a
+/// [`NamePolicy::User`] one. Decided by where the package came from, not by
+/// its name, so a user package called `comline` is still a user package.
+pub(crate) fn name_policy(context: &ProjectContext) -> NamePolicy {
+    use crate::package::config::ir::context::Origin;
+    match context.origin {
+        Origin::Official => NamePolicy::Official,
+        Origin::Virtual | Origin::Disk(_) => NamePolicy::User,
+    }
 }
 
 /// Whether `name` is a namespaced encoding name: reverse-DNS-like
@@ -119,9 +126,13 @@ pub fn declared(units: &[FrozenUnit]) -> impl Iterator<Item = (&str, EncodingKin
     })
 }
 
-/// Whether `name` is declared as a `kind` by the package `context` holds, or
-/// by any of its dependencies.
+/// Whether `name` is declared as a `kind` by the official package, the
+/// package `context` holds, or any of its dependencies. An official name may
+/// be written as any of its spellings (`json-rpc`).
 pub fn is_declared(context: &ProjectContext, kind: EncodingKind, name: &str) -> bool {
+    if official::resolve(kind, name).is_some() {
+        return true;
+    }
     let own = context.config_frozen.iter().flatten();
     let dependencies = context.dependency_configs.iter().flat_map(|(_, units)| units);
     declared_in(own.chain(dependencies), kind, name)

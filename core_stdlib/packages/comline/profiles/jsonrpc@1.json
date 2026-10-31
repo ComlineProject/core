@@ -1,0 +1,19 @@
+{
+  "name": "jsonrpc@1",
+  "kind": "framing",
+  "facts": {
+    "calls": {
+      "value": "by_name",
+      "proven_by": [
+        "framing-jsonrpc/request",
+        "framing-jsonrpc/request-large-id"
+      ]
+    },
+    "errors": {
+      "value": "by_ordinal",
+      "proven_by": [
+        "framing-jsonrpc/response-err"
+      ]
+    }
+  }
+}

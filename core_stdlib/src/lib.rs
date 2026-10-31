@@ -13,3 +13,20 @@ pub const SCHEMAS: &[(&str, &str)] = &[
     ("http", include_str!("../packages/std/src/http.ids")),
     ("validators", include_str!("../packages/std/src/validators.ids")),
 ];
+
+/// The official encodings package (`packages/comline`): its manifest, which
+/// declares `packed@1`, `datagram@2` and the rest under `encodings`. Every
+/// package sees its declarations, as it sees std.
+pub const OFFICIAL_MANIFEST: &str = include_str!("../packages/comline/config.idp");
+
+/// The official encodings' profiles: each one's path as the manifest names
+/// it, and its contents.
+pub const OFFICIAL_PROFILES: &[(&str, &str)] = &[
+    ("profiles/packed@1.json", include_str!("../packages/comline/profiles/packed@1.json")),
+    ("profiles/json@1.json", include_str!("../packages/comline/profiles/json@1.json")),
+    ("profiles/msgpack@1.json", include_str!("../packages/comline/profiles/msgpack@1.json")),
+    ("profiles/jsonrpc@1.json", include_str!("../packages/comline/profiles/jsonrpc@1.json")),
+    ("profiles/datagram@1.json", include_str!("../packages/comline/profiles/datagram@1.json")),
+    ("profiles/datagram@2.json", include_str!("../packages/comline/profiles/datagram@2.json")),
+    ("profiles/comline@1.json", include_str!("../packages/comline/profiles/comline@1.json")),
+];

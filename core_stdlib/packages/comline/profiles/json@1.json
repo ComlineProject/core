@@ -1,0 +1,43 @@
+{
+  "name": "json@1",
+  "kind": "format",
+  "facts": {
+    "struct_fields": {
+      "value": "by_name",
+      "proven_by": [
+        "format-json/decode-fields-reordered"
+      ]
+    },
+    "unknown_field": {
+      "value": "ignored",
+      "proven_by": [
+        "format-json/decode-unknown-field"
+      ]
+    },
+    "missing_optional": {
+      "value": "absent",
+      "proven_by": [
+        "format-json/decode-missing-optional"
+      ]
+    },
+    "enum_variants": {
+      "value": "by_name",
+      "proven_by": [
+        "format-json/decode-variant-reordered"
+      ]
+    },
+    "unknown_variant": {
+      "value": "rejected",
+      "proven_by": [
+        "format-json/decode-unknown-variant"
+      ]
+    },
+    "integer_width": {
+      "value": "by_value",
+      "proven_by": [
+        "format-json/decode-wider-integer",
+        "format-json/decode-wider-integer-overflow"
+      ]
+    }
+  }
+}

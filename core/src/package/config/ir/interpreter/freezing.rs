@@ -201,7 +201,7 @@ fn interpret_assignment_encodings(
 
     let config_path = match &context.origin {
         Origin::Disk(path) => Some(path.as_path()),
-        Origin::Virtual => None,
+        Origin::Virtual | Origin::Official => None,
     };
     let fail = |code, message: String, span: (usize, usize)| -> Box<dyn snafu::Error> {
         let diagnostic = Diagnostic::new(code, message).with_span(span);
@@ -285,8 +285,14 @@ fn interpret_assignment_encodings(
         let kind = kind.ok_or_else(|| fail(encodings::ENCODING_ENTRY, format!("encoding `{name}` needs a `kind`"), span))?;
         let profile = profile.ok_or_else(|| fail(encodings::ENCODING_PROFILE, format!("encoding `{name}` needs a `profile`"), span))?;
 
-        // The profile, relative to the package root.
-        let Some(root) = config_path.and_then(|p| p.parent()) else {
+        // The profile, relative to the package root: a directory, or the
+        // official package's embedded files.
+        let root = match (&context.origin, config_path.and_then(|p| p.parent())) {
+            (Origin::Official, _) => Some(ProfileRoot::Official),
+            (_, Some(dir)) => Some(ProfileRoot::Dir(dir)),
+            (_, None) => None,
+        };
+        let Some(root) = root else {
             return Err(fail(
                 encodings::ENCODING_PROFILE,
                 format!("encoding `{name}`: its profile `{profile}` can't be read without a package directory"),
@@ -301,7 +307,7 @@ fn interpret_assignment_encodings(
                 span,
             ));
         }
-        let bytes = std::fs::read(root.join(profile_path)).map_err(|e| {
+        let bytes = root.read(profile_path).map_err(|e| {
             fail(encodings::ENCODING_PROFILE, format!("encoding `{name}`: its profile `{profile}` can't be read: {e}"), span)
         })?;
         let parsed = Profile::parse(&bytes).map_err(|m| {
@@ -334,6 +340,26 @@ fn interpret_assignment_encodings(
         });
     }
     Ok(units)
+}
+
+/// Where a package's profile paths resolve: its directory, or the official
+/// package's embedded files.
+enum ProfileRoot<'a> {
+    Dir(&'a std::path::Path),
+    Official,
+}
+
+impl ProfileRoot<'_> {
+    fn read(&self, path: &std::path::Path) -> std::io::Result<Vec<u8>> {
+        match self {
+            ProfileRoot::Dir(dir) => std::fs::read(dir.join(path)),
+            ProfileRoot::Official => comline_core_stdlib::OFFICIAL_PROFILES
+                .iter()
+                .find(|(embedded, _)| std::path::Path::new(embedded) == path)
+                .map(|(_, contents)| contents.as_bytes().to_vec())
+                .ok_or_else(|| std::io::Error::from(std::io::ErrorKind::NotFound)),
+        }
+    }
 }
 
 /// One language's `{ type = "...", package = "...", version = "..." }`.

@@ -26,7 +26,10 @@
 //! a future registry would only need to change how [`lookup`]/[`for_scope`]
 //! are implemented, not [`AnnotationInfo`]'s shape.
 
+use std::sync::LazyLock;
+
 use crate::config_value::{DictKey, StrVariant, ValueType};
+use crate::encodings::{official, EncodingKind};
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
 
 /// Which declaration an `@key=value` annotation attaches to. The grammar
@@ -73,16 +76,10 @@ pub enum AnnotationAuthority {
     Advisory,
 }
 
-/// The canonical spellings of `@framing`'s wire framings, with every
-/// accepted alias. The single place this set lives: before this it existed
-/// as prose here plus four independent copies in the consumers, one of
-/// which (the playground) was missing `json-rpc` and so rendered a
-/// JSON-RPC protocol as datagram.
-const FRAMINGS: &[StrVariant] = &[
-    StrVariant::with_aliases("jsonrpc", &["json-rpc", "jsonrpc-2.0"]),
-    StrVariant::with_aliases(FRAMING_DATAGRAM, &["datagram@1", "comline.datagram"]),
-    StrVariant::new(FRAMING_DATAGRAM2),
-];
+// The official formats, framings and handshakes, and their aliases, are
+// declared by the embedded official encodings package
+// (`crate::encodings::official`), not listed here. The constants below name
+// the ones core and the generators act on.
 
 /// The original datagram framing (`datagram@1`): a request names its call
 /// but not its protocol, so a transport carries one protocol, called one
@@ -102,14 +99,6 @@ pub const FRAMING_JSONRPC: &str = "jsonrpc";
 /// transport and calls go both ways.
 pub const DEFAULT_FRAMING: &str = FRAMING_DATAGRAM2;
 
-/// The wire formats a package's `wire.format` accepts, by the names the
-/// runtimes put in the handshake.
-const FORMATS: &[StrVariant] = &[
-    StrVariant::new(FORMAT_PACKED),
-    StrVariant::new(FORMAT_JSON),
-    StrVariant::new(FORMAT_MSGPACK),
-];
-
 /// `packed@1`: fixed-width fields back to back, varint lengths, no tags.
 pub const FORMAT_PACKED: &str = "packed@1";
 /// JSON, a struct as an object.
@@ -120,26 +109,32 @@ pub const FORMAT_MSGPACK: &str = "msgpack@1";
 /// The format a package speaks when its `wire.format` doesn't say.
 pub const DEFAULT_FORMAT: &str = FORMAT_PACKED;
 
-/// Check a written wire format name, returning its canonical spelling.
+/// The official names of `kind`, quoted and comma-separated, as the
+/// official package declares them.
+fn official_names(kind: EncodingKind) -> String {
+    official::names(kind).iter().map(|n| format!("`{n}`")).collect::<Vec<_>>().join(", ")
+}
+
+/// Check a written wire format name against the official ones, returning
+/// its canonical spelling.
 pub fn check_format(written: &str) -> Result<&'static str, String> {
-    crate::config_value::canonicalize(&ValueType::StrEnum(FORMATS), written).ok_or_else(|| {
-        let known: Vec<String> = FORMATS.iter().map(|f| format!("`{}`", f.canonical)).collect();
+    official::resolve(EncodingKind::Format, written).ok_or_else(|| {
         format!(
             "wire format `{written}` isn't known: expected one of {}, or a namespaced format \
              this package or a dependency declares under `encodings`",
-            known.join(", ")
+            official_names(EncodingKind::Format)
         )
     })
 }
 
-/// Check a written framing name for the package's `wire.framing`,
-/// returning its canonical spelling.
+/// Check a written framing name against the official ones, returning its
+/// canonical spelling.
 pub fn check_framing(written: &str) -> Result<&'static str, String> {
-    canonical_value("framing", written).ok_or_else(|| {
+    official::resolve(EncodingKind::Framing, written).ok_or_else(|| {
         format!(
             "framing `{written}` isn't known: expected one of {}, or a namespaced framing this \
              package or a dependency declares under `encodings`",
-            value_spellings("framing").iter().map(|f| format!("`{f}`")).collect::<Vec<_>>().join(", ")
+            official_names(EncodingKind::Framing)
         )
     })
 }
@@ -149,16 +144,20 @@ pub fn check_framing(written: &str) -> Result<&'static str, String> {
 pub const METHOD_NAMES: &[&str] = &["bare", "qualified"];
 const METHOD_NAME_STRINGS: &[StrVariant] = &[StrVariant::new("bare"), StrVariant::new("qualified")];
 
-/// `@framing`'s dictionary form. The bare name is shorthand for
-/// `{ name = ... }`.
-const FRAMING_KEYS: &[DictKey] = &[
-    DictKey { key: "name", value: ValueType::StrEnum(FRAMINGS), required: true },
-    DictKey {
-        key: "method_names",
-        value: ValueType::AnyOf(&[ValueType::Keyword(METHOD_NAMES), ValueType::StrEnum(METHOD_NAME_STRINGS)]),
-        required: false,
-    },
-];
+/// `@framing`'s value: an official framing's name, or the dictionary form,
+/// of which the bare name is shorthand for `{ name = ... }`.
+fn framing_value() -> ValueType {
+    let framings = ValueType::StrEnum(official::variants(EncodingKind::Framing));
+    let keys: &'static [DictKey] = Box::leak(Box::new([
+        DictKey { key: "name", value: framings, required: true },
+        DictKey {
+            key: "method_names",
+            value: ValueType::AnyOf(&[ValueType::Keyword(METHOD_NAMES), ValueType::StrEnum(METHOD_NAME_STRINGS)]),
+            required: false,
+        },
+    ]));
+    ValueType::AnyOf(Box::leak(Box::new([framings, ValueType::Dict(keys)])))
+}
 
 /// How JSON-RPC names calls (`@framing`'s `method_names`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -227,15 +226,6 @@ impl FramingValue {
 /// (`Server`), or both (`Multiple`).
 pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 
-/// The handshakes `@handshake` and the package's `handshake = "..."` accept.
-/// Versioned like encodings; `none` has nothing to version. A namespaced
-/// custom one (`com.acme.hello@1`) arrives with third-party encodings
-/// (core#120) - see [`check_handshake`].
-const HANDSHAKES: &[StrVariant] = &[
-    StrVariant::new(DEFAULT_HANDSHAKE),
-    StrVariant::new(HANDSHAKE_NONE),
-];
-
 /// The handshake a protocol runs when neither it nor its package names one.
 pub const DEFAULT_HANDSHAKE: &str = "comline@1";
 /// The official "no handshake": nothing sent, nothing checked.
@@ -245,10 +235,11 @@ pub const HANDSHAKE_NONE: &str = "none";
 /// its canonical spelling. A namespaced name (`com.acme.hello@1`) is a
 /// declared one, which [`check_handshake_or_namespaced`] lets through.
 pub fn check_handshake(written: &str) -> Result<&'static str, String> {
-    canonical_value("handshake", written).ok_or_else(|| {
+    official::resolve(EncodingKind::Handshake, written).ok_or_else(|| {
         format!(
-            "handshake `{written}` isn't known: expected `{DEFAULT_HANDSHAKE}`, `{HANDSHAKE_NONE}`, \
-             or a namespaced handshake this package or a dependency declares under `encodings`"
+            "handshake `{written}` isn't known: expected {}, or a namespaced handshake this \
+             package or a dependency declares under `encodings`",
+            official_names(EncodingKind::Handshake)
         )
     })
 }
@@ -282,15 +273,10 @@ pub fn check_handshake_or_namespaced(written: &str) -> Result<String, String> {
     official_or_namespaced(check_handshake(written), written)
 }
 
-/// Whether `written` names an official encoding of `kind` (today's fixed
-/// lists, until the official encodings package replaces them).
-pub fn is_official(kind: crate::encodings::EncodingKind, written: &str) -> bool {
-    use crate::encodings::EncodingKind;
-    match kind {
-        EncodingKind::Format => check_format(written).is_ok(),
-        EncodingKind::Framing => check_framing(written).is_ok(),
-        EncodingKind::Handshake => check_handshake(written).is_ok(),
-    }
+/// Whether `written` is a spelling of an official encoding of `kind`, one
+/// the official package declares.
+pub fn is_official(kind: EncodingKind, written: &str) -> bool {
+    official::resolve(kind, written).is_some()
 }
 
 /// Everything known about one `@key`.
@@ -315,7 +301,12 @@ pub struct AnnotationInfo {
     pub consumed_by: &'static [&'static str],
 }
 
-pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
+/// Every known annotation. Built once, on first use: `@framing`'s and
+/// `@handshake`'s accepted names come from the official encodings package.
+pub static KNOWN_ANNOTATIONS: LazyLock<Vec<AnnotationInfo>> = LazyLock::new(known_annotations);
+
+fn known_annotations() -> Vec<AnnotationInfo> {
+    vec![
     AnnotationInfo {
         key: "validators",
         scopes: &[AnnotationScope::Field, AnnotationScope::TypeAlias],
@@ -358,7 +349,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                        No effect on a struct.",
         default: "the package's `wire.framing`, else `datagram@2` — Comline's compact binary \
                   framing on a connection (`datagram@1`: one protocol per transport)",
-        value: ValueType::AnyOf(&[ValueType::StrEnum(FRAMINGS), ValueType::Dict(FRAMING_KEYS)]),
+        value: framing_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -393,7 +384,7 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
                        nothing. Overrides the package's `handshake` in `config.idp`. No effect \
                        on a struct.",
         default: "the package's `handshake`, else comline@1",
-        value: ValueType::StrEnum(HANDSHAKES),
+        value: ValueType::StrEnum(official::variants(EncodingKind::Handshake)),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -432,7 +423,8 @@ pub const KNOWN_ANNOTATIONS: &[AnnotationInfo] = &[
         value: ValueType::BoolOrStr,
         consumed_by: &["core's own validation pass (`ir::validation::validator`)"],
     },
-];
+    ]
+}
 
 /// The human sentence describing what `@key`'s value must be - generated
 /// from [`AnnotationInfo::value`] rather than written out, so the prose and
@@ -485,7 +477,7 @@ mod tests {
     #[test]
     fn no_duplicate_keys() {
         let mut seen = std::collections::BTreeSet::new();
-        for a in KNOWN_ANNOTATIONS {
+        for a in KNOWN_ANNOTATIONS.iter() {
             assert!(seen.insert(a.key), "duplicate annotation key: {}", a.key);
         }
     }
@@ -571,7 +563,7 @@ mod tests {
 
     #[test]
     fn every_entrys_prose_is_generated_from_its_declared_type() {
-        for info in KNOWN_ANNOTATIONS {
+        for info in KNOWN_ANNOTATIONS.iter() {
             let described = describe_value(info);
             assert!(!described.is_empty(), "{}", info.key);
         }

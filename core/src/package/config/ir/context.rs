@@ -14,7 +14,11 @@ use crate::schema::ir::context::SchemaContext;
 #[derive(Debug, Clone, PartialEq)]
 pub enum Origin {
     Virtual,
-    Disk(PathBuf)
+    Disk(PathBuf),
+    /// The embedded official encodings package (`comline`): no directory,
+    /// its files are compiled in. The one package that may declare bare
+    /// encoding names (see `crate::encodings::name_policy`).
+    Official,
 }
 
 #[derive(Debug, Clone)]

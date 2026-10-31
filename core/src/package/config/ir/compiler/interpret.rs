@@ -189,7 +189,6 @@ fn check_package_encodings(
     handshake: &str,
 ) -> Result<()> {
     use crate::encodings::{is_declared, undeclared, EncodingKind};
-    use crate::schema::idl::annotations::is_official;
 
     let names = [
         (EncodingKind::Format, format, "wire.format"),
@@ -198,7 +197,7 @@ fn check_package_encodings(
     ];
     for (kind, name, key) in names {
         let Some(name) = name else { continue };
-        if !is_official(kind, name) && !is_declared(project_context, kind, name) {
+        if !is_declared(project_context, kind, name) {
             bail!("config.idp's `{key}`: {}", undeclared(kind, name));
         }
     }
