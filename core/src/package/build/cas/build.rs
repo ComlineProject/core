@@ -99,24 +99,6 @@ fn vendor_dependencies(
     Ok(resolved_deps)
 }
 
-/// A vendored dependency's own schema files, one entry per file, for
-/// `analyze_package_changes` to pair by namespace.
-fn load_dependency_schemas(
-    store: &ObjectStore,
-    dep_tree: &Tree,
-) -> Result<Vec<Vec<crate::schema::ir::frozen::unit::FrozenUnit>>> {
-    use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
-
-    let mut schemas = Vec::new();
-    for entry in &dep_tree.entries {
-        if entry.mode == EntryMode::Tree && entry.name.starts_with("schema_") {
-            let schema_tree = Tree::from_bytes(&store.read(&entry.hash)?)?;
-            schemas.push(load_schema_from_tree(store, &schema_tree)?);
-        }
-    }
-    Ok(schemas)
-}
-
 /// The bump a set of changes calls for on its own.
 fn changes_bump(changes: &SchemaChanges) -> VersionBump {
     if changes.is_breaking() {
@@ -144,11 +126,14 @@ pub struct Comparison {
 /// (paired by namespace), every dependency vendored into both, and the
 /// congregation.
 pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison> {
-    use crate::schema::ir::diff::{analyze_package_changes, DependencyChanges};
+    use crate::schema::ir::diff::{
+        analyze_package_changes_with, reached_by, within_reach, DependencyChanges, WireFacts,
+    };
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
+    use std::collections::{BTreeMap, BTreeSet};
 
     // `schema_{idx}` entries only: a `dep_<name>` entry is a vendored
-    // dependency, compared on its own below.
+    // dependency's own copy, kept so the commit is reproducible.
     let local = |tree: &Tree| -> Result<Vec<_>> {
         let mut schemas = vec![];
         for entry in &tree.entries {
@@ -159,38 +144,6 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
         }
         Ok(schemas)
     };
-    // Files are paired by namespace, not by their position in the glob:
-    // adding, renaming or reordering a file must not pair the wrong schemas.
-    let schema_changes = analyze_package_changes(&local(old)?, &local(new)?);
-    let mut bump = changes_bump(&schema_changes);
-
-    // A dependency present in both gets the real bump its own schema changes
-    // imply, and its changes are listed, not only counted. A brand-new or
-    // removed one needs nothing here: `analyze_config_changes`'s
-    // `DependencyAdded`/`DependencyRemoved` cover it from the config alone.
-    let mut dependency_changes = vec![];
-    for entry in &new.entries {
-        let Some(name) = entry.name.strip_prefix("dep_") else { continue };
-        if entry.mode != EntryMode::Tree {
-            continue;
-        }
-        let Some(old_entry) =
-            old.entries.iter().find(|e| e.name == entry.name && e.mode == EntryMode::Tree)
-        else {
-            continue;
-        };
-        let before = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&old_entry.hash)?)?)?;
-        let after = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&entry.hash)?)?)?;
-        let changes = analyze_package_changes(&before, &after);
-        bump = bump.max(changes_bump(&changes));
-        if !changes.is_empty() {
-            dependency_changes.push(DependencyChanges { name: name.to_string(), changes });
-        }
-    }
-
-    // Congregation changes. Only units that affect the schema API count
-    // (spec version, dependencies). A tree from before config was stored
-    // has none.
     let config = |tree: &Tree| -> Result<Vec<_>> {
         Ok(tree
             .entries
@@ -200,7 +153,69 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
             .transpose()?
             .unwrap_or_default())
     };
-    let config_changes = analyze_config_changes(&config(old)?, &config(new)?);
+    let (old_config, new_config) = (config(old)?, config(new)?);
+
+    // A package's compiled schemas include every dependency's, each under
+    // the dependency's name (`shared_types::models`): those are split off
+    // and compared by reach below.
+    let dependency_names: BTreeSet<&str> = old
+        .entries
+        .iter()
+        .chain(&new.entries)
+        .filter(|e| e.mode == EntryMode::Tree)
+        .filter_map(|e| e.name.strip_prefix("dep_"))
+        .collect();
+    type Schemas = Vec<Vec<crate::schema::ir::frozen::unit::FrozenUnit>>;
+    let split = |schemas: Schemas| -> (Schemas, BTreeMap<String, Schemas>) {
+        let mut own = vec![];
+        let mut dependencies: BTreeMap<String, Schemas> = BTreeMap::new();
+        for units in schemas {
+            let first = crate::schema::ir::frozen::unit::schema_namespace(&units)
+                .and_then(|ns| ns.split_once("::").map(|(first, _)| first))
+                .filter(|first| dependency_names.contains(first))
+                .map(str::to_string);
+            match first {
+                Some(dependency) => dependencies.entry(dependency).or_default().push(units),
+                None => own.push(units),
+            }
+        }
+        (own, dependencies)
+    };
+    let (old_own, old_dependencies) = split(local(old)?);
+    let (new_own, new_dependencies) = split(local(new)?);
+
+    // Files are paired by namespace, not by their position in the glob:
+    // adding, renaming or reordering a file must not pair the wrong schemas.
+    // The format-dependent rules read the facts of the encodings in play.
+    let facts = WireFacts::of((&old_own, &old_config), (&new_own, &new_config));
+    let schema_changes = analyze_package_changes_with(&old_own, &new_own, &facts);
+    let mut bump = changes_bump(&schema_changes);
+
+    // A dependency counts only as far as this package reaches into it: the
+    // types its own declarations use or re-export, and what those use,
+    // compared with the same rules (under the dependency's own protocols and
+    // core's defaults: its config isn't stored). A change anywhere else in
+    // it doesn't move the version, and adding or removing one is a patch
+    // (`analyze_config_changes`).
+    let mut dependency_changes = vec![];
+    let names: BTreeSet<&String> = old_dependencies.keys().chain(new_dependencies.keys()).collect();
+    for name in names {
+        let before = old_dependencies.get(name).cloned().unwrap_or_default();
+        let after = new_dependencies.get(name).cloned().unwrap_or_default();
+        let reach = reached_by(&[&old_own, &new_own], &[&before, &after]);
+        let (before, after) = (within_reach(&before, &reach), within_reach(&after, &reach));
+        let facts = WireFacts::of((&before, &[]), (&after, &[]));
+        let changes = analyze_package_changes_with(&before, &after, &facts);
+        bump = bump.max(changes_bump(&changes));
+        if !changes.is_empty() {
+            dependency_changes.push(DependencyChanges { name: name.to_string(), changes });
+        }
+    }
+
+    // Congregation changes. Only units that affect the schema API count
+    // (spec version, dependencies). A tree from before config was stored
+    // has none.
+    let config_changes = analyze_config_changes(&old_config, &new_config);
     bump = bump.max(config_changes.bump());
 
     Ok(Comparison { schema_changes, dependency_changes, config_changes, bump })

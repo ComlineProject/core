@@ -1164,22 +1164,29 @@ mod tests {
             &frozen_schemas(&new),
         );
         assert_eq!((log.from.as_str(), log.to.as_str()), ("0.1.0", "0.2.0"));
+        // Under core's default format (`packed@1`: fields by position, an
+        // unknown field rejected), an optional field is breaking too.
         assert_eq!(
             log.breaking,
-            [BreakingChange::RemovedEnumVariant {
-                enum_name: "Payment".into(),
-                variant: "Cash".into()
-            }]
+            [
+                BreakingChange::AddedOptionalField {
+                    type_name: "Customer".into(),
+                    field_name: "phone".into(),
+                    field_type: "string".into(),
+                },
+                BreakingChange::RemovedEnumVariant {
+                    enum_name: "Payment".into(),
+                    variant: "Cash".into()
+                },
+            ]
         );
-        assert!(log.features.iter().any(
-            |f| matches!(f, NewFeature::AddedField { field_name, .. } if field_name == "phone")
-        ));
+        assert!(!log.features.iter().any(|f| matches!(f, NewFeature::AddedField { .. })));
 
         let mut model = model(&new, Some("0.2.0".into()));
         model.changelog.push(log);
         let json = serde_json::to_value(&model).unwrap();
         assert_eq!(
-            json["changelog"][0]["breaking"][0]["kind"],
+            json["changelog"][0]["breaking"][1]["kind"],
             "removed_enum_variant"
         );
         let back: DocModel = serde_json::from_value(json).unwrap();

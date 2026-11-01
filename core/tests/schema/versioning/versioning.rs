@@ -58,9 +58,28 @@ fn test_struct_add_optional_field() {
     write_schema(&package_path, "ping", "struct Foo { a: s32 }");
     build_and_release(&package_path);
     
-    // Add optional field
+    // Add optional field: under the default `packed@1` fields travel by
+    // position and an unknown one is rejected, so it's breaking.
     write_schema(&package_path, "ping", "struct Foo { a: s32\n  optional b: string }");
     
+    let result = build(&package_path).unwrap();
+    assert_eq!(result.version_bump, VersionBump::Major);
+}
+
+#[test]
+fn test_struct_add_optional_field_under_json() {
+    let (_temp, package_path) = setup_test_package();
+    // `json@1` keys fields by name and tolerates the unknown or missing
+    // optional one, by its profile's facts: the same change is a feature.
+    fs::write(
+        package_path.join("config.idp"),
+        "congregation test\nspecification_version = 1\nwire = { format = \"json@1\" }\n",
+    )
+    .unwrap();
+    write_schema(&package_path, "ping", "struct Foo { a: s32 }");
+    build_and_release(&package_path);
+
+    write_schema(&package_path, "ping", "struct Foo { a: s32\n  optional b: string }");
     let result = build(&package_path).unwrap();
     assert_eq!(result.version_bump, VersionBump::Minor);
     assert_eq!(result.current_version, "0.1.1-dev.1");
