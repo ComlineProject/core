@@ -7,6 +7,8 @@ pub mod compiler;
 #[cfg(feature = "compiler")]
 pub mod diff;
 #[cfg(feature = "compiler")]
+pub mod snippet;
+#[cfg(feature = "compiler")]
 pub mod validation;
 pub mod unverified;
 

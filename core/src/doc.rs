@@ -47,6 +47,7 @@ use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::{Origin, ProjectContext};
 use crate::schema::idl::module_docs::module_docs;
 use crate::schema::ir::diff::{analyze_package_changes, BreakingChange, Modification, NewFeature};
+use crate::schema::ir::snippet;
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
 use crate::settings::{SettingsDict, SettingsValue};
@@ -282,11 +283,33 @@ pub struct Changelog {
     pub from: String,
     pub to: String,
     /// Changes an older peer can't work with: a major bump.
-    pub breaking: Vec<BreakingChange>,
+    pub breaking: Vec<ChangelogEntry<BreakingChange>>,
     /// Additions: a minor bump.
-    pub features: Vec<NewFeature>,
+    pub features: Vec<ChangelogEntry<NewFeature>>,
     /// The rest: a patch bump.
-    pub modifications: Vec<Modification>,
+    pub modifications: Vec<ChangelogEntry<Modification>>,
+}
+
+/// One change, as `comline diff` reports it (its `kind` and that kind's
+/// fields), with the IDL it's about: one line of the declaration or member
+/// before (`old`) and after (`new`), printed from the frozen schemas. An
+/// addition has only `new`, a removal only `old`, and a kind with nothing
+/// to print as IDL (a docstring change, an error's ordinal) neither.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+#[schemars(rename = "{C}Entry")]
+pub struct ChangelogEntry<C> {
+    #[serde(flatten)]
+    pub change: C,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub old: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub new: Option<String>,
+}
+
+impl<C> ChangelogEntry<C> {
+    fn new(change: C, (old, new): snippet::Lines) -> Self {
+        ChangelogEntry { change, old, new }
+    }
 }
 
 /// What changed between two versions of a package, each given as its frozen
@@ -303,9 +326,30 @@ pub fn changelog(
     Changelog {
         from: from.to_string(),
         to: to.to_string(),
-        breaking: changes.breaking_changes,
-        features: changes.new_features,
-        modifications: changes.modifications,
+        breaking: changes
+            .breaking_changes
+            .into_iter()
+            .map(|c| {
+                let lines = snippet::breaking(&c, old_schemas, new_schemas);
+                ChangelogEntry::new(c, lines)
+            })
+            .collect(),
+        features: changes
+            .new_features
+            .into_iter()
+            .map(|c| {
+                let lines = snippet::feature(&c, old_schemas, new_schemas);
+                ChangelogEntry::new(c, lines)
+            })
+            .collect(),
+        modifications: changes
+            .modifications
+            .into_iter()
+            .map(|c| {
+                let lines = snippet::modification(&c, old_schemas, new_schemas);
+                ChangelogEntry::new(c, lines)
+            })
+            .collect(),
     }
 }
 
@@ -1182,8 +1226,9 @@ mod tests {
         assert_eq!((log.from.as_str(), log.to.as_str()), ("0.1.0", "0.2.0"));
         // Under core's default format (`packed@1`: fields by position, an
         // unknown field rejected), an optional field is breaking too.
+        let breaking: Vec<_> = log.breaking.iter().map(|e| e.change.clone()).collect();
         assert_eq!(
-            log.breaking,
+            breaking,
             [
                 BreakingChange::AddedOptionalField {
                     type_name: "Customer".into(),
@@ -1196,7 +1241,17 @@ mod tests {
                 },
             ]
         );
-        assert!(!log.features.iter().any(|f| matches!(f, NewFeature::AddedField { .. })));
+        assert!(!log.features.iter().any(|f| matches!(f.change, NewFeature::AddedField { .. })));
+        // Each entry carries the IDL it's about: an addition only its new
+        // line, a removal only its old one.
+        assert_eq!(
+            (log.breaking[0].old.as_deref(), log.breaking[0].new.as_deref()),
+            (None, Some("optional phone: string"))
+        );
+        assert_eq!(
+            (log.breaking[1].old.as_deref(), log.breaking[1].new.as_deref()),
+            (Some("Cash"), None)
+        );
 
         let mut model = model(&new, Some("0.2.0".into()));
         model.changelog.push(log);
@@ -1205,8 +1260,54 @@ mod tests {
             json["changelog"][0]["breaking"][1]["kind"],
             "removed_enum_variant"
         );
+        assert_eq!(json["changelog"][0]["breaking"][1]["old"], "Cash");
+        assert!(json["changelog"][0]["breaking"][1].get("new").is_none());
         let back: DocModel = serde_json::from_value(json).unwrap();
         assert_eq!(back, model);
+    }
+
+    /// The IDL lines of a changed signature, an added function, a changed
+    /// constant and a docstring change, which has none.
+    #[test]
+    fn changelog_entries_carry_their_idl_lines() {
+        let tmp = tempfile::tempdir().unwrap();
+        let old = crate::package::build::compile_package(&package(&tmp.path().join("shop"), TYPES))
+            .unwrap();
+        let dir = package(
+            &tmp.path().join("shop2"),
+            &TYPES
+                .replace("const MAX_NAME: u32 = 64", "const MAX_NAME: u32 = 80")
+                .replace("/// How an order is paid.", "/// How it's paid."),
+        );
+        let api = API
+            .replace("function place(order: Order) -> u64", "function place(order: Order, rush: bool) -> u64")
+            .replace("    function ping();\n", "    function ping();\n    function cancel(id: u64) -> bool;\n");
+        std::fs::write(dir.join("src/api.ids"), api).unwrap();
+        let new = crate::package::build::compile_package(&dir).unwrap();
+        let log = changelog("0.1.0", &frozen_schemas(&old), "0.2.0", &frozen_schemas(&new));
+        let all: Vec<(String, Option<String>, Option<String>)> = log
+            .breaking
+            .iter()
+            .map(|e| (serde_json::to_value(&e.change).unwrap()["kind"].as_str().unwrap().to_string(), e.old.clone(), e.new.clone()))
+            .chain(log.features.iter().map(|e| (serde_json::to_value(&e.change).unwrap()["kind"].as_str().unwrap().to_string(), e.old.clone(), e.new.clone())))
+            .chain(log.modifications.iter().map(|e| (serde_json::to_value(&e.change).unwrap()["kind"].as_str().unwrap().to_string(), e.old.clone(), e.new.clone())))
+            .collect();
+        let find = |kind: &str| all.iter().find(|(k, ..)| k == kind).unwrap_or_else(|| panic!("no {kind} in {all:?}"));
+        let some = |s: &str| Some(s.to_string());
+        let signature = find("changed_function_signature");
+        assert_eq!(
+            (&signature.1, &signature.2),
+            (
+                &some("function place(order: Order) -> u64 ! OutOfStock;"),
+                &some("function place(order: Order, rush: bool) -> u64 ! OutOfStock;")
+            )
+        );
+        assert_eq!(find("added_function").1, None);
+        assert_eq!(find("added_function").2, some("function cancel(id: u64) -> bool;"));
+        let constant = find("changed_constant_value");
+        assert_eq!((&constant.1, &constant.2), (&some("const MAX_NAME: u32 = 64"), &some("const MAX_NAME: u32 = 80")));
+        let doc = find("docstring_changed");
+        assert_eq!((&doc.1, &doc.2), (&None, &None));
     }
 
     #[test]
