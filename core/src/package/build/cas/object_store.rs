@@ -26,6 +26,10 @@ use std::path::{Path, PathBuf};
 /// - 3: types became structured (`TypeRef`, `Literal`) instead of
 ///   `KindValue` text: `Field`/`Constant` `kind_value` became `ty` plus a
 ///   literal, `EnumVariant` holds its name, and `Assert` gained `expr`.
+///
+/// Additions that needed no bump: the root tree's `docs` blob (the `//!`
+/// headers, `crate::doc::FrozenDocs`, core#145) is a new entry that older
+/// readers skip and newer ones treat as absent on older versions.
 pub const CURRENT_IR_FORMAT_VERSION: u32 = 3;
 
 fn format_version_path(project_root: &Path) -> PathBuf {

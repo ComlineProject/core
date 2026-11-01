@@ -266,6 +266,15 @@ pub fn process_initial_freezing(
         root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
     }
 
+    // The `//!` headers, so documenting this version has them (core#145).
+    // Only stored when there are any, so a package without headers keeps
+    // the tree it had.
+    let docs = crate::doc::frozen_docs(latest_project);
+    if !docs.is_empty() {
+        let docs_hash = crate::doc::write_docs(&docs, &store)?;
+        root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
+    }
+
     // Write root tree
     let root_tree_bytes = root_tree.to_bytes()?;
     let root_tree_hash = store.write(&root_tree_bytes)?;
@@ -345,6 +354,15 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     if let Some(config) = latest_project.config_frozen.as_ref() {
         let config_hash = config_blob::write_config(config, &store)?;
         root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
+    }
+
+    // The `//!` headers, so documenting this version has them (core#145).
+    // Only stored when there are any, so a package without headers keeps
+    // the tree it had.
+    let docs = crate::doc::frozen_docs(latest_project);
+    if !docs.is_empty() {
+        let docs_hash = crate::doc::write_docs(&docs, &store)?;
+        root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
     }
 
     // Check if tree changed
