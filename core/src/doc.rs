@@ -10,9 +10,17 @@
 //!
 //! The model is the one contract between core and renderers. Its JSON
 //! Schema ([`json_schema`]) is committed as `schemas/doc-model.json` and a
-//! test fails when it drifts. A change to the model's shape bumps
-//! [`DOC_MODEL_VERSION`]. Theming belongs to each renderer: nothing here
+//! test fails when it drifts. Theming belongs to each renderer: nothing here
 //! describes how the model is presented.
+//!
+//! **Versioning** (core#158). An additive change keeps
+//! [`DOC_MODEL_VERSION`]: a new unit, type or change kind, or a new field
+//! that may be absent. So a reader must tolerate what it doesn't know: skip a
+//! unit, type or changelog entry of an unknown `kind`, and ignore unknown
+//! fields. A consumer validating strictly against `doc-model/1.json` should
+//! expect the schema to grow. Only a change an existing reader would
+//! misread bumps the version: a field removed, renamed or retyped, or a
+//! meaning changed. The generator protocol follows the same rule.
 //!
 //! Everything a package declares is documented: there is no way to hide a
 //! unit. Only the package's own modules are listed; a type from a
@@ -47,17 +55,25 @@ use crate::settings::{SettingsDict, SettingsValue};
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
-/// The model's version. Bumped whenever its shape changes, so a renderer can
-/// refuse a model it doesn't know.
+/// The model's version, so a renderer can refuse a model it can't read.
+/// Additive changes (new kinds, new fields that may be absent) keep it;
+/// readers tolerate unknown kinds and fields. Only an incompatible change
+/// bumps it.
 pub const DOC_MODEL_VERSION: u32 = 1;
 
 /// The JSON Schema's `$id`.
 pub const SCHEMA_ID: &str = "https://comlineproject.github.io/docs/schemas/doc-model/1.json";
 
 /// A package's documentation.
+///
+/// Version 1 grows additively: new unit, type and change kinds and new
+/// fields that may be absent keep the version, so a reader skips kinds it
+/// doesn't know and ignores unknown fields. Only an incompatible change
+/// bumps `model_version`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 pub struct DocModel {
-    /// [`DOC_MODEL_VERSION`] when it was produced.
+    /// The model's version when it was produced. Additive changes keep it;
+    /// only an incompatible one bumps it.
     pub model_version: u32,
     pub package: Package,
     /// The package's modules (schemas), in the order they compiled.
