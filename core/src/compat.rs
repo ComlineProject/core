@@ -37,7 +37,9 @@ use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::ConfigChange;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::ir::diff::{concerns_protocol, protocol_reach};
+use crate::schema::ir::diff::{
+    analyze_package_changes_with, concerns_protocol, protocol_reach, BreakingChange, WireFacts,
+};
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, FrozenUnit};
 
@@ -59,7 +61,9 @@ pub struct History {
 /// One protocol's line and its functions' "since" versions.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolHistory {
-    pub name: String,
+    /// Its qualified path, `namespace::Protocol`: protocols of the same name
+    /// in two schemas are two protocols.
+    pub path: String,
     /// The release at which it last broke.
     pub line: String,
     /// In wire (declaration) order.
@@ -88,6 +92,10 @@ pub struct PackageFacts {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProtocolFacts {
+    /// `namespace::Protocol`: what the facts are keyed by.
+    pub path: String,
+    /// The schema it's declared in.
+    pub namespace: String,
     pub name: String,
     pub line: String,
     /// blake3, hex, of the protocol's canonical wire shape ([`shape_hash`]).
@@ -189,8 +197,8 @@ pub fn history(
             protocols: new
                 .protocols()
                 .into_iter()
-                .map(|(name, functions)| ProtocolHistory {
-                    name: name.to_string(),
+                .map(|(namespace, name, functions)| ProtocolHistory {
+                    path: protocol_path(namespace, name),
                     line: target.to_string(),
                     functions: functions
                         .into_iter()
@@ -202,22 +210,68 @@ pub fn history(
     };
     let old = Loaded::of(store, old_tree)?;
     let comparison = compare(store, old_tree, tree)?;
-    let breaking: Vec<_> = comparison
-        .schema_changes
-        .breaking_changes
-        .iter()
-        .chain(comparison.dependency_changes.iter().flat_map(|d| &d.changes.breaking_changes))
-        .collect();
+    let dependency_breaking: Vec<_> =
+        comparison.dependency_changes.iter().flat_map(|d| &d.changes.breaking_changes).collect();
     let package_wire_moved = comparison.config_changes.0.iter().any(|c| {
         matches!(c, ConfigChange::WireFormatChanged { .. } | ConfigChange::WireFramingChanged { .. })
     }) || package_handshake(&old.config) != package_handshake(&new.config);
 
     let every: Vec<&[Vec<FrozenUnit>]> = old.all().chain(new.all()).collect();
+    // Renames keep a protocol's history: a namespace or a protocol renamed
+    // is the same protocol under another path.
+    let namespace_renames: Vec<(&str, &str)> = comparison
+        .schema_changes
+        .breaking_changes
+        .iter()
+        .filter_map(|c| match c {
+            BreakingChange::RenamedNamespace { old_name, new_name } => Some((old_name.as_str(), new_name.as_str())),
+            _ => None,
+        })
+        .collect();
+    let protocol_renames: Vec<(&str, &str)> = comparison
+        .schema_changes
+        .breaking_changes
+        .iter()
+        .filter_map(|c| match c {
+            BreakingChange::RenamedProtocol { old_name, new_name } => Some((old_name.as_str(), new_name.as_str())),
+            _ => None,
+        })
+        .collect();
+    let old_paths: BTreeSet<String> =
+        old.protocols().into_iter().map(|(ns, name, _)| protocol_path(ns, name)).collect();
+    let facts = WireFacts::of((&old.own, &old.config), (&new.own, &new.config));
+
     let mut protocols = vec![];
-    for (name, functions) in new.protocols() {
-        let earlier = before.protocols.iter().find(|p| p.name == name);
-        let reach = protocol_reach(name, &every);
-        let broke = breaking.iter().any(|c| concerns_protocol(c, name, &reach));
+    for (namespace, name, functions) in new.protocols() {
+        // Where it was at the last release.
+        let was_namespace = namespace_renames
+            .iter()
+            .find(|(_, to)| *to == namespace)
+            .map_or(namespace, |(from, _)| *from);
+        let was_name = protocol_renames.iter().find(|(_, to)| *to == name).map_or(name, |(from, _)| *from);
+        let was: Option<(&str, &str)> = [(was_namespace, was_name), (was_namespace, name)]
+            .into_iter()
+            .find(|(ns, n)| old_paths.contains(&protocol_path(ns, n)));
+        let earlier = was.and_then(|(ns, n)| {
+            let path = protocol_path(ns, n);
+            before.protocols.iter().find(|p| p.path == path)
+        });
+
+        // Its own changes: the diff with every other protocol left out, so
+        // a change to one of the same name elsewhere isn't its; then what
+        // it reaches, here and in dependencies.
+        let (old_ns, old_name) = was.unwrap_or((namespace, name));
+        let own = analyze_package_changes_with(
+            &only_protocol(&old.own, old_ns, old_name),
+            &only_protocol(&new.own, namespace, name),
+            &facts,
+        );
+        let namespaces = [old_ns, namespace];
+        let mut reach = protocol_reach(name, Some(&namespaces), &every);
+        reach.extend(protocol_reach(old_name, Some(&namespaces), &every));
+        let broke = own.breaking_changes.iter().any(|c| concerns_protocol(c, name, &reach) || concerns_protocol(c, old_name, &reach))
+            // A dependency's own protocols are never this one.
+            || dependency_breaking.iter().any(|c| concerns_protocol(c, "", &reach));
         let line = match earlier {
             Some(p) if !broke && !package_wire_moved => p.line.clone(),
             _ => target.to_string(),
@@ -231,7 +285,7 @@ pub fn history(
                 FunctionFacts { name: f.to_string(), since }
             })
             .collect();
-        protocols.push(ProtocolHistory { name: name.to_string(), line, functions });
+        protocols.push(ProtocolHistory { path: protocol_path(namespace, name), line, functions });
     }
     Ok(History { protocols })
 }
@@ -245,7 +299,7 @@ pub fn renamed(history: &History, from: &str, to: &str) -> History {
             .protocols
             .iter()
             .map(|p| ProtocolHistory {
-                name: p.name.clone(),
+                path: p.path.clone(),
                 line: rename(&p.line),
                 functions: p
                     .functions
@@ -255,6 +309,33 @@ pub fn renamed(history: &History, from: &str, to: &str) -> History {
             })
             .collect(),
     }
+}
+
+/// A protocol's qualified path: `namespace::Protocol`.
+pub fn protocol_path(namespace: &str, name: &str) -> String {
+    if namespace.is_empty() {
+        name.to_string()
+    } else {
+        format!("{namespace}::{name}")
+    }
+}
+
+/// `schemas` with every protocol but `namespace::name` left out.
+fn only_protocol(schemas: &Schemas, namespace: &str, name: &str) -> Schemas {
+    schemas
+        .iter()
+        .map(|units| {
+            let here = schema_namespace(units).unwrap_or("");
+            units
+                .iter()
+                .filter(|u| match u {
+                    FrozenUnit::Protocol { name: n, .. } => here == namespace && n == name,
+                    _ => true,
+                })
+                .cloned()
+                .collect()
+        })
+        .collect()
 }
 
 fn package_handshake(config: &[ConfigUnit]) -> Option<&str> {
@@ -315,7 +396,7 @@ impl Loaded {
 
     /// The package's own protocols and their functions, in order. Std's
     /// schemas aren't the package's.
-    fn protocols(&self) -> Vec<(&str, Vec<&str>)> {
+    fn protocols(&self) -> Vec<(&str, &str, Vec<&str>)> {
         let mut found = vec![];
         for units in &self.own {
             if schema_namespace(units).is_some_and(|ns| ns == "std" || ns.starts_with("std::")) {
@@ -330,7 +411,7 @@ impl Loaded {
                             _ => None,
                         })
                         .collect();
-                    found.push((name.as_str(), functions));
+                    found.push((schema_namespace(units).unwrap_or(""), name.as_str(), functions));
                 }
             }
         }
@@ -397,8 +478,8 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
         protocols: loaded
             .protocols()
             .into_iter()
-            .map(|(name, functions)| ProtocolHistory {
-                name: name.to_string(),
+            .map(|(namespace, name, functions)| ProtocolHistory {
+                path: protocol_path(namespace, name),
                 line: version.to_string(),
                 functions: functions
                     .into_iter()
@@ -425,8 +506,11 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
             for e in &in_play {
                 encodings.insert((e.kind.clone(), e.name.clone(), e.param_hash.clone()), e.clone());
             }
-            let Some(h) = history.protocols.iter().find(|p| &p.name == name) else { continue };
+            let path = protocol_path(namespace, name);
+            let Some(h) = history.protocols.iter().find(|p| p.path == path) else { continue };
             protocols.push(ProtocolFacts {
+                path,
+                namespace: namespace.to_string(),
                 name: name.clone(),
                 line: h.line.clone(),
                 shape_hash: shape_hash(unit, namespace, &index, &in_play),
@@ -601,6 +685,11 @@ struct Shape<'a> {
 
 struct Builder<'a, 'i> {
     index: &'i Index<'a>,
+    /// Where the format keys fields by position (`struct_fields`): their
+    /// order travels. Otherwise they're hashed sorted by name.
+    fields_ordered: bool,
+    /// Where the format encodes variants by index (`enum_variants`).
+    variants_ordered: bool,
     seen: HashMap<*const FrozenUnit, u32>,
     declared: Vec<Option<Declared>>,
 }
@@ -642,15 +731,19 @@ impl<'a, 'i> Builder<'a, 'i> {
                 name: name.clone(),
                 fields: self.fields(fields, namespace, depth),
             },
-            FrozenUnit::Enum { variants, .. } => Declared::Enum(
-                variants
+            FrozenUnit::Enum { variants, .. } => {
+                let mut names: Vec<String> = variants
                     .iter()
                     .filter_map(|v| match v {
                         FrozenUnit::EnumVariant(name, _) => Some(name.clone()),
                         _ => None,
                     })
-                    .collect(),
-            ),
+                    .collect();
+                if !self.variants_ordered {
+                    names.sort();
+                }
+                Declared::Enum(names)
+            }
             _ => Declared::Enum(vec![]),
         };
         self.declared[i as usize] = Some(declared);
@@ -658,8 +751,17 @@ impl<'a, 'i> Builder<'a, 'i> {
     }
 
     fn fields(&mut self, fields: &'a [FrozenUnit], namespace: &str, depth: usize) -> Vec<Field> {
+        // Sorted before they're walked, so what they reach is numbered in
+        // an order their declaration order doesn't decide.
+        let mut fields: Vec<&'a FrozenUnit> = fields.iter().collect();
+        if !self.fields_ordered {
+            fields.sort_by_key(|f| match f {
+                FrozenUnit::Field { name, .. } => name.as_str(),
+                _ => "",
+            });
+        }
         fields
-            .iter()
+            .into_iter()
             .filter_map(|f| match f {
                 FrozenUnit::Field { name, ty, optional, .. } => Some(Field {
                     name: name.clone(),
@@ -673,15 +775,43 @@ impl<'a, 'i> Builder<'a, 'i> {
 }
 
 /// blake3, hex, of a protocol's canonical wire shape: the CBOR of its
-/// encodings in play (each by its parameter hash), its functions in wire
-/// order (names, arguments, return, thrown errors, direction) and every
-/// declaration they reach, aliases resolved, each in the order it's first
-/// reached. Docstrings, spans, validators, constants, defaults, advisory
-/// annotations and every namespace and type name are left out: none of
-/// them travels.
+/// encodings in play (each by its parameter hash), its functions (names,
+/// arguments, return, thrown errors, direction) and every declaration they
+/// reach, aliases resolved, each numbered in the order it's first reached.
+/// Order counts only where it travels: functions in declaration order
+/// where the framing calls them by index, fields and variants where the
+/// format goes by position; otherwise each is sorted by name. Docstrings,
+/// spans, validators, constants, defaults, advisory annotations and every
+/// namespace and type name are left out: none of them travels.
 fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: &[EncodingFacts]) -> String {
+    use crate::encodings::{official, EncodingKind, Profile};
     let FrozenUnit::Protocol { functions, .. } = protocol else { return String::new() };
-    let mut builder = Builder { index, seen: HashMap::new(), declared: vec![] };
+
+    // Order is hashed only where it travels, by the encodings' profiles (as
+    // the diff reads them, `WireFacts`); an encoding without an official
+    // profile counts as the strictest, order-sensitive.
+    let profile = |kind: EncodingKind, key: &str| {
+        encodings.iter().find(|e| e.kind == key).and_then(|e| official::profile(kind, &e.name))
+    };
+    let states = |p: Option<&Profile>, fact: &str, values: &[&str]| {
+        p.and_then(|p| p.facts.get(fact)).is_some_and(|f| values.contains(&f.value.as_str()))
+    };
+    let (format, framing) = (profile(EncodingKind::Format, "format"), profile(EncodingKind::Framing, "framing"));
+    let calls_ordered = !states(framing, "calls", &["by_name", "by_id"]);
+    let mut builder = Builder {
+        index,
+        fields_ordered: !states(format, "struct_fields", &["by_name"]),
+        variants_ordered: !states(format, "enum_variants", &["by_name"]),
+        seen: HashMap::new(),
+        declared: vec![],
+    };
+    let mut functions: Vec<&FrozenUnit> = functions.iter().collect();
+    if !calls_ordered {
+        functions.sort_by_key(|f| match f {
+            FrozenUnit::Function { name, .. } => name.as_str(),
+            _ => "",
+        });
+    }
     let mut shaped = vec![];
     for function in functions {
         let FrozenUnit::Function { name, arguments, _return, throws, parameters, .. } = function else {

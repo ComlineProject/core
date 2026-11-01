@@ -1966,7 +1966,15 @@ pub trait Differ {
 /// those use in turn, the validators applied on the way, and the constants
 /// their arguments name. Matched by last path segment, which can only reach
 /// too far, never too little. The protocol's own name is not included.
-pub fn protocol_reach(protocol: &str, schemas: &[&[Vec<FrozenUnit>]]) -> BTreeSet<String> {
+///
+/// `namespaces` names the schemas the protocol is declared in (each version's,
+/// so a renamed namespace counts too); `None` takes a protocol of that name
+/// in any schema.
+pub fn protocol_reach(
+    protocol: &str,
+    namespaces: Option<&[&str]>,
+    schemas: &[&[Vec<FrozenUnit>]],
+) -> BTreeSet<String> {
     let mut declarations: HashMap<String, Vec<&FrozenUnit>> = HashMap::new();
     let mut seeds = BTreeSet::new();
     for versions in schemas {
@@ -1975,6 +1983,10 @@ pub fn protocol_reach(protocol: &str, schemas: &[&[Vec<FrozenUnit>]]) -> BTreeSe
                 declarations.entry(name).or_default().push(unit);
             }
             let errors = error_names(units);
+            let here = schema_namespace(units).unwrap_or("");
+            if namespaces.is_some_and(|ns| !ns.contains(&here)) {
+                continue;
+            }
             for unit in units {
                 let FrozenUnit::Protocol { name, functions, .. } = unit else { continue };
                 if name != protocol {

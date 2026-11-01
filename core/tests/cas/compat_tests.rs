@@ -260,3 +260,75 @@ fn a_version_built_before_facts_gets_them_computed() {
     let computed = compat::compute_history_of_commit(&store, &commit, &bare).unwrap();
     assert_eq!(Some(computed), compat::read_history(&store, &tree).unwrap());
 }
+
+/// The `Users` shape hash of `source` under `config.idp` extras `wire`.
+fn shape_under(wire: &str, source: &str) -> String {
+    let dir = package(source);
+    config(dir.path(), wire);
+    build(dir.path()).unwrap();
+    shape(&facts(dir.path()), "Users")
+}
+
+const TWO: &str = "struct User {\n    id: u64\n    name: string\n}\n\nprotocol Users {\n    function get(id: u64) -> User;\n    function count() -> u32;\n}\n";
+
+#[test]
+fn function_order_counts_only_where_calls_go_by_index() {
+    let reordered = TWO.replace(
+        "    function get(id: u64) -> User;\n    function count() -> u32;\n",
+        "    function count() -> u32;\n    function get(id: u64) -> User;\n",
+    );
+    // JSON-RPC calls by name: a reorder is no change on the wire.
+    let jsonrpc = "wire = { framing = \"jsonrpc\" }\n";
+    assert_eq!(shape_under(jsonrpc, TWO), shape_under(jsonrpc, &reordered));
+    // `datagram@2` calls by index: it is.
+    assert_ne!(shape_under("", TWO), shape_under("", &reordered));
+}
+
+#[test]
+fn field_order_counts_only_where_fields_go_by_position() {
+    let reordered = TWO.replace("    id: u64\n    name: string\n", "    name: string\n    id: u64\n");
+    // `json@1` keys fields by name.
+    let json = "wire = { format = \"json@1\" }\n";
+    assert_eq!(shape_under(json, TWO), shape_under(json, &reordered));
+    // `packed@1` by position.
+    assert_ne!(shape_under("", TWO), shape_under("", &reordered));
+}
+
+#[test]
+fn protocols_of_the_same_name_in_two_schemas_have_their_own_facts() {
+    let api = |ty: &str, field: &str| {
+        format!("struct {ty} {{\n    v: {field}\n}}\n\nprotocol Api {{\n    function get() -> {ty};\n}}\n")
+    };
+    let dir = package("");
+    fs::remove_file(dir.path().join("src/ping.ids")).unwrap();
+    fs::write(dir.path().join("src/alpha.ids"), api("Alpha", "u32")).unwrap();
+    fs::write(dir.path().join("src/beta.ids"), api("Beta", "u32")).unwrap();
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+
+    // Only beta's `Api` breaks.
+    fs::write(dir.path().join("src/beta.ids"), api("Beta", "string")).unwrap();
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    let apis: Vec<_> = f.protocols.iter().filter(|p| p.name == "Api").collect();
+    assert_eq!(apis.len(), 2, "{f:?}");
+    let line_of = |ns: &str| apis.iter().find(|p| p.namespace.ends_with(ns)).unwrap().line.clone();
+    assert_eq!(line_of("alpha"), "0.1.0");
+    assert_eq!(line_of("beta"), "0.2.0");
+    assert!(apis.iter().all(|p| p.path == format!("{}::Api", p.namespace)));
+    assert_reproducible(dir.path());
+}
+
+#[test]
+fn a_renamed_namespace_keeps_its_protocols_history() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    fs::rename(dir.path().join("src/ping.ids"), dir.path().join("src/pong.ids")).unwrap();
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    assert_eq!(f.version, "0.2.0-dev.1", "a rename is still major for code");
+    assert!(f.protocols.iter().all(|p| p.namespace.ends_with("pong")), "{f:?}");
+    assert_eq!(line(&f, "Users"), "0.1.0");
+    assert_eq!(since(&f, "Health", "ping"), "0.1.0");
+}
