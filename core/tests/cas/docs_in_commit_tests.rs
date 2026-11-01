@@ -64,7 +64,7 @@ fn a_build_freezes_the_headers_and_a_built_version_documents_with_them() {
             load_schema_from_tree(&store, &sub).unwrap()
         })
         .collect();
-    let model = doc::model_frozen("demo", Some(commit.version.clone()), &schemas, headers);
+    let model = doc::model_frozen("demo", Some(commit.version.clone()), &schemas, &doc::frozen_dependencies(&tree), headers);
     assert_eq!(model.package.docs.as_deref(), Some("The demo package.\n\nSecond paragraph."));
     let api = model.modules.iter().find(|m| m.path == "api").unwrap();
     assert_eq!(api.docs.as_deref(), Some("The API."));
