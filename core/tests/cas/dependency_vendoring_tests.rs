@@ -104,21 +104,20 @@ fn a_breaking_change_in_the_dependency_bumps_the_consumer_major() {
 fn an_additive_change_in_the_dependency_bumps_the_consumer_minor_not_major() {
     let workspace = TempDir::new().unwrap();
     let dep_dir = workspace.path().join("shared-types");
-    write_dependency(&dep_dir, "struct Thing {\n    id: u64\n}\n");
+    let kinds = |variants: &str| {
+        format!("enum Kind {{\n{variants}}}\nstruct Thing {{\n    id: u64\n    kind: Kind\n}}\n")
+    };
+    write_dependency(&dep_dir, &kinds("    A\n"));
     let consumer_dir = workspace.path().join("consumer");
     write_consumer(&consumer_dir, CONSUMER_SCHEMA);
 
     build(&consumer_dir).unwrap();
     comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
 
-    // Add a declaration — additive, not breaking. This is the exact case
-    // the old blanket "any dependency change = Major" got wrong. (An
-    // optional field is breaking under the default `packed@1`, which keys
-    // fields by position.)
-    write_dependency(
-        &dep_dir,
-        "struct Thing {\n    id: u64\n}\nstruct Other {\n    id: u64\n}\n",
-    );
+    // A variant appended to an enum the consumer reaches (through `Thing`):
+    // additive, not breaking. This is the exact case the old blanket "any
+    // dependency change = Major" got wrong.
+    write_dependency(&dep_dir, &kinds("    A\n    B\n"));
     let res = build(&consumer_dir).unwrap();
 
     assert_eq!(
@@ -127,6 +126,27 @@ fn an_additive_change_in_the_dependency_bumps_the_consumer_minor_not_major() {
         "an additive dependency change should bump minor, not the old blanket major"
     );
     assert_eq!(res.current_version, "0.1.1-dev.1");
+    assert_eq!(res.dependency_changes.len(), 1, "listed under the dependency");
+    assert!(res.schema_changes.as_ref().is_none_or(|c| c.is_empty()), "{:?}", res.schema_changes);
+}
+
+#[test]
+fn a_change_outside_the_consumers_reach_does_not_move_the_version() {
+    let workspace = TempDir::new().unwrap();
+    let dep_dir = workspace.path().join("shared-types");
+    write_dependency(&dep_dir, "struct Thing {\n    id: u64\n}\nstruct Other {\n    id: u64\n}\n");
+    let consumer_dir = workspace.path().join("consumer");
+    write_consumer(&consumer_dir, CONSUMER_SCHEMA);
+
+    build(&consumer_dir).unwrap();
+    comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
+
+    // `Other` is never used: removing it, or adding another, is nothing to
+    // the consumer.
+    write_dependency(&dep_dir, "struct Thing {\n    id: u64\n}\nstruct Another {\n    id: u64\n}\n");
+    let res = build(&consumer_dir).unwrap();
+    assert_eq!(res.version_bump, VersionBump::None, "{:?}", res.dependency_changes);
+    assert!(res.dependency_changes.is_empty());
 }
 
 #[test]

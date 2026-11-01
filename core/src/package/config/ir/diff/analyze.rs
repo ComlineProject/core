@@ -16,17 +16,18 @@ use crate::package::config::ir::frozen::{wire_format, wire_framing, Dependency, 
 pub enum ConfigChange {
     /// The IDL spec version changed — the meaning of the schema syntax may have.
     SpecificationVersionChanged { old: u8, new: u8 },
-    /// A dependency was removed. Conservatively breaking: consumers regenerating
-    /// may reference types it provided.
+    /// A dependency was removed. A patch: a dependency counts only as far as
+    /// the package reaches into it, and what it used of one shows in its own
+    /// schemas (a type it re-exported, removed, is a removal there).
     DependencyRemoved { project: String },
-    /// A dependency's version changed. Conservatively breaking until dependency
-    /// resolution can diff the two dependency schemas (core#6).
+    /// A dependency's version changed. A patch on its own: the changes within
+    /// the package's reach are compared and carry their own bump.
     DependencyVersionChanged {
         project: String,
         old: String,
         new: String,
     },
-    /// A dependency was added — additive; the schema content that uses it
+    /// A dependency was added. A patch: the schema content that uses it
     /// carries its own bump.
     DependencyAdded { project: String, version: String },
     /// The package's wire format changed: old and new peers can't read each
@@ -42,11 +43,12 @@ impl ConfigChange {
         use ConfigChange::*;
         match self {
             SpecificationVersionChanged { .. }
-            | DependencyRemoved { .. }
-            | DependencyVersionChanged { .. }
             | WireFormatChanged { .. }
             | WireFramingChanged { .. } => VersionBump::Major,
-            DependencyAdded { .. } => VersionBump::Minor,
+            // Dependencies count by reach (core#119), compared on their own.
+            DependencyAdded { .. } | DependencyRemoved { .. } | DependencyVersionChanged { .. } => {
+                VersionBump::Patch
+            }
         }
     }
 }
@@ -180,19 +182,19 @@ mod tests {
     }
 
     #[test]
-    fn dependency_added_is_minor_removed_is_major() {
+    fn dependency_added_or_removed_is_a_patch() {
         let prev = vec![dep("std", "1.0.0")];
         let cur = vec![dep("std", "1.0.0"), dep("uuid", "4.1.0")];
-        assert_eq!(analyze_config_changes(&prev, &cur).bump(), VersionBump::Minor);
-        assert_eq!(analyze_config_changes(&cur, &prev).bump(), VersionBump::Major);
+        assert_eq!(analyze_config_changes(&prev, &cur).bump(), VersionBump::Patch);
+        assert_eq!(analyze_config_changes(&cur, &prev).bump(), VersionBump::Patch);
     }
 
     #[test]
-    fn dependency_version_change_is_major() {
+    fn dependency_version_change_is_a_patch_on_its_own() {
         let prev = vec![dep("std", "1.0.0")];
         let cur = vec![dep("std", "2.0.0")];
         let changes = analyze_config_changes(&prev, &cur);
-        assert_eq!(changes.bump(), VersionBump::Major);
+        assert_eq!(changes.bump(), VersionBump::Patch);
         assert!(matches!(
             changes.0[0],
             ConfigChange::DependencyVersionChanged { .. }

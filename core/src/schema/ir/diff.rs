@@ -607,6 +607,115 @@ struct Context<'a> {
     namespace: String,
 }
 
+/// The names of a dependency's declarations this package reaches: those
+/// its own declarations (`own`, every version compared) import or use, and
+/// everything those use in turn. Matched by last path segment, which can
+/// only reach too far, never too little.
+pub fn reached_by(own: &[&[Vec<FrozenUnit>]], dependency: &[&[Vec<FrozenUnit>]]) -> BTreeSet<String> {
+    let mut seeds = BTreeSet::new();
+    for schemas in own {
+        for units in schemas.iter() {
+            for unit in units {
+                if let FrozenUnit::Import(path, _, _) = unit {
+                    seeds.insert(last_segment(path).to_string());
+                }
+                if let FrozenUnit::Error { name, imported_from: Some(_), .. } = unit {
+                    seeds.insert(name.clone());
+                }
+                uses(unit, &mut seeds);
+            }
+        }
+    }
+    let declarations: HashMap<String, Vec<&FrozenUnit>> = {
+        let mut map: HashMap<String, Vec<&FrozenUnit>> = HashMap::new();
+        for schemas in dependency {
+            for units in schemas.iter() {
+                for (name, unit) in build_index(units) {
+                    map.entry(name).or_default().push(unit);
+                }
+            }
+        }
+        map
+    };
+    let mut reached = BTreeSet::new();
+    let mut work: Vec<String> = seeds.into_iter().collect();
+    while let Some(name) = work.pop() {
+        let Some(units) = declarations.get(&name) else { continue };
+        if !reached.insert(name) {
+            continue;
+        }
+        for unit in units {
+            let mut more = BTreeSet::new();
+            uses(unit, &mut more);
+            work.extend(more.into_iter().filter(|n| !reached.contains(n)));
+        }
+    }
+    reached
+}
+
+/// `schemas` with only the declarations in `reach` (and each schema's
+/// namespace), for comparing what a package reaches of a dependency.
+pub fn within_reach(schemas: &[Vec<FrozenUnit>], reach: &BTreeSet<String>) -> Vec<Vec<FrozenUnit>> {
+    schemas
+        .iter()
+        .map(|units| {
+            units
+                .iter()
+                .filter(|unit| match unit {
+                    FrozenUnit::Namespace(_) => true,
+                    _ => build_index(std::slice::from_ref(*unit)).keys().any(|n| reach.contains(n)),
+                })
+                .cloned()
+                .collect()
+        })
+        .collect()
+}
+
+/// The names (last segments) of the types and validators `unit` uses.
+fn uses(unit: &FrozenUnit, names: &mut BTreeSet<String>) {
+    fn type_names(ty: &TypeRef, names: &mut BTreeSet<String>) {
+        match ty {
+            TypeRef::Named(n) => {
+                names.insert(last_segment(n).to_string());
+            }
+            TypeRef::Array { element, .. } => type_names(element, names),
+            TypeRef::Union(types) => types.iter().for_each(|t| type_names(t, names)),
+            _ => {}
+        }
+    }
+    let all = |units: &[FrozenUnit], names: &mut BTreeSet<String>| units.iter().for_each(|u| uses(u, names));
+    match unit {
+        FrozenUnit::Struct { parameters, fields, .. } | FrozenUnit::Error { parameters, fields, .. } => {
+            all(parameters, names);
+            all(fields, names);
+        }
+        FrozenUnit::Field { ty, parameters, .. } => {
+            type_names(ty, names);
+            all(parameters, names);
+        }
+        FrozenUnit::TypeAlias { target, parameters, .. } => {
+            type_names(target, names);
+            all(parameters, names);
+        }
+        FrozenUnit::Constant { ty, .. } => type_names(ty, names),
+        FrozenUnit::Protocol { parameters, functions, .. } => {
+            all(parameters, names);
+            all(functions, names);
+        }
+        FrozenUnit::Function { arguments, _return, parameters, .. } => {
+            arguments.iter().for_each(|a| type_names(&a.ty, names));
+            if let Some(ty) = _return {
+                type_names(ty, names);
+            }
+            all(parameters, names);
+        }
+        FrozenUnit::ValidatorRef { name, .. } => {
+            names.insert(last_segment(name).to_string());
+        }
+        _ => {}
+    }
+}
+
 /// Analyze changes between two versions of a package: its schema files,
 /// paired by namespace, under the encodings their own protocols name (and
 /// core's defaults). [`analyze_package_changes_with`] takes the facts of a
