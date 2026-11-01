@@ -27,6 +27,11 @@ pub type FrozenWhole = (ProjectContext, Vec<FrozenUnit>);
 #[derive(Deserialize, Serialize)]
 pub enum FrozenUnit {
     Namespace(String),
+    /// `id = "..."`: the package's identity, a random id tooling writes
+    /// (`comline new`, or `comline build` for a package without one). A
+    /// rename keeps it; a copy must change it. Checked by
+    /// [`crate::package::id::check`].
+    PackageId(String),
     SpecificationVersion(u8),
     PackageVersion(String),
     SchemaPath(String),
@@ -191,6 +196,14 @@ pub fn handshake(units: &[FrozenUnit]) -> &str {
 
 /// The package's declared `wire` entries, `(format, framing)`, as written
 /// (canonical). `None` for one it leaves out.
+/// The package's `id`, if its config declares one.
+pub fn package_id(units: &[FrozenUnit]) -> Option<&str> {
+    units.iter().find_map(|unit| match unit {
+        FrozenUnit::PackageId(id) => Some(id.as_str()),
+        _ => None,
+    })
+}
+
 pub fn wire(units: &[FrozenUnit]) -> (Option<&str>, Option<&str>) {
     units
         .iter()

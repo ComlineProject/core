@@ -489,6 +489,8 @@ struct Side<'a> {
     in_validators: HashSet<String>,
     /// Constants a field default uses.
     in_defaults: HashSet<String>,
+    /// Every `validator`, by its name.
+    validators: HashMap<String, &'a FrozenUnit>,
 }
 
 impl<'a> Side<'a> {
@@ -497,6 +499,9 @@ impl<'a> Side<'a> {
         for units in schemas {
             let namespace = schema_namespace(units);
             for unit in units.iter() {
+                if let FrozenUnit::Validator { name, .. } = unit {
+                    side.validators.insert(name.clone(), unit);
+                }
                 if let FrozenUnit::TypeAlias { name, .. } = unit {
                     side.aliases.insert(name.clone(), unit);
                     if let Some(ns) = namespace {
@@ -579,6 +584,37 @@ impl<'a> Side<'a> {
             }
             other => other.clone(),
         }
+    }
+
+    /// `refs` with every argument a call leaves out filled in from its
+    /// validator's parameter default (core#156), and every argument as
+    /// text, sorted: a changed default changes each call that relies on it,
+    /// and writing a default out is no change.
+    fn with_defaults(&self, refs: Vec<FrozenUnit>) -> Vec<FrozenUnit> {
+        refs.into_iter()
+            .map(|r| {
+                let FrozenUnit::ValidatorRef { name, args, span, arg_spans } = r else { return r };
+                let mut resolved: BTreeMap<String, String> = args
+                    .iter()
+                    .filter_map(|a| match a {
+                        FrozenUnit::Property { name, value } => Some((name.clone(), render_value(value))),
+                        _ => None,
+                    })
+                    .collect();
+                if let Some(FrozenUnit::Validator { properties, .. }) = self.validators.get(last_segment(&name)) {
+                    for property in properties {
+                        if let FrozenUnit::Field { name, default: Some(default), .. } = property {
+                            resolved.entry(name.clone()).or_insert_with(|| default.to_string());
+                        }
+                    }
+                }
+                let args = resolved
+                    .into_iter()
+                    .map(|(name, text)| FrozenUnit::Property { name, value: ConfigValue::Str(text) })
+                    .collect();
+                FrozenUnit::ValidatorRef { name, args, span, arg_spans }
+            })
+            .collect()
     }
 
     /// The validators the aliases `ty` goes through apply.
@@ -1339,10 +1375,21 @@ fn compare_struct_fields(
                 field_name: field_name.clone(),
             });
         }
+        // The effective validators, each call's arguments resolved against
+        // its validator's defaults; the rest of the annotations as they are.
+        let effective = |side: &Side, parameters: &[FrozenUnit], ty: &TypeRef| {
+            let mut refs = side.alias_validators(ty);
+            refs.extend(validator_refs(parameters));
+            side.with_defaults(refs)
+        };
+        let others = |parameters: &[FrozenUnit]| -> Vec<FrozenUnit> {
+            parameters.iter().filter(|p| !matches!(p, FrozenUnit::ValidatorRef { .. })).cloned().collect()
+        };
+        let (old_others, new_others) = (others(old.parameters), others(new.parameters));
         compare_parameters_with(
             &target,
-            (old.parameters, cx.old.alias_validators(old.ty)),
-            (new.parameters, cx.new.alias_validators(new.ty)),
+            (&old_others, effective(&cx.old, old.parameters, old.ty)),
+            (&new_others, effective(&cx.new, new.parameters, new.ty)),
             changes,
         );
         push_docstring_change(&target, old.docstring, new.docstring, changes);
@@ -1911,4 +1958,147 @@ pub trait Differ {
         left_value: Option<&Literal>,
         right_value: Option<&Literal>,
     );
+}
+
+/// The names (last segments) of everything protocol `protocol` reaches in
+/// `schemas` (every version compared, the package's own and its
+/// dependencies'): the types its functions take, return and throw, what
+/// those use in turn, the validators applied on the way, and the constants
+/// their arguments name. Matched by last path segment, which can only reach
+/// too far, never too little. The protocol's own name is not included.
+///
+/// `namespaces` names the schemas the protocol is declared in (each version's,
+/// so a renamed namespace counts too); `None` takes a protocol of that name
+/// in any schema.
+pub fn protocol_reach(
+    protocol: &str,
+    namespaces: Option<&[&str]>,
+    schemas: &[&[Vec<FrozenUnit>]],
+) -> BTreeSet<String> {
+    let mut declarations: HashMap<String, Vec<&FrozenUnit>> = HashMap::new();
+    let mut seeds = BTreeSet::new();
+    for versions in schemas {
+        for units in versions.iter() {
+            for (name, unit) in build_index(units) {
+                declarations.entry(name).or_default().push(unit);
+            }
+            let errors = error_names(units);
+            let here = schema_namespace(units).unwrap_or("");
+            if namespaces.is_some_and(|ns| !ns.contains(&here)) {
+                continue;
+            }
+            for unit in units {
+                let FrozenUnit::Protocol { name, functions, .. } = unit else { continue };
+                if name != protocol {
+                    continue;
+                }
+                uses(unit, &mut seeds);
+                constants_named(unit, &mut seeds);
+                for function in functions {
+                    if let FrozenUnit::Function { throws, .. } = function {
+                        seeds.extend(throws.iter().filter_map(|o| errors.get(o).cloned()));
+                    }
+                }
+            }
+        }
+    }
+    let mut reached = BTreeSet::new();
+    let mut work: Vec<String> = seeds.into_iter().collect();
+    while let Some(name) = work.pop() {
+        if name == protocol || !reached.insert(name.clone()) {
+            continue;
+        }
+        for unit in declarations.get(&name).into_iter().flatten() {
+            let mut more = BTreeSet::new();
+            uses(unit, &mut more);
+            constants_named(unit, &mut more);
+            work.extend(more.into_iter().filter(|n| !reached.contains(n)));
+        }
+    }
+    reached
+}
+
+/// The constants (last segments) a unit's validator arguments, validator
+/// properties and field defaults name.
+fn constants_named(unit: &FrozenUnit, names: &mut BTreeSet<String>) {
+    fn value(v: &ConfigValue, names: &mut BTreeSet<String>) {
+        match v {
+            ConfigValue::Name(n) | ConfigValue::Path(n) => {
+                names.insert(last_segment(n).to_string());
+            }
+            ConfigValue::Dict(entries) => entries.iter().for_each(|(_, v)| value(v, names)),
+            _ => {}
+        }
+    }
+    let all = |units: &[FrozenUnit], names: &mut BTreeSet<String>| {
+        units.iter().for_each(|u| constants_named(u, names))
+    };
+    match unit {
+        FrozenUnit::Struct { parameters, fields, .. } | FrozenUnit::Error { parameters, fields, .. } => {
+            all(parameters, names);
+            all(fields, names);
+        }
+        FrozenUnit::Field { parameters, default, .. } => {
+            if let Some(Literal::Reference(r)) = default {
+                names.insert(last_segment(r).to_string());
+            }
+            all(parameters, names);
+        }
+        FrozenUnit::TypeAlias { parameters, .. } => all(parameters, names),
+        FrozenUnit::Protocol { parameters, functions, .. } => {
+            all(parameters, names);
+            all(functions, names);
+        }
+        FrozenUnit::Function { parameters, .. } => all(parameters, names),
+        FrozenUnit::Validator { properties, .. } => all(properties, names),
+        FrozenUnit::ValidatorRef { args, .. } => all(args, names),
+        FrozenUnit::Property { value: v, .. } => value(v, names),
+        _ => {}
+    }
+}
+
+/// Whether a breaking change concerns protocol `protocol`, given what it
+/// reaches ([`protocol_reach`]): a change to the protocol itself or one of
+/// its functions, or to a declaration it reaches. Renames of a namespace or
+/// a protocol never do: names don't reach the wire.
+pub fn concerns_protocol(change: &BreakingChange, protocol: &str, reach: &BTreeSet<String>) -> bool {
+    use BreakingChange::*;
+    let subject = |target: &str| -> String {
+        let first = target.split_once('.').map_or(target, |(first, _)| first);
+        last_segment(first).to_string()
+    };
+    let reached = |name: &str| {
+        let s = subject(name);
+        s == protocol || reach.contains(&s)
+    };
+    match change {
+        RenamedNamespace { .. } | RenamedProtocol { .. } => false,
+        RemovedProtocol { name } => name == protocol,
+        RemovedFunction { protocol_name, .. }
+        | ReorderedFunctions { protocol_name }
+        | ChangedFunctionSignature { protocol_name, .. }
+        | RemovedThrownError { protocol_name, .. } => protocol_name == protocol,
+        RemovedStruct { name }
+        | RemovedEnum { name }
+        | RemovedError { name }
+        | ChangedErrorOrdinal { name, .. }
+        | RemovedConstant { name }
+        | ChangedConstantType { name, .. }
+        | RemovedTypeAlias { name }
+        | ChangedTypeAliasTarget { name, .. }
+        | RemovedValidator { name }
+        | ChangedValidator { name } => reached(name),
+        RemovedField { type_name, .. }
+        | AddedRequiredField { type_name, .. }
+        | AddedOptionalField { type_name, .. }
+        | ReorderedFields { type_name }
+        | ChangedFieldType { type_name, .. }
+        | ChangedFieldOptionality { type_name, .. } => reached(type_name),
+        RemovedEnumVariant { enum_name, .. }
+        | RenamedEnumVariant { enum_name, .. }
+        | ReorderedEnumVariants { enum_name } => reached(enum_name),
+        ValidationTightened { target }
+        | ChangedWireAnnotation { target, .. }
+        | GaveUpGuarantees { target, .. } => reached(target),
+    }
 }

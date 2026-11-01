@@ -2,7 +2,7 @@
 
 // Crate Uses
 use crate::package::build::VersionBump;
-use crate::package::config::ir::frozen::{wire_format, wire_framing, Dependency, FrozenUnit};
+use crate::package::config::ir::frozen::{package_id, wire_format, wire_framing, Dependency, FrozenUnit};
 
 // External Uses
 
@@ -36,6 +36,9 @@ pub enum ConfigChange {
     /// The framing a protocol without `@framing` gets changed: old and new
     /// peers frame calls differently.
     WireFramingChanged { old: String, new: String },
+    /// The package's `id` changed: it claims to be another package. Major
+    /// (identity). Adding an id to a package that had none is no change.
+    PackageIdChanged { old: String, new: String },
 }
 
 impl ConfigChange {
@@ -44,7 +47,8 @@ impl ConfigChange {
         match self {
             SpecificationVersionChanged { .. }
             | WireFormatChanged { .. }
-            | WireFramingChanged { .. } => VersionBump::Major,
+            | WireFramingChanged { .. }
+            | PackageIdChanged { .. } => VersionBump::Major,
             // Dependencies count by reach (core#119), compared on their own.
             DependencyAdded { .. } | DependencyRemoved { .. } | DependencyVersionChanged { .. } => {
                 VersionBump::Patch
@@ -86,6 +90,12 @@ pub fn analyze_config_changes(prev: &[FrozenUnit], cur: &[FrozenUnit]) -> Config
     if let (Some(old), Some(new)) = (spec_version(prev), spec_version(cur)) {
         if old != new {
             changes.push(ConfigChange::SpecificationVersionChanged { old, new });
+        }
+    }
+
+    if let (Some(old), Some(new)) = (package_id(prev), package_id(cur)) {
+        if old != new {
+            changes.push(ConfigChange::PackageIdChanged { old: old.to_string(), new: new.to_string() });
         }
     }
 

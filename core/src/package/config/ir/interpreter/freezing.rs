@@ -128,6 +128,14 @@ pub fn interpret_assignment(
                 }
             }
         }
+        "id" => {
+            let Value::String(id) = &node.value else {
+                return Err("'id' should be a string, like \"3f2a...\" (`comline build` writes one)".into())
+            };
+            let id = crate::package::config::dependency::strip_quotes(&id.value);
+            crate::package::id::check(&id)?;
+            vec![FrozenUnit::PackageId(id.to_string())]
+        }
         "handshake" => {
             let Value::String(name) = &node.value else {
                 return Err("'handshake' should be a string, like \"comline@1\"".into())
