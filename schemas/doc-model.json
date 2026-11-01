@@ -2065,7 +2065,7 @@
       "type": "object"
     }
   },
-  "description": "A package's documentation.",
+  "description": "A package's documentation.\n\nVersion 1 grows additively: new unit, type and change kinds and new\nfields that may be absent keep the version, so a reader skips kinds it\ndoesn't know and ignores unknown fields. Only an incompatible change\nbumps `model_version`.",
   "properties": {
     "changelog": {
       "default": [],
@@ -2076,7 +2076,7 @@
       "type": "array"
     },
     "model_version": {
-      "description": "[`DOC_MODEL_VERSION`] when it was produced.",
+      "description": "The model's version when it was produced. Additive changes keep it;\nonly an incompatible one bumps it.",
       "format": "uint32",
       "minimum": 0,
       "type": "integer"
