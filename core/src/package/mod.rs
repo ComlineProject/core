@@ -4,6 +4,8 @@ pub mod config;
 #[cfg(feature = "deps")]
 pub mod deps;
 #[cfg(feature = "compiler")]
+pub mod id;
+#[cfg(feature = "compiler")]
 pub mod layout;
 #[cfg(feature = "compiler")]
 pub mod stdlib;

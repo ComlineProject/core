@@ -15,6 +15,7 @@ use super::objects::{Commit, EntryMode, Tree};
 use super::refs::{main_ref, read_ref, ref_exists, update_ref};
 use super::storage::Hash;
 use super::version::{dev_version, next_release, VersionBump};
+use crate::compat::release_of;
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::{analyze_config_changes, ConfigChanges};
 use crate::package::config::ir::frozen::cas::blob as config_blob;
@@ -290,12 +291,18 @@ pub fn process_initial_freezing(
         root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
     }
 
+    // Create initial commit: a build leading to the first release, 0.1.0.
+    let initial_version = dev_version(&next_release(None, VersionBump::None), 1).to_string();
+
+    // What `comline@2` needs from history: every protocol's line and its
+    // functions' "since", all the first release's.
+    let history = crate::compat::history(&store, None, &root_tree, &release_of(&initial_version))?;
+    let root_tree = crate::compat::with_facts(&store, &root_tree, &history)?;
+
     // Write root tree
     let root_tree_bytes = root_tree.to_bytes()?;
     let root_tree_hash = store.write(&root_tree_bytes)?;
 
-    // Create initial commit: a build leading to the first release, 0.1.0.
-    let initial_version = dev_version(&next_release(None, VersionBump::None), 1).to_string();
     let commit = create_initial_commit(root_tree_hash, &initial_version);
     let commit_bytes = commit.to_bytes()?;
     let commit_hash = store.write(&commit_bytes)?;
@@ -380,11 +387,11 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
     }
 
-    // Check if tree changed
-    let root_tree_bytes = root_tree.to_bytes()?;
-    let root_tree_hash = store.write(&root_tree_bytes)?;
+    // Check if tree changed. The facts are left out: they follow from the
+    // rest, and a version built before they were stored has none.
+    let unchanged = root_tree.hash()? == crate::compat::without_facts(&prev_tree).hash()?;
 
-    if root_tree_hash == parent_commit.tree {
+    if unchanged {
         // No changes
         tracing::debug!("CAS: No changes detected");
         let (release, _) = last_release(&store, parent_hash)?;
@@ -420,6 +427,24 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     };
     let target = next_release(last_release_version.as_ref(), release_bump.max(VersionBump::Patch));
     let new_version = dev_version(&target, builds_since + 1);
+
+    // Each protocol's line and its functions' "since", against the last
+    // release (see `crate::compat`).
+    let previous = match &release {
+        Some((hash, commit)) => Some((
+            crate::compat::history_of_commit(&store, hash)?,
+            Tree::from_bytes(&store.read(&commit.tree)?)?,
+        )),
+        None => None,
+    };
+    let history = crate::compat::history(
+        &store,
+        previous.as_ref().map(|(h, t)| (h, t)),
+        &root_tree,
+        &target.to_string(),
+    )?;
+    let root_tree = crate::compat::with_facts(&store, &root_tree, &history)?;
+    let root_tree_hash = store.write(&root_tree.to_bytes()?)?;
 
     // Create new commit
     let commit = create_version_commit(

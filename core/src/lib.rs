@@ -3,6 +3,8 @@
 //#![deny(rust_2018_idioms)]
 
 // Relative Modules
+#[cfg(feature = "compiler")]
+pub mod compat;
 pub mod config_value;
 pub mod diagnostics;
 #[cfg(feature = "compiler")]

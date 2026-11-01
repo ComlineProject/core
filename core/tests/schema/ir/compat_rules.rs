@@ -220,6 +220,24 @@ fn validators() {
     ]);
 }
 
+/// core#156: a call is compared with its arguments resolved against the
+/// validator's parameter defaults.
+#[test]
+fn validator_arguments_resolve_against_defaults() {
+    let uses = |bounds: &str, call: &str| {
+        format!("{bounds}struct S {{\n    @validators = [{call}]\n    a: string\n}}\n")
+    };
+    let changes = default(&uses(BOUNDS, "Bounds()"), &uses(&BOUNDS.replace("= 10", "= 5"), "Bounds()"));
+    let tightened = changes.breaking_changes.iter().any(|c| {
+        serde_json::to_value(c).unwrap() == serde_json::json!({"kind": "validation_tightened", "target": "S.a"})
+    });
+    assert!(tightened, "a narrowed default narrows the call relying on it: {changes:?}");
+
+    // Writing the default out, or leaving it out, is no change to the call.
+    let changes = default(&uses(BOUNDS, "Bounds()"), &uses(BOUNDS, "Bounds(max = 10)"));
+    assert!(changes.is_empty(), "{changes:?}");
+}
+
 #[test]
 fn annotations_and_docstrings() {
     let p = |annotation: &str| format!("{annotation}protocol P {{\n    function f();\n}}\n");

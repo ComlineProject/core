@@ -333,7 +333,7 @@ fn summarize(p: Protocol) -> ProtocolSummary {
 }
 
 /// A `@framing` value's name and its other entries, each as written.
-fn split(value: &ConfigValue) -> (String, BTreeMap<String, String>) {
+pub(crate) fn split(value: &ConfigValue) -> (String, BTreeMap<String, String>) {
     match value {
         ConfigValue::Dict(entries) => {
             let mut name = String::new();

@@ -135,7 +135,21 @@ pub fn release(project_path: &Path, request: &ReleaseRequest) -> Result<ReleaseI
     } else {
         format!("Release {version}")
     };
-    let mut commit = create_version_commit(head.tree, head_hash, &version.to_string(), &message);
+    // The lines and "since"s the builds recorded name the release they led
+    // to; released as another version (a raised bump, or 1.0), they name
+    // this one, in a tree of its own.
+    let mut tree = head.tree;
+    if !head.is_release() {
+        let led_to = crate::compat::release_of(&head.version);
+        if led_to != version.to_string() {
+            let head_tree = Tree::from_bytes(&store.read(&head.tree)?)?;
+            let history = crate::compat::history_of_commit(&store, &head_hash)?;
+            let history = crate::compat::renamed(&history, &led_to, &version.to_string());
+            let renamed = crate::compat::with_facts(&store, &head_tree, &history)?;
+            tree = store.write(&renamed.to_bytes()?)?;
+        }
+    }
+    let mut commit = create_version_commit(tree, head_hash, &version.to_string(), &message);
     commit.release = Some(record.clone());
     let commit_hash = store.write(&commit.to_bytes()?)?;
     update_ref(project_path, main_ref(), &commit_hash)?;

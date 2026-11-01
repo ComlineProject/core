@@ -13,3 +13,4 @@ pub mod ir_roundtrip_tests;
 #[cfg(feature = "deps")]
 pub mod dependency_vendoring_tests;
 pub mod release_tests;
+pub mod compat_tests;
