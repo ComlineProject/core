@@ -144,7 +144,7 @@ pub struct Comparison {
 /// (paired by namespace), every dependency vendored into both, and the
 /// congregation.
 pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison> {
-    use crate::schema::ir::diff::{analyze_package_changes, DependencyChanges};
+    use crate::schema::ir::diff::{analyze_package_changes_with, DependencyChanges, WireFacts};
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
 
     // `schema_{idx}` entries only: a `dep_<name>` entry is a vendored
@@ -159,9 +159,23 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
         }
         Ok(schemas)
     };
+    let config = |tree: &Tree| -> Result<Vec<_>> {
+        Ok(tree
+            .entries
+            .iter()
+            .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
+            .map(|e| config_blob::read_config(store, &e.hash))
+            .transpose()?
+            .unwrap_or_default())
+    };
+    let (old_config, new_config) = (config(old)?, config(new)?);
+
     // Files are paired by namespace, not by their position in the glob:
     // adding, renaming or reordering a file must not pair the wrong schemas.
-    let schema_changes = analyze_package_changes(&local(old)?, &local(new)?);
+    // The format-dependent rules read the facts of the encodings in play.
+    let (old_local, new_local) = (local(old)?, local(new)?);
+    let facts = WireFacts::of((&old_local, &old_config), (&new_local, &new_config));
+    let schema_changes = analyze_package_changes_with(&old_local, &new_local, &facts);
     let mut bump = changes_bump(&schema_changes);
 
     // A dependency present in both gets the real bump its own schema changes
@@ -181,7 +195,10 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
         };
         let before = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&old_entry.hash)?)?)?;
         let after = load_dependency_schemas(store, &Tree::from_bytes(&store.read(&entry.hash)?)?)?;
-        let changes = analyze_package_changes(&before, &after);
+        // A dependency's own protocols and core's defaults: its config
+        // isn't vendored.
+        let facts = WireFacts::of((&before, &[]), (&after, &[]));
+        let changes = analyze_package_changes_with(&before, &after, &facts);
         bump = bump.max(changes_bump(&changes));
         if !changes.is_empty() {
             dependency_changes.push(DependencyChanges { name: name.to_string(), changes });
@@ -191,16 +208,7 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
     // Congregation changes. Only units that affect the schema API count
     // (spec version, dependencies). A tree from before config was stored
     // has none.
-    let config = |tree: &Tree| -> Result<Vec<_>> {
-        Ok(tree
-            .entries
-            .iter()
-            .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
-            .map(|e| config_blob::read_config(store, &e.hash))
-            .transpose()?
-            .unwrap_or_default())
-    };
-    let config_changes = analyze_config_changes(&config(old)?, &config(new)?);
+    let config_changes = analyze_config_changes(&old_config, &new_config);
     bump = bump.max(config_changes.bump());
 
     Ok(Comparison { schema_changes, dependency_changes, config_changes, bump })

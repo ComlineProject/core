@@ -50,7 +50,7 @@ fn a_release_takes_the_highest_bump_since_the_last_one() {
     release(dir.path(), &ReleaseRequest::default()).unwrap();
 
     // A feature, then a breaking change: two builds, one release.
-    schema(dir.path(), "struct Foo {\n    a: u32\n    optional b: string\n}\n");
+    schema(dir.path(), "struct Foo {\n    a: u32\n}\nstruct Bar {\n    b: string\n}\n");
     assert_eq!(build(dir.path()).unwrap().current_version, "0.1.1-dev.1");
     schema(dir.path(), "struct Foo {\n    b: string\n}\n");
     let built = build(dir.path()).unwrap();

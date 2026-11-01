@@ -5,7 +5,12 @@ use crate::schema::ir::frozen::unit::{
     schema_namespace, ConfigValue, DeprecatedValue, FrozenArgument, FrozenUnit, Guarantee,
 };
 use crate::schema::ir::unverified;
-use std::collections::{BTreeMap, HashMap};
+use crate::encodings::{official, EncodingKind, Profile};
+use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
+use crate::schema::idl::annotations::{
+    FramingValue, DEFAULT_FORMAT, DEFAULT_FRAMING, FORMAT_JSON, FRAMING_JSONRPC,
+};
+use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
@@ -70,6 +75,20 @@ pub enum BreakingChange {
         field_name: String,
         field_type: String,
     },
+    /// An optional field added where a format in play can't tolerate it: it
+    /// keys fields by position, rejects an unknown field, or rejects a
+    /// missing optional one (its profile's `struct_fields`,
+    /// `unknown_field`, `missing_optional`).
+    AddedOptionalField {
+        type_name: String,
+        field_name: String,
+        field_type: String,
+    },
+    /// Fields kept their names but moved, where a format in play keys them
+    /// by position (`struct_fields = by_position`).
+    ReorderedFields {
+        type_name: String,
+    },
     ChangedFieldType {
         type_name: String,
         field_name: String,
@@ -96,9 +115,33 @@ pub enum BreakingChange {
         old_name: String,
         new_name: String,
     },
+    /// Variants kept their names but moved (reordered, or one inserted
+    /// before others), where a format in play encodes them by index
+    /// (`enum_variants = by_index`).
+    ReorderedEnumVariants {
+        enum_name: String,
+    },
     RemovedFunction {
         protocol_name: String,
         function_name: String,
+    },
+    /// Functions kept their names but moved (reordered, or one inserted
+    /// before others), where the protocol's framing calls them by index
+    /// (`calls = by_index`).
+    ReorderedFunctions {
+        protocol_name: String,
+    },
+    /// A protocol renamed: one removed and one added with the same
+    /// functions. Its name doesn't reach the wire, but consumers refer to it.
+    RenamedProtocol {
+        old_name: String,
+        new_name: String,
+    },
+    /// A schema file's namespace renamed: one removed and one added with
+    /// the same declarations. Consumers refer to it in paths.
+    RenamedNamespace {
+        old_name: String,
+        new_name: String,
     },
     ChangedFunctionSignature {
         protocol_name: String,
@@ -151,7 +194,10 @@ pub enum BreakingChange {
         name: String,
     },
     /// The validators applied to a declaration changed other than by pure
-    /// removal: what's accepted may have narrowed.
+    /// removal: what's accepted may have narrowed. The set compared is the
+    /// effective one: a field's own validators plus those of the aliases
+    /// its type goes through. `target` may also be a constant whose value
+    /// changed while a validator argument uses it.
     ValidationTightened {
         target: String,
     },
@@ -218,8 +264,10 @@ pub enum NewFeature {
         name: String,
         ty: String,
     },
-    /// A constant's value changed. Counted as minor for now: whether it
-    /// reaches the wire (a validator argument, a default) isn't traced yet.
+    /// A constant's value changed, and nothing on the wire uses it: no
+    /// validator argument and no field default. (One a validator uses is
+    /// [`BreakingChange::ValidationTightened`]; one only a default uses is
+    /// [`Modification::ChangedConstantValue`].)
     ChangedConstantValue {
         name: String,
         old_value: Option<String>,
@@ -275,13 +323,26 @@ mod guarantee_names {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Modification {
-    /// A declaration's own docstring text changed with nothing else about
-    /// it - doc/comment-only changes warrant a patch bump, not a
-    /// major/minor one. Only tracked at the declaration level (struct,
-    /// enum, protocol, const, error, alias, validator) for now, not
-    /// per-field/per-function.
+    /// A docstring's text changed: a declaration's (`S`) or a member's
+    /// (`S.field`, `P.function`). Documentation only: a patch.
     DocstringChanged {
         name: String,
+    },
+    /// A type respelled without changing what it is: swapped for an
+    /// equivalent alias, either way, or one alias for another with the same
+    /// target (compared after resolving aliases, core#110). `target` is the
+    /// field (`S.f`), function (`P.f`), constant or alias.
+    TypeRespelled {
+        target: String,
+        old_type: String,
+        new_type: String,
+    },
+    /// A constant's value changed where only field defaults use it:
+    /// defaults don't travel on the wire.
+    ChangedConstantValue {
+        name: String,
+        old_value: Option<String>,
+        new_value: Option<String>,
     },
     ChangedFieldDefault {
         type_name: String,
@@ -301,28 +362,316 @@ pub enum Modification {
     },
 }
 
-/// Analyze changes between two versions of a package: its schema files,
-/// paired by namespace.
+/// What the encodings in play say about how things travel, from their
+/// profiles' facts (`core_stdlib/packages/comline/profiles/`). The rules
+/// that depend on the format or framing read these, never a list of
+/// format names.
 ///
-/// A file whose namespace exists only in `old` is compared against nothing,
-/// so each of its declarations is a removal; one only in `new`, an addition.
-/// Pairing by namespace rather than by position means adding, renaming or
-/// reordering files doesn't pair the wrong schemas.
+/// Each flag is the *lenient* reading and holds only when every encoding
+/// in play states it, so [`WireFacts::default`] is the strictest: what an
+/// unknown encoding (one with no profile the comparison can read) gets.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WireFacts {
+    /// Every format keys struct fields by name (`struct_fields = by_name`).
+    pub fields_by_name: bool,
+    /// Every format ignores an unknown field and accepts a missing optional
+    /// one (`unknown_field = ignored`, `missing_optional = absent`).
+    pub optional_fields_tolerated: bool,
+    /// Every format encodes enum variants by name (`enum_variants = by_name`).
+    pub variants_by_name: bool,
+    /// Every framing sends errors by name (`errors = by_name`), so an
+    /// error's ordinal doesn't travel.
+    pub errors_by_name: bool,
+    /// Per protocol (`namespace::Protocol`): whether its framing calls
+    /// functions by something stable (`calls = by_name` or `by_id`) rather
+    /// than by their index. A protocol not listed is called by index.
+    pub calls_stable: BTreeMap<String, bool>,
+}
+
+impl WireFacts {
+    /// The facts of both versions of a package: each version's schemas and
+    /// frozen config (its `wire` defaults; empty for none). Each protocol's
+    /// framing is its frozen `@framing`, else the package's, else core's;
+    /// its format the package's, else JSON under JSON-RPC, else core's (as
+    /// `comline_core::inspect` resolves them). A package with no protocol
+    /// has its default format and framing in play. Facts come from the
+    /// official profiles; any other encoding reads as the strictest.
+    pub fn of(
+        old: (&[Vec<FrozenUnit>], &[ConfigUnit]),
+        new: (&[Vec<FrozenUnit>], &[ConfigUnit]),
+    ) -> Self {
+        let mut formats: Vec<Option<&Profile>> = vec![];
+        let mut framings: Vec<Option<&Profile>> = vec![];
+        let mut calls: BTreeMap<String, Vec<Option<&Profile>>> = BTreeMap::new();
+        for (schemas, config) in [old, new] {
+            let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
+            let mut any = false;
+            for units in schemas {
+                let namespace = schema_namespace(units).unwrap_or("");
+                for unit in units {
+                    let FrozenUnit::Protocol { name, parameters, .. } = unit else { continue };
+                    any = true;
+                    let framing = written_framing(parameters)
+                        .or(wire_framing)
+                        .unwrap_or(DEFAULT_FRAMING);
+                    let framing_profile = official::profile(EncodingKind::Framing, framing);
+                    let jsonrpc = FramingValue::named(framing).is_some_and(|f| f.name == FRAMING_JSONRPC);
+                    let format = wire_format
+                        .unwrap_or(if jsonrpc { FORMAT_JSON } else { DEFAULT_FORMAT });
+                    formats.push(official::profile(EncodingKind::Format, format));
+                    framings.push(framing_profile);
+                    calls.entry(protocol_key(namespace, name)).or_default().push(framing_profile);
+                }
+            }
+            if !any {
+                formats.push(official::profile(EncodingKind::Format, wire_format.unwrap_or(DEFAULT_FORMAT)));
+                framings.push(official::profile(EncodingKind::Framing, wire_framing.unwrap_or(DEFAULT_FRAMING)));
+            }
+        }
+        let all = |profiles: &[Option<&Profile>], fact: &str, values: &[&str]| {
+            !profiles.is_empty()
+                && profiles.iter().all(|p| {
+                    p.and_then(|p| p.facts.get(fact)).is_some_and(|f| values.contains(&f.value.as_str()))
+                })
+        };
+        WireFacts {
+            fields_by_name: all(&formats, "struct_fields", &["by_name"]),
+            optional_fields_tolerated: all(&formats, "unknown_field", &["ignored"])
+                && all(&formats, "missing_optional", &["absent"]),
+            variants_by_name: all(&formats, "enum_variants", &["by_name"]),
+            errors_by_name: all(&framings, "errors", &["by_name"]),
+            calls_stable: calls
+                .into_iter()
+                .map(|(key, profiles)| {
+                    let stable = all(&profiles, "calls", &["by_name", "by_id"]);
+                    (key, stable)
+                })
+                .collect(),
+        }
+    }
+
+    fn calls_stable(&self, namespace: &str, protocol: &str) -> bool {
+        self.calls_stable.get(&protocol_key(namespace, protocol)).copied().unwrap_or(false)
+    }
+}
+
+fn protocol_key(namespace: &str, protocol: &str) -> String {
+    if namespace.is_empty() {
+        protocol.to_string()
+    } else {
+        format!("{namespace}::{protocol}")
+    }
+}
+
+/// A protocol's `@framing` name as frozen, either form, unresolved.
+fn written_framing(parameters: &[FrozenUnit]) -> Option<&str> {
+    parameters.iter().find_map(|p| match p {
+        FrozenUnit::Property { name, value } if name == "framing" => match value {
+            ConfigValue::Str(v) => Some(v.as_str()),
+            ConfigValue::Dict(_) => match value.entry("name") {
+                Some(ConfigValue::Str(v)) => Some(v.as_str()),
+                _ => None,
+            },
+            _ => None,
+        },
+        _ => None,
+    })
+}
+
+/// What one version of the package is, for comparing types and constants
+/// by what they mean rather than how they're spelled.
+#[derive(Default)]
+struct Side<'a> {
+    /// Every `type` alias, by its bare and its qualified names.
+    aliases: HashMap<String, &'a FrozenUnit>,
+    /// Constants (by their last path segment) a validator argument or a
+    /// validator's parameter default uses.
+    in_validators: HashSet<String>,
+    /// Constants a field default uses.
+    in_defaults: HashSet<String>,
+}
+
+impl<'a> Side<'a> {
+    fn of(schemas: &[&'a [FrozenUnit]]) -> Self {
+        let mut side = Side::default();
+        for units in schemas {
+            let namespace = schema_namespace(units);
+            for unit in units.iter() {
+                if let FrozenUnit::TypeAlias { name, .. } = unit {
+                    side.aliases.insert(name.clone(), unit);
+                    if let Some(ns) = namespace {
+                        side.aliases.insert(format!("{ns}::{name}"), unit);
+                        if let Some((_, last)) = ns.rsplit_once("::") {
+                            side.aliases.insert(format!("{last}::{name}"), unit);
+                        }
+                    }
+                }
+                side.collect_references(unit, false);
+            }
+        }
+        side
+    }
+
+    fn collect_references(&mut self, unit: &FrozenUnit, in_validator: bool) {
+        let all = |side: &mut Self, units: &[FrozenUnit], v: bool| {
+            units.iter().for_each(|u| side.collect_references(u, v))
+        };
+        match unit {
+            FrozenUnit::Struct { parameters, fields, .. } | FrozenUnit::Error { parameters, fields, .. } => {
+                all(self, parameters, false);
+                all(self, fields, false);
+            }
+            FrozenUnit::TypeAlias { parameters, .. } | FrozenUnit::Protocol { parameters, .. } => {
+                all(self, parameters, false)
+            }
+            FrozenUnit::Field { parameters, default, .. } => {
+                if let Some(Literal::Reference(r)) = default {
+                    let last = last_segment(r).to_string();
+                    if in_validator {
+                        self.in_validators.insert(last);
+                    } else {
+                        self.in_defaults.insert(last);
+                    }
+                }
+                all(self, parameters, in_validator);
+            }
+            FrozenUnit::Validator { properties, .. } => all(self, properties, true),
+            FrozenUnit::ValidatorRef { args, .. } => all(self, args, true),
+            FrozenUnit::Property { value, .. } if in_validator => self.collect_value(value),
+            _ => {}
+        }
+    }
+
+    fn collect_value(&mut self, value: &ConfigValue) {
+        match value {
+            ConfigValue::Name(n) | ConfigValue::Path(n) => {
+                self.in_validators.insert(last_segment(n).to_string());
+            }
+            ConfigValue::Dict(entries) => entries.iter().for_each(|(_, v)| self.collect_value(v)),
+            _ => {}
+        }
+    }
+
+    fn alias(&self, name: &str) -> Option<&'a FrozenUnit> {
+        self.aliases.get(name).copied()
+    }
+
+    /// `ty` with every alias replaced by what it stands for.
+    fn resolve(&self, ty: &TypeRef) -> TypeRef {
+        self.resolve_depth(ty, 0)
+    }
+
+    fn resolve_depth(&self, ty: &TypeRef, depth: usize) -> TypeRef {
+        if depth > 32 {
+            return ty.clone();
+        }
+        match ty {
+            TypeRef::Named(name) => match self.alias(name) {
+                Some(FrozenUnit::TypeAlias { target, .. }) => self.resolve_depth(target, depth + 1),
+                _ => ty.clone(),
+            },
+            TypeRef::Array { element, length } => TypeRef::Array {
+                element: Box::new(self.resolve_depth(element, depth + 1)),
+                length: *length,
+            },
+            TypeRef::Union(types) => {
+                TypeRef::Union(types.iter().map(|t| self.resolve_depth(t, depth + 1)).collect())
+            }
+            other => other.clone(),
+        }
+    }
+
+    /// The validators the aliases `ty` goes through apply.
+    fn alias_validators(&self, ty: &TypeRef) -> Vec<FrozenUnit> {
+        let mut found = vec![];
+        let mut ty = ty;
+        for _ in 0..32 {
+            let TypeRef::Named(name) = ty else { break };
+            let Some(FrozenUnit::TypeAlias { target, parameters, .. }) = self.alias(name) else { break };
+            found.extend(validator_refs(parameters));
+            ty = target;
+        }
+        found
+    }
+}
+
+fn last_segment(path: &str) -> &str {
+    path.rsplit_once("::").map_or(path, |(_, last)| last)
+}
+
+/// Everything a comparison of one schema needs beyond its two versions.
+struct Context<'a> {
+    old: Side<'a>,
+    new: Side<'a>,
+    facts: &'a WireFacts,
+    namespace: String,
+}
+
+/// Analyze changes between two versions of a package: its schema files,
+/// paired by namespace, under the encodings their own protocols name (and
+/// core's defaults). [`analyze_package_changes_with`] takes the facts of a
+/// package's declared defaults too.
 pub fn analyze_package_changes(
     old_schemas: &[Vec<FrozenUnit>],
     new_schemas: &[Vec<FrozenUnit>],
 ) -> SchemaChanges {
+    let facts = WireFacts::of((old_schemas, &[]), (new_schemas, &[]));
+    analyze_package_changes_with(old_schemas, new_schemas, &facts)
+}
+
+/// Analyze changes between two versions of a package, with the encodings'
+/// facts given ([`WireFacts::of`]).
+///
+/// A file whose namespace exists only in `old` is compared against nothing,
+/// so each of its declarations is a removal; one only in `new`, an addition.
+/// Pairing by namespace rather than by position means adding, renaming or
+/// reordering files doesn't pair the wrong schemas. One namespace gone and
+/// one new holding the same declarations is a rename: reported as one, and
+/// their contents compared.
+pub fn analyze_package_changes_with(
+    old_schemas: &[Vec<FrozenUnit>],
+    new_schemas: &[Vec<FrozenUnit>],
+    facts: &WireFacts,
+) -> SchemaChanges {
     let old = by_namespace(old_schemas);
     let new = by_namespace(new_schemas);
+    let old_all: Vec<&[FrozenUnit]> = old.values().copied().collect();
+    let new_all: Vec<&[FrozenUnit]> = new.values().copied().collect();
+    let context = |namespace: &str| Context {
+        old: Side::of(&old_all),
+        new: Side::of(&new_all),
+        facts,
+        namespace: namespace.to_string(),
+    };
+
+    let gone: Vec<&String> = old.keys().filter(|ns| !new.contains_key(*ns)).collect();
+    let added: Vec<&String> = new.keys().filter(|ns| !old.contains_key(*ns)).collect();
+    let renamed = match (gone.as_slice(), added.as_slice()) {
+        ([from], [to]) => {
+            let names = |units: &[FrozenUnit]| build_index(units).into_keys().collect::<BTreeSet<_>>();
+            let (before, after) = (names(old[*from]), names(new[*to]));
+            (!before.is_empty() && before == after).then(|| ((*from).clone(), (*to).clone()))
+        }
+        _ => None,
+    };
 
     let mut changes = SchemaChanges::default();
     for (namespace, old_units) in &old {
+        if let Some((from, to)) = renamed.as_ref().filter(|(from, _)| from == namespace) {
+            changes.breaking_changes.push(BreakingChange::RenamedNamespace {
+                old_name: from.clone(),
+                new_name: to.clone(),
+            });
+            changes.extend(analyze(old_units, new[to], &context(to)));
+            continue;
+        }
         let new_units = new.get(namespace).copied().unwrap_or(&[]);
-        changes.extend(analyze_schema_changes(old_units, new_units));
+        changes.extend(analyze(old_units, new_units, &context(namespace)));
     }
     for (namespace, new_units) in &new {
-        if !old.contains_key(namespace) {
-            changes.extend(analyze_schema_changes(&[], new_units));
+        let is_rename_target = renamed.as_ref().is_some_and(|(_, to)| to == namespace);
+        if !old.contains_key(namespace) && !is_rename_target {
+            changes.extend(analyze(&[], new_units, &context(namespace)));
         }
     }
     changes
@@ -343,20 +692,73 @@ fn by_namespace(schemas: &[Vec<FrozenUnit>]) -> BTreeMap<String, &[FrozenUnit]> 
         .collect()
 }
 
-/// Analyze changes between two schema versions
+/// Analyze changes between two versions of one schema, under the
+/// encodings its own protocols name (and core's defaults).
 pub fn analyze_schema_changes(
     old_schema: &[FrozenUnit],
     new_schema: &[FrozenUnit],
 ) -> SchemaChanges {
+    let facts = WireFacts::of(
+        (std::slice::from_ref(&old_schema.to_vec()), &[]),
+        (std::slice::from_ref(&new_schema.to_vec()), &[]),
+    );
+    let context = Context {
+        old: Side::of(&[old_schema]),
+        new: Side::of(&[new_schema]),
+        facts: &facts,
+        namespace: schema_namespace(new_schema).or(schema_namespace(old_schema)).unwrap_or("").to_string(),
+    };
+    analyze(old_schema, new_schema, &context)
+}
+
+fn analyze(old_schema: &[FrozenUnit], new_schema: &[FrozenUnit], cx: &Context) -> SchemaChanges {
     let mut changes = SchemaChanges::default();
 
     // Build indices for efficient lookup
     let old_index = build_index(old_schema);
     let new_index = build_index(new_schema);
 
+    // One protocol gone and one new with the same functions: a rename.
+    let functions_of = |unit: &FrozenUnit| match unit {
+        FrozenUnit::Protocol { functions, .. } => Some(
+            functions
+                .iter()
+                .filter_map(|f| match f {
+                    FrozenUnit::Function { name, .. } => Some(name.clone()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>(),
+        ),
+        _ => None,
+    };
+    let gone: Vec<&String> = old_index
+        .iter()
+        .filter(|(n, u)| matches!(u, FrozenUnit::Protocol { .. }) && !new_index.contains_key(*n))
+        .map(|(n, _)| n)
+        .collect();
+    let added: Vec<&String> = new_index
+        .iter()
+        .filter(|(n, u)| matches!(u, FrozenUnit::Protocol { .. }) && !old_index.contains_key(*n))
+        .map(|(n, _)| n)
+        .collect();
+    let renamed_protocol: Option<(String, String)> = match (gone.as_slice(), added.as_slice()) {
+        ([from], [to]) if functions_of(old_index[*from]) == functions_of(new_index[*to]) => {
+            Some(((*from).clone(), (*to).clone()))
+        }
+        _ => None,
+    };
+    if let Some((from, to)) = &renamed_protocol {
+        changes.breaking_changes.push(BreakingChange::RenamedProtocol {
+            old_name: from.clone(),
+            new_name: to.clone(),
+        });
+    }
+    let renamed_from = |name: &str| renamed_protocol.as_ref().filter(|(_, to)| to == name).map(|(from, _)| from.as_str());
+    let renamed_to = |name: &str| renamed_protocol.as_ref().is_some_and(|(from, _)| from == name);
+
     // Check for removed declarations (breaking)
     for (name, old_unit) in &old_index {
-        if !new_index.contains_key(name) {
+        if !new_index.contains_key(name) && !renamed_to(name) {
             let name = name.clone();
             let removed = match old_unit {
                 FrozenUnit::Struct { .. } => Some(BreakingChange::RemovedStruct { name }),
@@ -374,7 +776,7 @@ pub fn analyze_schema_changes(
 
     // Check for added declarations (features)
     for (name, new_unit) in &new_index {
-        if !old_index.contains_key(name) {
+        if !old_index.contains_key(name) && renamed_from(name).is_none() {
             let name = name.clone();
             let added = match new_unit {
                 FrozenUnit::Struct { fields, .. } => Some(NewFeature::AddedStruct {
@@ -415,7 +817,7 @@ pub fn analyze_schema_changes(
 
     // Check for modifications to existing declarations
     for (name, new_unit) in &new_index {
-        let Some(old_unit) = old_index.get(name) else {
+        let Some(old_unit) = old_index.get(renamed_from(name).unwrap_or(name)) else {
             continue;
         };
         match (old_unit, new_unit) {
@@ -433,7 +835,7 @@ pub fn analyze_schema_changes(
                     ..
                 },
             ) => {
-                compare_struct_fields(name, old_fields, new_fields, &mut changes);
+                compare_struct_fields(name, old_fields, new_fields, cx, &mut changes);
                 compare_parameters(name, old_params, new_params, &mut changes);
                 push_docstring_change(name, old_docstring, new_docstring, &mut changes);
             }
@@ -449,7 +851,7 @@ pub fn analyze_schema_changes(
                     ..
                 },
             ) => {
-                compare_enum_variants(name, old_variants, new_variants, &mut changes);
+                compare_enum_variants(name, old_variants, new_variants, cx, &mut changes);
                 push_docstring_change(name, old_docstring, new_docstring, &mut changes);
             }
             (
@@ -470,6 +872,7 @@ pub fn analyze_schema_changes(
                     name,
                     (old_funcs, &old_errors),
                     (new_funcs, &new_errors),
+                    cx,
                     &mut changes,
                 );
                 compare_parameters(name, old_params, new_params, &mut changes);
@@ -496,7 +899,7 @@ pub fn analyze_schema_changes(
                     ..
                 },
             ) => {
-                if old_ty != new_ty {
+                if !compare_types(name, old_ty, new_ty, cx, &mut changes) {
                     changes
                         .breaking_changes
                         .push(BreakingChange::ChangedConstantType {
@@ -505,11 +908,30 @@ pub fn analyze_schema_changes(
                             new_type: new_ty.to_string(),
                         });
                 } else if old_value != new_value {
-                    changes.new_features.push(NewFeature::ChangedConstantValue {
-                        name: name.clone(),
-                        old_value: old_value.as_ref().map(Literal::to_string),
-                        new_value: new_value.as_ref().map(Literal::to_string),
-                    });
+                    // Counted by what it reaches: a validator argument is the
+                    // validator rules (a changed argument narrows), a field
+                    // default a patch, nothing on the wire a minor.
+                    let (old_value, new_value) = (
+                        old_value.as_ref().map(Literal::to_string),
+                        new_value.as_ref().map(Literal::to_string),
+                    );
+                    if cx.old.in_validators.contains(name) || cx.new.in_validators.contains(name) {
+                        changes
+                            .breaking_changes
+                            .push(BreakingChange::ValidationTightened { target: name.clone() });
+                    } else if cx.old.in_defaults.contains(name) || cx.new.in_defaults.contains(name) {
+                        changes.modifications.push(Modification::ChangedConstantValue {
+                            name: name.clone(),
+                            old_value,
+                            new_value,
+                        });
+                    } else {
+                        changes.new_features.push(NewFeature::ChangedConstantValue {
+                            name: name.clone(),
+                            old_value,
+                            new_value,
+                        });
+                    }
                 }
                 push_docstring_change(name, old_docstring, new_docstring, &mut changes);
             }
@@ -531,7 +953,8 @@ pub fn analyze_schema_changes(
                     ..
                 },
             ) => {
-                if old_ordinal != new_ordinal {
+                // The ordinal travels where a framing sends errors by it.
+                if old_ordinal != new_ordinal && !cx.facts.errors_by_name {
                     changes
                         .breaking_changes
                         .push(BreakingChange::ChangedErrorOrdinal {
@@ -542,7 +965,7 @@ pub fn analyze_schema_changes(
                 }
                 // An error's fields travel like a struct's, so the same
                 // rules apply.
-                compare_struct_fields(name, old_fields, new_fields, &mut changes);
+                compare_struct_fields(name, old_fields, new_fields, cx, &mut changes);
                 if old_message != new_message {
                     changes
                         .modifications
@@ -565,7 +988,9 @@ pub fn analyze_schema_changes(
                     ..
                 },
             ) => {
-                if old_target != new_target {
+                // What it resolves to changing is major (and shows again at
+                // every use); a respelled target is a patch.
+                if !compare_types(name, old_target, new_target, cx, &mut changes) {
                     changes
                         .breaking_changes
                         .push(BreakingChange::ChangedTypeAliasTarget {
@@ -601,11 +1026,33 @@ pub fn analyze_schema_changes(
     changes
 }
 
-/// Record a `Modification::DocstringChanged` when a declaration's own
-/// docstring differs between versions and nothing else about it is being
-/// compared here (that's handled separately, e.g. `compare_struct_fields`
-/// for a struct's fields) - a documentation-only change warrants a patch
-/// bump, not silence.
+/// Compare two spellings of a type after resolving aliases on each side
+/// (core#110). `true` when they're the same type: a respelling is recorded
+/// as [`Modification::TypeRespelled`] for `target`. `false` when they
+/// differ, for the caller to report as it sees fit.
+fn compare_types(
+    target: &str,
+    old: &TypeRef,
+    new: &TypeRef,
+    cx: &Context,
+    changes: &mut SchemaChanges,
+) -> bool {
+    if cx.old.resolve(old) != cx.new.resolve(new) {
+        return false;
+    }
+    if old != new {
+        changes.modifications.push(Modification::TypeRespelled {
+            target: target.to_string(),
+            old_type: old.to_string(),
+            new_type: new.to_string(),
+        });
+    }
+    true
+}
+
+/// Record a `Modification::DocstringChanged` when a docstring differs
+/// between versions - a documentation-only change warrants a patch bump,
+/// not silence.
 fn push_docstring_change(
     name: &str,
     old_docstring: &Option<String>,
@@ -619,8 +1066,9 @@ fn push_docstring_change(
     }
 }
 
-fn build_index(schema: &[FrozenUnit]) -> HashMap<String, &FrozenUnit> {
-    let mut index = HashMap::new();
+/// Declarations by name, sorted, so changes come out in a stable order.
+fn build_index(schema: &[FrozenUnit]) -> BTreeMap<String, &FrozenUnit> {
+    let mut index = BTreeMap::new();
     for unit in schema {
         let name = match unit {
             FrozenUnit::Struct { name, .. }
@@ -650,63 +1098,121 @@ fn error_names(schema: &[FrozenUnit]) -> HashMap<u16, String> {
 }
 
 struct FieldInfo<'a> {
+    position: usize,
     ty: &'a TypeRef,
     optional: bool,
     default: &'a Option<Literal>,
+    docstring: &'a Option<String>,
     parameters: &'a [FrozenUnit],
+}
+
+/// Whether the names both versions share kept their relative positions:
+/// each one's index in `old` and `new`, among the shared names only.
+fn shared_order_kept<'a>(old: &[&'a str], new: &[&'a str]) -> bool {
+    let shared_old: Vec<&str> = old.iter().copied().filter(|n| new.contains(n)).collect();
+    let shared_new: Vec<&str> = new.iter().copied().filter(|n| old.contains(n)).collect();
+    shared_old == shared_new
+}
+
+/// Whether every name `old` has is at the same index in `new`: nothing
+/// moved, and nothing was inserted before an old one.
+fn positions_kept(old: &[&str], new: &[&str]) -> bool {
+    old.iter()
+        .enumerate()
+        .all(|(i, name)| !new.contains(name) || new.get(i) == Some(name))
 }
 
 fn compare_struct_fields(
     struct_name: &str,
     old_fields: &[FrozenUnit],
     new_fields: &[FrozenUnit],
+    cx: &Context,
     changes: &mut SchemaChanges,
 ) {
     let old_field_map = build_field_map(old_fields);
     let new_field_map = build_field_map(new_fields);
+    let order = |map: &HashMap<String, FieldInfo>| {
+        let mut names: Vec<(usize, String)> = map.iter().map(|(n, f)| (f.position, n.clone())).collect();
+        names.sort();
+        names.into_iter().map(|(_, n)| n).collect::<Vec<_>>()
+    };
+    let (old_order, new_order) = (order(&old_field_map), order(&new_field_map));
+    let old_order: Vec<&str> = old_order.iter().map(String::as_str).collect();
+    let new_order: Vec<&str> = new_order.iter().map(String::as_str).collect();
 
     // Removed fields (breaking), optional ones included: the name is gone.
-    for field_name in old_field_map.keys() {
-        if !new_field_map.contains_key(field_name) {
+    for field_name in &old_order {
+        if !new_field_map.contains_key(*field_name) {
             changes.breaking_changes.push(BreakingChange::RemovedField {
                 type_name: struct_name.to_string(),
-                field_name: field_name.clone(),
+                field_name: field_name.to_string(),
             });
         }
     }
 
-    for (field_name, new) in &new_field_map {
-        let Some(old) = old_field_map.get(field_name) else {
-            // Added fields (feature if optional, breaking if required)
-            if new.optional {
+    // Where fields travel by position, moving one breaks every peer.
+    if !cx.facts.fields_by_name && !shared_order_kept(&old_order, &new_order) {
+        changes.breaking_changes.push(BreakingChange::ReorderedFields {
+            type_name: struct_name.to_string(),
+        });
+    }
+
+    for field_name in &new_order {
+        let new = &new_field_map[*field_name];
+        let field_name = field_name.to_string();
+        let Some(old) = old_field_map.get(&field_name) else {
+            // A required field is always breaking. An optional one is a
+            // feature where every format tolerates an unknown field and a
+            // missing optional one, and either keys fields by name or gets
+            // it after every old field.
+            let appended = new.position >= old_order.len();
+            if new.optional
+                && cx.facts.optional_fields_tolerated
+                && (cx.facts.fields_by_name || appended)
+            {
                 changes.new_features.push(NewFeature::AddedField {
                     type_name: struct_name.to_string(),
-                    field_name: field_name.clone(),
+                    field_name,
                     field_type: new.ty.to_string(),
                     optional: true,
+                });
+            } else if new.optional {
+                changes.breaking_changes.push(BreakingChange::AddedOptionalField {
+                    type_name: struct_name.to_string(),
+                    field_name,
+                    field_type: new.ty.to_string(),
                 });
             } else {
                 changes
                     .breaking_changes
                     .push(BreakingChange::AddedRequiredField {
                         type_name: struct_name.to_string(),
-                        field_name: field_name.clone(),
+                        field_name,
                         field_type: new.ty.to_string(),
                     });
             }
             continue;
         };
+        let target = format!("{struct_name}.{field_name}");
 
-        // Exact match, so `f32` -> `f64` and `u8[4]` -> `u8[8]` count.
-        // Future: could allow compatible widening (e.g., u32 -> u64).
-        if old.ty != new.ty {
+        // Exact match after resolving aliases, so `f32` -> `f64` and
+        // `u8[4]` -> `u8[8]` count, and an alias swap doesn't.
+        if !compare_types(&target, old.ty, new.ty, cx, changes) {
+            let (old_resolved, new_resolved) = (cx.old.resolve(old.ty), cx.new.resolve(new.ty));
+            let render = |written: &TypeRef, resolved: &TypeRef| {
+                if written == resolved {
+                    written.to_string()
+                } else {
+                    format!("{written} ({resolved})")
+                }
+            };
             changes
                 .breaking_changes
                 .push(BreakingChange::ChangedFieldType {
                     type_name: struct_name.to_string(),
                     field_name: field_name.clone(),
-                    old_type: old.ty.to_string(),
-                    new_type: new.ty.to_string(),
+                    old_type: render(old.ty, &old_resolved),
+                    new_type: render(new.ty, &new_resolved),
                 });
         }
         if old.optional != new.optional {
@@ -724,32 +1230,38 @@ fn compare_struct_fields(
                 field_name: field_name.clone(),
             });
         }
-        compare_parameters(
-            &format!("{struct_name}.{field_name}"),
-            old.parameters,
-            new.parameters,
+        compare_parameters_with(
+            &target,
+            (old.parameters, cx.old.alias_validators(old.ty)),
+            (new.parameters, cx.new.alias_validators(new.ty)),
             changes,
         );
+        push_docstring_change(&target, old.docstring, new.docstring, changes);
     }
 }
 
 fn build_field_map(fields: &[FrozenUnit]) -> HashMap<String, FieldInfo<'_>> {
     fields
         .iter()
-        .filter_map(|field| match field {
+        .filter(|f| matches!(f, FrozenUnit::Field { .. }))
+        .enumerate()
+        .filter_map(|(position, field)| match field {
             FrozenUnit::Field {
                 name,
                 ty,
                 optional,
                 default,
+                docstring,
                 parameters,
                 ..
             } => Some((
                 name.clone(),
                 FieldInfo {
+                    position,
                     ty,
                     optional: *optional,
                     default,
+                    docstring,
                     parameters,
                 },
             )),
@@ -762,6 +1274,7 @@ fn compare_enum_variants(
     enum_name: &str,
     old_variants: &[FrozenUnit],
     new_variants: &[FrozenUnit],
+    cx: &Context,
     changes: &mut SchemaChanges,
 ) {
     let old_names = variant_names(old_variants);
@@ -791,6 +1304,14 @@ fn compare_enum_variants(
                 });
             return;
         }
+    }
+
+    // Where variants travel by index, one that moved, or an insertion
+    // before an old one, breaks every peer.
+    if !cx.facts.variants_by_name && removed.is_empty() && !positions_kept(&old_names, &new_names) {
+        changes.breaking_changes.push(BreakingChange::ReorderedEnumVariants {
+            enum_name: enum_name.to_string(),
+        });
     }
 
     // Removed variants (breaking)
@@ -825,7 +1346,10 @@ fn variant_names(variants: &[FrozenUnit]) -> Vec<&str> {
 
 struct FunctionInfo<'a> {
     signature: String,
+    arguments: &'a [FrozenArgument],
+    ret: &'a Option<TypeRef>,
     throws: Vec<String>,
+    docstring: &'a str,
     parameters: &'a [FrozenUnit],
 }
 
@@ -833,25 +1357,53 @@ fn compare_protocol_functions(
     protocol_name: &str,
     (old_funcs, old_errors): (&[FrozenUnit], &HashMap<u16, String>),
     (new_funcs, new_errors): (&[FrozenUnit], &HashMap<u16, String>),
+    cx: &Context,
     changes: &mut SchemaChanges,
 ) {
     let old_func_map = build_function_map(old_funcs, old_errors);
     let new_func_map = build_function_map(new_funcs, new_errors);
+    let order = |funcs: &[FrozenUnit]| -> Vec<String> {
+        funcs
+            .iter()
+            .filter_map(|f| match f {
+                FrozenUnit::Function { name, .. } => Some(name.clone()),
+                _ => None,
+            })
+            .collect()
+    };
+    let (old_order, new_order) = (order(old_funcs), order(new_funcs));
+    let old_order: Vec<&str> = old_order.iter().map(String::as_str).collect();
+    let new_order: Vec<&str> = new_order.iter().map(String::as_str).collect();
 
     // Removed functions (breaking)
-    for func_name in old_func_map.keys() {
-        if !new_func_map.contains_key(func_name) {
+    for func_name in &old_order {
+        if !new_func_map.contains_key(*func_name) {
             changes
                 .breaking_changes
                 .push(BreakingChange::RemovedFunction {
                     protocol_name: protocol_name.to_string(),
-                    function_name: func_name.clone(),
+                    function_name: func_name.to_string(),
                 });
         }
     }
 
-    for (func_name, new) in &new_func_map {
-        let Some(old) = old_func_map.get(func_name) else {
+    // Where the framing calls by index, a function that moved, or one
+    // inserted before an old one, breaks every peer.
+    // (A removal shifts the rest too, but is already reported.)
+    let removed_any = old_order.iter().any(|f| !new_func_map.contains_key(*f));
+    if !cx.facts.calls_stable(&cx.namespace, protocol_name)
+        && !removed_any
+        && !positions_kept(&old_order, &new_order)
+    {
+        changes.breaking_changes.push(BreakingChange::ReorderedFunctions {
+            protocol_name: protocol_name.to_string(),
+        });
+    }
+
+    for func_name in &new_order {
+        let new = &new_func_map[*func_name];
+        let func_name = func_name.to_string();
+        let Some(old) = old_func_map.get(&func_name) else {
             // Added functions (feature)
             changes.new_features.push(NewFeature::AddedFunction {
                 protocol_name: protocol_name.to_string(),
@@ -860,16 +1412,38 @@ fn compare_protocol_functions(
             });
             continue;
         };
+        let target = format!("{protocol_name}.{func_name}");
 
-        // Changed function signatures (breaking)
-        if old.signature != new.signature {
+        // Changed function signatures (breaking), compared after resolving
+        // aliases: a respelled argument or return type is a patch.
+        let resolved = |side: &Side, f: &FunctionInfo| {
+            let arguments: Vec<FrozenArgument> = f
+                .arguments
+                .iter()
+                .map(|a| FrozenArgument { name: a.name.clone(), ty: side.resolve(&a.ty), span: (0, 0) })
+                .collect();
+            format_function_signature(&arguments, &f.ret.as_ref().map(|t| side.resolve(t)))
+        };
+        let (old_resolved, new_resolved) = (resolved(&cx.old, old), resolved(&cx.new, new));
+        if old_resolved != new_resolved {
+            let details = if old.signature != new.signature {
+                format!("{} → {}", old.signature, new.signature)
+            } else {
+                format!("{old_resolved} → {new_resolved}")
+            };
             changes
                 .breaking_changes
                 .push(BreakingChange::ChangedFunctionSignature {
                     protocol_name: protocol_name.to_string(),
                     function_name: func_name.clone(),
-                    details: format!("{} → {}", old.signature, new.signature),
+                    details,
                 });
+        } else if old.signature != new.signature {
+            changes.modifications.push(Modification::TypeRespelled {
+                target: target.clone(),
+                old_type: old.signature.clone(),
+                new_type: new.signature.clone(),
+            });
         }
 
         for error in old.throws.iter().filter(|e| !new.throws.contains(e)) {
@@ -889,12 +1463,10 @@ fn compare_protocol_functions(
             });
         }
 
-        compare_parameters(
-            &format!("{protocol_name}.{func_name}"),
-            old.parameters,
-            new.parameters,
-            changes,
-        );
+        compare_parameters(&target, old.parameters, new.parameters, changes);
+        if old.docstring != new.docstring {
+            changes.modifications.push(Modification::DocstringChanged { name: target });
+        }
     }
 }
 
@@ -910,16 +1482,20 @@ fn build_function_map<'a>(
                 arguments,
                 _return,
                 throws,
+                docstring,
                 parameters,
                 ..
             } => Some((
                 name.clone(),
                 FunctionInfo {
                     signature: format_function_signature(arguments, _return),
+                    arguments,
+                    ret: _return,
                     throws: throws
                         .iter()
                         .map(|o| errors.get(o).cloned().unwrap_or_else(|| format!("#{o}")))
                         .collect(),
+                    docstring,
                     parameters,
                 },
             )),
@@ -955,6 +1531,17 @@ fn compare_parameters(
     target: &str,
     old: &[FrozenUnit],
     new: &[FrozenUnit],
+    changes: &mut SchemaChanges,
+) {
+    compare_parameters_with(target, (old, vec![]), (new, vec![]), changes)
+}
+
+/// [`compare_parameters`], with the validators each side inherits from
+/// the aliases its type goes through: the effective set is both.
+fn compare_parameters_with(
+    target: &str,
+    (old, old_inherited): (&[FrozenUnit], Vec<FrozenUnit>),
+    (new, new_inherited): (&[FrozenUnit], Vec<FrozenUnit>),
     changes: &mut SchemaChanges,
 ) {
     let old_props = property_map(old);
@@ -1043,8 +1630,17 @@ fn compare_parameters(
         }
     }
 
-    let old_validators = validator_refs(old);
-    let new_validators = validator_refs(new);
+    // The effective set: inherited from aliases, then the declaration's
+    // own. Compared as a set, so moving one around isn't a change.
+    let effective = |inherited: Vec<FrozenUnit>, own: &[FrozenUnit]| {
+        let mut set: Vec<FrozenUnit> = inherited.iter().map(without_spans).collect();
+        set.extend(validator_refs(own));
+        set.sort_by_key(|v| format!("{v:?}"));
+        set.dedup();
+        set
+    };
+    let old_validators = effective(old_inherited, old);
+    let new_validators = effective(new_inherited, new);
     if old_validators != new_validators {
         let only_removed = new_validators.len() < old_validators.len()
             && new_validators.iter().all(|v| old_validators.contains(v));

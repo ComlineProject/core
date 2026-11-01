@@ -111,11 +111,13 @@ fn an_additive_change_in_the_dependency_bumps_the_consumer_minor_not_major() {
     build(&consumer_dir).unwrap();
     comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
 
-    // Add an optional field — additive, not breaking. This is the exact case
-    // the old blanket "any dependency change = Major" got wrong.
+    // Add a declaration — additive, not breaking. This is the exact case
+    // the old blanket "any dependency change = Major" got wrong. (An
+    // optional field is breaking under the default `packed@1`, which keys
+    // fields by position.)
     write_dependency(
         &dep_dir,
-        "struct Thing {\n    id: u64\n    optional nickname: string\n}\n",
+        "struct Thing {\n    id: u64\n}\nstruct Other {\n    id: u64\n}\n",
     );
     let res = build(&consumer_dir).unwrap();
 

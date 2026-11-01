@@ -194,6 +194,48 @@
           "type": "object"
         },
         {
+          "description": "An optional field added where a format in play can't tolerate it: it\nkeys fields by position, rejects an unknown field, or rejects a\nmissing optional one (its profile's `struct_fields`,\n`unknown_field`, `missing_optional`).",
+          "properties": {
+            "field_name": {
+              "type": "string"
+            },
+            "field_type": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "added_optional_field",
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name",
+            "field_name",
+            "field_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Fields kept their names but moved, where a format in play keys them\nby position (`struct_fields = by_position`).",
+          "properties": {
+            "kind": {
+              "const": "reordered_fields",
+              "type": "string"
+            },
+            "type_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "type_name"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "field_name": {
               "type": "string"
@@ -292,6 +334,23 @@
           "type": "object"
         },
         {
+          "description": "Variants kept their names but moved (reordered, or one inserted\nbefore others), where a format in play encodes them by index\n(`enum_variants = by_index`).",
+          "properties": {
+            "enum_name": {
+              "type": "string"
+            },
+            "kind": {
+              "const": "reordered_enum_variants",
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "enum_name"
+          ],
+          "type": "object"
+        },
+        {
           "properties": {
             "function_name": {
               "type": "string"
@@ -308,6 +367,65 @@
             "kind",
             "protocol_name",
             "function_name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "Functions kept their names but moved (reordered, or one inserted\nbefore others), where the protocol's framing calls them by index\n(`calls = by_index`).",
+          "properties": {
+            "kind": {
+              "const": "reordered_functions",
+              "type": "string"
+            },
+            "protocol_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "protocol_name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A protocol renamed: one removed and one added with the same\nfunctions. Its name doesn't reach the wire, but consumers refer to it.",
+          "properties": {
+            "kind": {
+              "const": "renamed_protocol",
+              "type": "string"
+            },
+            "new_name": {
+              "type": "string"
+            },
+            "old_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "old_name",
+            "new_name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A schema file's namespace renamed: one removed and one added with\nthe same declarations. Consumers refer to it in paths.",
+          "properties": {
+            "kind": {
+              "const": "renamed_namespace",
+              "type": "string"
+            },
+            "new_name": {
+              "type": "string"
+            },
+            "old_name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "old_name",
+            "new_name"
           ],
           "type": "object"
         },
@@ -537,7 +655,7 @@
           "type": "object"
         },
         {
-          "description": "The validators applied to a declaration changed other than by pure\nremoval: what's accepted may have narrowed.",
+          "description": "The validators applied to a declaration changed other than by pure\nremoval: what's accepted may have narrowed. The set compared is the\neffective one: a field's own validators plus those of the aliases\nits type goes through. `target` may also be a constant whose value\nchanged while a validator argument uses it.",
           "properties": {
             "kind": {
               "const": "validation_tightened",
@@ -849,7 +967,7 @@
       "description": "Non-breaking modifications that may warrant a patch bump",
       "oneOf": [
         {
-          "description": "A declaration's own docstring text changed with nothing else about\nit - doc/comment-only changes warrant a patch bump, not a\nmajor/minor one. Only tracked at the declaration level (struct,\nenum, protocol, const, error, alias, validator) for now, not\nper-field/per-function.",
+          "description": "A docstring's text changed: a declaration's (`S`) or a member's\n(`S.field`, `P.function`). Documentation only: a patch.",
           "properties": {
             "kind": {
               "const": "docstring_changed",
@@ -857,6 +975,60 @@
             },
             "name": {
               "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "name"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A type respelled without changing what it is: swapped for an\nequivalent alias, either way, or one alias for another with the same\ntarget (compared after resolving aliases, core#110). `target` is the\nfield (`S.f`), function (`P.f`), constant or alias.",
+          "properties": {
+            "kind": {
+              "const": "type_respelled",
+              "type": "string"
+            },
+            "new_type": {
+              "type": "string"
+            },
+            "old_type": {
+              "type": "string"
+            },
+            "target": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "kind",
+            "target",
+            "old_type",
+            "new_type"
+          ],
+          "type": "object"
+        },
+        {
+          "description": "A constant's value changed where only field defaults use it:\ndefaults don't travel on the wire.",
+          "properties": {
+            "kind": {
+              "const": "changed_constant_value",
+              "type": "string"
+            },
+            "name": {
+              "type": "string"
+            },
+            "new_value": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "old_value": {
+              "type": [
+                "string",
+                "null"
+              ]
             }
           },
           "required": [
@@ -1173,7 +1345,7 @@
           "type": "object"
         },
         {
-          "description": "A constant's value changed. Counted as minor for now: whether it\nreaches the wire (a validator argument, a default) isn't traced yet.",
+          "description": "A constant's value changed, and nothing on the wire uses it: no\nvalidator argument and no field default. (One a validator uses is\n[`BreakingChange::ValidationTightened`]; one only a default uses is\n[`Modification::ChangedConstantValue`].)",
           "properties": {
             "kind": {
               "const": "changed_constant_value",

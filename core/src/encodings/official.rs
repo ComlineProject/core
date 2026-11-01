@@ -135,9 +135,50 @@ pub fn names(kind: EncodingKind) -> Vec<&'static str> {
     variants(kind).iter().map(|v| v.canonical).collect()
 }
 
+/// The profile of the official encoding of `kind` written as `written`
+/// (any spelling: `jsonrpc`, `jsonrpc@1`), parsed from the embedded
+/// `profiles/` files. `None` for a name that isn't an official one: the
+/// version comparison then reads it as the strictest encoding.
+pub fn profile(kind: EncodingKind, written: &str) -> Option<&'static super::Profile> {
+    static PROFILES: OnceLock<Vec<(EncodingKind, &'static str, super::Profile)>> = OnceLock::new();
+    let profiles = PROFILES.get_or_init(|| {
+        super::declared(units())
+            .map(|(name, kind)| {
+                let path = format!("profiles/{name}.json");
+                let (_, contents) = comline_core_stdlib::OFFICIAL_PROFILES
+                    .iter()
+                    .find(|(p, _)| *p == path)
+                    .unwrap_or_else(|| panic!("no embedded profile for `{name}`"));
+                let profile = super::Profile::parse(contents.as_bytes())
+                    .unwrap_or_else(|e| panic!("`{name}`'s profile doesn't load: {e}"));
+                (kind, &*Box::leak(name.to_string().into_boxed_str()), profile)
+            })
+            .collect()
+    });
+    let canonical = resolve(kind, written)?;
+    profiles
+        .iter()
+        .find(|(k, name, _)| *k == kind && resolve(kind, name) == Some(canonical))
+        .map(|(_, _, profile)| profile)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_official_profile_is_found_by_any_spelling() {
+        let fact = |kind, name: &str, fact: &str| {
+            profile(kind, name).map(|p| p.facts[fact].value.clone())
+        };
+        assert_eq!(fact(EncodingKind::Format, "packed@1", "struct_fields").as_deref(), Some("by_position"));
+        assert_eq!(fact(EncodingKind::Format, "json@1", "struct_fields").as_deref(), Some("by_name"));
+        assert_eq!(fact(EncodingKind::Framing, "jsonrpc", "calls").as_deref(), Some("by_name"));
+        assert_eq!(fact(EncodingKind::Framing, "json-rpc", "calls").as_deref(), Some("by_name"));
+        assert_eq!(fact(EncodingKind::Framing, "datagram", "calls").as_deref(), Some("by_index"));
+        assert_eq!(fact(EncodingKind::Framing, "datagram@2", "calls").as_deref(), Some("by_index"));
+        assert!(profile(EncodingKind::Format, "com.acme.x@1").is_none());
+    }
 
     #[test]
     fn the_snapshot_is_what_freezes() {
