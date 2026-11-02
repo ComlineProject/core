@@ -326,3 +326,43 @@ fn a_framing_is_compared_by_what_it_means() {
         [BreakingChange::ChangedWireAnnotation { key, .. }] if key == "framing"
     ));
 }
+
+#[test]
+fn any_change_to_a_bound_is_breaking() {
+    let cases = [
+        ("struct S {\n    a: char[max 8]\n}\n", "struct S {\n    a: char[max 9]\n}\n"),
+        ("struct S {\n    a: char[max 9]\n}\n", "struct S {\n    a: char[max 8]\n}\n"),
+        ("struct S {\n    a: string\n}\n", "struct S {\n    a: char[max 9]\n}\n"),
+        ("struct S {\n    a: char[max 8][max 2]\n}\n", "struct S {\n    a: char[max 8][max 3]\n}\n"),
+        ("struct S {\n    a: union(char[max 8] u32)\n}\n", "struct S {\n    a: union(char[max 9] u32)\n}\n"),
+        (
+            "protocol P {\n    function f(char[max 8]) -> u8[max 3];\n}\n",
+            "protocol P {\n    function f(char[max 8]) -> u8[max 4];\n}\n",
+        ),
+        ("type N = char[max 8]\n", "type N = char[max 9]\n"),
+        (
+            "const C: u32 = 8\nstruct S {\n    a: char[max C]\n}\n",
+            "const C: u32 = 9\nstruct S {\n    a: char[max C]\n}\n",
+        ),
+    ];
+    for (old, new) in cases {
+        assert!(!diff(old, new).breaking_changes.is_empty(), "{old} -> {new}");
+    }
+    // `string` and `char[]` are the same type.
+    assert!(diff("struct S {\n    a: string\n}\n", "struct S {\n    a: char[]\n}\n").breaking_changes.is_empty());
+}
+
+#[test]
+fn a_depth_limit_change_is_breaking() {
+    let node = |depth: &str| format!("{depth}struct T {{\n    c: T[max 2]\n}}\n");
+    for (old, new) in [(node("@max_depth = 4\n"), node("@max_depth = 5\n")), (node(""), node("@max_depth = 5\n"))] {
+        let changes = diff(&old, &new);
+        assert!(
+            matches!(
+                changes.breaking_changes.as_slice(),
+                [BreakingChange::ChangedWireAnnotation { key, .. }] if key == "max_depth"
+            ),
+            "{changes:?}"
+        );
+    }
+}
