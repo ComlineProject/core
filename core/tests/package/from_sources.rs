@@ -567,3 +567,25 @@ fn an_imported_alias_resolves_before_matching() {
     let text = err.to_string();
     assert!(text.contains("applies to `string`, not `Count` (`u32`)"), "{text}");
 }
+
+// A package's default bound reaches its own schemas' positions (core#98).
+#[test]
+fn a_package_default_bound_reaches_its_schemas() {
+    let config = "congregation app\nspecification_version = 1\n\n\
+                  settings = {\n    bounds = {\n        string = {\n            max = 48\n        }\n    }\n}\n";
+    let ctx = PackageSources::new()
+        .config(config)
+        .schema(["api"], "struct R {\n    name: string\n}\n")
+        .compile()
+        .expect("should compile");
+    let schema = ctx.schema_contexts[0].borrow();
+    let frozen = schema.frozen_schema.borrow();
+    let ty = frozen.as_ref().unwrap().iter().find_map(|u| match u {
+        comline_core::schema::ir::frozen::unit::FrozenUnit::Struct { fields, .. } => match &fields[0] {
+            comline_core::schema::ir::frozen::unit::FrozenUnit::Field { ty, .. } => Some(ty.to_string()),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(ty.as_deref(), Some("char[max 48]"));
+}

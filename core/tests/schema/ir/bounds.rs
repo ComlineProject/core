@@ -227,3 +227,92 @@ fn any_change_to_a_bound_is_breaking() {
     let constant = compile("const N: u32 = 32\nstruct S {\n    a: char[max N]\n}\n").unwrap();
     assert!(analyze_schema_changes(&units("char[max 32]"), &constant).breaking_changes.is_empty());
 }
+
+// Default bounds from settings (core#98): stored resolved at each position.
+
+#[test]
+fn a_settings_default_fills_every_position_without_a_bound() {
+    let types = field_types(
+        "settings {\n    bounds.string.max = 64\n    bounds.array.max = 100\n}\n\
+         struct S {\n    a: string\n    b: u8[]\n    c: char[max 8]\n    d: u8[4]\n    e: string[]\n    \
+         f: u8[max 2]\n}\n",
+    );
+    let char64 = array(TypeRef::Primitive(P::Char), None, Some(64));
+    assert_eq!(
+        types,
+        [
+            char64.clone(),
+            array(TypeRef::Primitive(P::U8), None, Some(100)),
+            // Written in the type: kept.
+            array(TypeRef::Primitive(P::Char), None, Some(8)),
+            array(TypeRef::Primitive(P::U8), Some(4), None),
+            array(char64, None, Some(100)),
+            array(TypeRef::Primitive(P::U8), None, Some(2)),
+        ]
+    );
+}
+
+#[test]
+fn a_default_at_a_position_beats_the_schema_wide_one() {
+    let types = field_types(
+        "settings {\n    bounds.string.max = 64\n    struct.field.bounds.string.max = 16\n}\n\
+         settings Long {\n    bounds.string.max = 4096\n}\n\
+         struct S {\n    a: string\n    @settings = Long\n    b: string\n}\n",
+    );
+    let char = |n| array(TypeRef::Primitive(P::Char), None, Some(n));
+    // The scoped key beats the global one, in the preset as in the schema.
+    assert_eq!(types, [char(16), char(16)]);
+
+    let types = field_types(
+        "settings {\n    bounds.string.max = 64\n}\nsettings Long {\n    bounds.string.max = 4096\n}\n\
+         struct S {\n    a: string\n    @settings = Long\n    b: string\n}\n",
+    );
+    assert_eq!(types, [char(64), char(4096)]);
+}
+
+#[test]
+fn without_a_default_nothing_changes() {
+    assert_eq!(field_types("struct S {\n    a: string\n    b: u8[]\n}\n"), [
+        TypeRef::Primitive(P::String),
+        array(TypeRef::Primitive(P::U8), None, None),
+    ]);
+}
+
+#[test]
+fn a_struct_that_contains_itself_takes_the_default_depth() {
+    let units = compile(
+        "settings {\n    bounds.depth.max = 32\n}\n\
+         struct Node {\n    kids: Node[]\n}\nstruct Leaf {\n    a: u8\n}\n\
+         @max_depth = 4\nstruct Tree {\n    optional next: Tree\n}\n",
+    )
+    .unwrap();
+    let depth = |name: &str| {
+        units.iter().find_map(|u| match u {
+            FrozenUnit::Struct { name: n, parameters, .. } if n == name => Some(
+                parameters
+                    .iter()
+                    .filter_map(|p| match p {
+                        FrozenUnit::Property { name, value } if name == "max_depth" => Some(value.clone()),
+                        _ => None,
+                    })
+                    .collect::<Vec<_>>(),
+            ),
+            _ => None,
+        })
+    };
+    use comline_core::schema::ir::frozen::unit::ConfigValue;
+    assert_eq!(depth("Node"), Some(vec![ConfigValue::Integer(32)]));
+    assert_eq!(depth("Leaf"), Some(vec![]));
+    // Written: kept, and not added to.
+    assert_eq!(depth("Tree"), Some(vec![ConfigValue::Integer(4)]));
+}
+
+#[test]
+fn a_default_bound_is_a_known_kind_and_a_size() {
+    let messages = errors("settings {\n    bounds.bytes.max = 3\n}\n");
+    assert_eq!(messages, ["unrecognised settings key 'bounds.bytes.max'"]);
+    let messages = errors("settings {\n    bounds.string.max = 0\n}\n");
+    assert_eq!(messages, ["'bounds.string.max' is 0: a maximum is from 1 to 4294967295"]);
+    let messages = errors("settings {\n    bounds.string.max = \"64\"\n}\n");
+    assert_eq!(messages.len(), 1, "{messages:?}");
+}

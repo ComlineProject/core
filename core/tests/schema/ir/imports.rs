@@ -767,3 +767,4 @@ fn an_imported_constant_sizes_an_array() {
     let error = interpret_context(&project).expect_err("a signed size is refused").to_string();
     assert!(error.contains("the maximum `NAME` isn't an unsigned integer constant"), "{error}");
 }
+

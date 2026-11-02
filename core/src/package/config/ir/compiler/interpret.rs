@@ -133,6 +133,9 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // enforcement checks.
         let written_units = frozen_units.clone();
         apply_package_framing(&mut frozen_units, &own_framing);
+        // Default bounds, from the package's settings and the schema's
+        // (core#98), stored resolved at each position.
+        crate::schema::ir::compiler::bounds::apply_default_bounds(&mut frozen_units, &own_settings);
         if let Some(format) = &own_format {
             schema_errors.extend(jsonrpc_with_a_format(&frozen_units, format, &namespace_joined));
         }

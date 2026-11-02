@@ -13,12 +13,19 @@
 //!   of its own: its limit is changed in the alias, and a list of it is an
 //!   alias of its own. `string`, the built-in name, is exempt.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, SizeValue, Type};
 use crate::schema::ir::compiler::import_resolver::size_constant;
+use crate::schema::ir::frozen::types::{PrimitiveType, TypeRef};
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
+use crate::settings::effective::{
+    effective_declaration_settings, effective_schema_settings, schema_settings, settings_annotation_of,
+};
+use crate::settings::keys::{self, DeclPath};
+use crate::settings::value::{SettingsDict, SettingsValue};
 
 const SIZE_NOT_POSITIVE: DiagnosticCode = DiagnosticCode::error("bounds::size-not-positive");
 const SIZE_TOO_LARGE: DiagnosticCode = DiagnosticCode::error("bounds::size-too-large");
@@ -237,5 +244,210 @@ impl Check<'_> {
                     .with_span(span),
             );
         }
+    }
+}
+
+/// Fill in the default bounds of `units`, a schema of a package whose
+/// settings are `package_settings` (core#98): every string or dynamic array
+/// a type leaves without a maximum takes the `bounds.string.max` or
+/// `bounds.array.max` in effect where it's written, and a struct that can
+/// contain itself, written without `@max_depth`, takes `bounds.depth.max`.
+/// Each is stored resolved, so the frozen schema says what every position
+/// holds and a change to a default is a change wherever it lands.
+///
+/// Settings layer as everywhere else: the package's, the schema's own
+/// block, then a declaration's `@settings` preset, a key scoped to the
+/// position (`struct.field.bounds.string.max`) before a global one. A
+/// maximum written in the type always wins. Another package's types are
+/// named, not rewritten here: they keep the maxima their own package gave
+/// them.
+pub fn apply_default_bounds(units: &mut [FrozenUnit], package_settings: &SettingsDict) {
+    let schema = schema_settings(units);
+    let schema_effective = effective_schema_settings(package_settings, &schema);
+    let effective = |parameters: &[FrozenUnit]| {
+        effective_declaration_settings(&schema_effective, &schema, settings_annotation_of(parameters))
+    };
+    let recursive = self_containing_structs(units);
+
+    for unit in units.iter_mut() {
+        match unit {
+            FrozenUnit::Struct { name, parameters, fields, .. } => {
+                let decl = effective(parameters);
+                if recursive.contains(name.as_str()) && !has_max_depth(parameters) {
+                    if let Some(depth) = default_for(&decl, DeclPath::Struct, keys::BOUND_DEPTH) {
+                        parameters.push(FrozenUnit::Property {
+                            name: "max_depth".to_string(),
+                            value: ConfigValue::Integer(depth as i64),
+                        });
+                    }
+                }
+                fill_fields(fields, DeclPath::StructField, &effective);
+            }
+            FrozenUnit::Error { fields, imported_from: None, .. } => {
+                fill_fields(fields, DeclPath::ErrorField, &effective);
+            }
+            FrozenUnit::Protocol { functions, .. } => {
+                for function in functions {
+                    if let FrozenUnit::Function { parameters, arguments, _return, .. } = function {
+                        let decl = effective(parameters);
+                        let defaults = Defaults::of(&decl, DeclPath::ProtocolFunction);
+                        for argument in arguments {
+                            defaults.fill(&mut argument.ty);
+                        }
+                        if let Some(ret) = _return {
+                            defaults.fill(ret);
+                        }
+                    }
+                }
+            }
+            // An alias is filled where it's declared, so wherever it's used
+            // holds the same type. A validator's properties are its call's
+            // arguments, bounded like any other value.
+            FrozenUnit::TypeAlias { parameters, target, .. } => {
+                Defaults::global(&effective(parameters)).fill(target);
+            }
+            FrozenUnit::Validator { properties, .. } => {
+                let defaults = Defaults::global(&schema_effective);
+                for property in properties {
+                    if let FrozenUnit::Field { ty, .. } = property {
+                        defaults.fill(ty);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn fill_fields(fields: &mut [FrozenUnit], decl: DeclPath, effective: &dyn Fn(&[FrozenUnit]) -> SettingsDict) {
+    for field in fields {
+        if let FrozenUnit::Field { parameters, ty, .. } = field {
+            Defaults::of(&effective(parameters), decl).fill(ty);
+        }
+    }
+}
+
+/// The default maxima in effect at one position.
+struct Defaults {
+    string: Option<u64>,
+    array: Option<u64>,
+}
+
+impl Defaults {
+    fn of(settings: &SettingsDict, decl: DeclPath) -> Self {
+        Defaults {
+            string: default_for(settings, decl, keys::BOUND_STRING),
+            array: default_for(settings, decl, keys::BOUND_ARRAY),
+        }
+    }
+
+    /// Where no key can be scoped to a declaration: the global form only.
+    fn global(settings: &SettingsDict) -> Self {
+        let get = |kind| positive(settings.get_path(&keys::bounds_max().key(None, Some(kind))));
+        Defaults { string: get(keys::BOUND_STRING), array: get(keys::BOUND_ARRAY) }
+    }
+
+    fn fill(&self, ty: &mut TypeRef) {
+        match ty {
+            TypeRef::Primitive(PrimitiveType::String) => {
+                if let Some(max) = self.string {
+                    *ty = TypeRef::Array {
+                        element: Box::new(TypeRef::Primitive(PrimitiveType::Char)),
+                        length: None,
+                        max: Some(max),
+                    };
+                }
+            }
+            // A string already bounded, or fixed: nothing to fill.
+            TypeRef::Array { element, .. } if **element == TypeRef::Primitive(PrimitiveType::Char) => {}
+            TypeRef::Array { element, length, max } => {
+                if length.is_none() && max.is_none() {
+                    *max = self.array;
+                }
+                self.fill(element);
+            }
+            TypeRef::Union(members) => members.iter_mut().for_each(|m| self.fill(m)),
+            _ => {}
+        }
+    }
+}
+
+/// The `bounds.<kind>.max` in effect for `decl`, its scoped key first.
+fn default_for(settings: &SettingsDict, decl: DeclPath, kind: &str) -> Option<u64> {
+    keys::bounds_max()
+        .candidates(decl, kind)
+        .iter()
+        .find_map(|key| positive(settings.get_path(key)))
+}
+
+fn positive(value: Option<&SettingsValue>) -> Option<u64> {
+    match value {
+        Some(SettingsValue::Integer(n)) if *n >= 1 => u64::try_from(*n).ok(),
+        _ => None,
+    }
+}
+
+fn has_max_depth(parameters: &[FrozenUnit]) -> bool {
+    parameters.iter().any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == "max_depth"))
+}
+
+/// The local structs that can contain themselves: one reaches itself
+/// through its fields, however they nest (arrays, unions, optionals,
+/// aliases, other structs).
+fn self_containing_structs(units: &[FrozenUnit]) -> HashSet<String> {
+    let aliases: HashMap<&str, &TypeRef> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), target)),
+            _ => None,
+        })
+        .collect();
+    let edges: HashMap<&str, HashSet<&str>> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Struct { name, fields, .. } => {
+                let mut reached = HashSet::new();
+                for field in fields {
+                    if let FrozenUnit::Field { ty, .. } = field {
+                        named(ty, &aliases, &mut reached, 0);
+                    }
+                }
+                Some((name.as_str(), reached))
+            }
+            _ => None,
+        })
+        .collect();
+    let mut recursive = HashSet::new();
+    for &start in edges.keys() {
+        let mut seen = HashSet::new();
+        let mut work: Vec<&str> = edges[start].iter().copied().collect();
+        while let Some(next) = work.pop() {
+            if next == start {
+                recursive.insert(start.to_string());
+                break;
+            }
+            if seen.insert(next) {
+                work.extend(edges.get(next).into_iter().flatten().copied());
+            }
+        }
+    }
+    recursive
+}
+
+/// Every name `ty` refers to, through local aliases.
+fn named<'a>(ty: &'a TypeRef, aliases: &HashMap<&str, &'a TypeRef>, out: &mut HashSet<&'a str>, depth: usize) {
+    if depth > 32 {
+        return;
+    }
+    match ty {
+        TypeRef::Named(name) => match aliases.get(name.as_str()) {
+            Some(target) => named(target, aliases, out, depth + 1),
+            None => {
+                out.insert(name.as_str());
+            }
+        },
+        TypeRef::Array { element, .. } => named(element, aliases, out, depth + 1),
+        TypeRef::Union(members) => members.iter().for_each(|m| named(m, aliases, out, depth + 1)),
+        _ => {}
     }
 }
