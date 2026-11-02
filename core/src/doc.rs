@@ -6,7 +6,8 @@
 //! `//!` header, every unit declared in them with its `///` docs, and each
 //! protocol's wire summary from [`crate::inspect`]. [`changelog`] adds what
 //! changed between two frozen versions, from the same analysis `comline diff`
-//! reports ([`analyze_package_changes`]).
+//! reports ([`analyze_package_changes_with`]), under each version's own
+//! `wire` config.
 //!
 //! The model is the one contract between core and renderers. Its JSON
 //! Schema ([`json_schema`]) is committed as `schemas/doc-model.json` and a
@@ -49,9 +50,11 @@ use crate::package::build::cas::objects::{Blob, EntryMode, Tree};
 use crate::package::build::cas::object_store::ObjectStore;
 use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::{Origin, ProjectContext};
+use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
 use crate::schema::idl::module_docs::module_docs;
 use crate::schema::ir::diff::{
-    analyze_package_changes, reached_by, within_reach, BreakingChange, Modification, NewFeature,
+    analyze_package_changes_with, reached_by, within_reach, BreakingChange, Modification,
+    NewFeature, WireFacts,
 };
 use crate::schema::ir::snippet;
 use crate::schema::ir::frozen::types::TypeRef;
@@ -365,14 +368,21 @@ impl<C> ChangelogEntry<C> {
 /// What changed between two versions of a package, each given as its frozen
 /// schemas (a commit's, loaded with
 /// [`crate::schema::ir::frozen::cas::blob::load_schema_from_tree`], or a
-/// compiled context's). `from` and `to` label them.
+/// compiled context's, [`frozen_schemas`]) and its frozen config (a commit's,
+/// or [`frozen_config`]). `from` and `to` label them.
+///
+/// The config's `wire` decides which format-dependent rules apply, as
+/// `comline diff` applies them: under `json@1` an optional field added is a
+/// feature, under core's default format a break. An empty config means
+/// core's defaults.
 pub fn changelog(
     from: &str,
-    old_schemas: &[Vec<FrozenUnit>],
+    (old_schemas, old_config): (&[Vec<FrozenUnit>], &[ConfigUnit]),
     to: &str,
-    new_schemas: &[Vec<FrozenUnit>],
+    (new_schemas, new_config): (&[Vec<FrozenUnit>], &[ConfigUnit]),
 ) -> Changelog {
-    let changes = analyze_package_changes(old_schemas, new_schemas);
+    let facts = WireFacts::of((old_schemas, old_config), (new_schemas, new_config));
+    let changes = analyze_package_changes_with(old_schemas, new_schemas, &facts);
     Changelog {
         from: from.to_string(),
         to: to.to_string(),
@@ -467,6 +477,12 @@ pub fn read_docs(store: &ObjectStore, root: &Tree) -> eyre::Result<FrozenDocs> {
     };
     let blob = Blob::from_bytes(&store.read(&entry.hash)?)?;
     from_cbor(&blob.content)
+}
+
+/// The frozen config `context` compiled, for [`changelog`]; empty when it
+/// wasn't interpreted.
+pub fn frozen_config(context: &ProjectContext) -> Vec<ConfigUnit> {
+    context.config_frozen.clone().unwrap_or_default()
 }
 
 /// The frozen schemas `context` compiled for its own package, for
@@ -1383,9 +1399,9 @@ mod tests {
 
         let log = changelog(
             "0.1.0",
-            &frozen_schemas(&old),
+            (&frozen_schemas(&old), &frozen_config(&old)),
             "0.2.0",
-            &frozen_schemas(&new),
+            (&frozen_schemas(&new), &frozen_config(&new)),
         );
         assert_eq!((log.from.as_str(), log.to.as_str()), ("0.1.0", "0.2.0"));
         // Under core's default format (`packed@1`: fields by position, an
@@ -1428,6 +1444,59 @@ mod tests {
         assert!(json["changelog"][0]["breaking"][1].get("new").is_none());
         let back: DocModel = serde_json::from_value(json).unwrap();
         assert_eq!(back, model);
+    }
+
+    /// The changelog applies the package's own `wire`, as `comline diff`
+    /// does (core#157): under `json@1` (fields by name, an unknown field
+    /// ignored) an optional field added is a feature, not a break.
+    #[test]
+    fn a_changelog_follows_the_package_wire_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        let json_package = |dir: &Path, types: &str| {
+            let dir = package(dir, types);
+            std::fs::write(
+                dir.join("config.idp"),
+                format!("{CONFIG}wire = {{ format = \"json@1\" }}\n"),
+            )
+            .unwrap();
+            crate::package::build::compile_package(&dir).unwrap()
+        };
+        let old = json_package(&tmp.path().join("shop"), TYPES);
+        let new = json_package(
+            &tmp.path().join("shop2"),
+            &TYPES.replace(
+                "    optional email: string\n",
+                "    optional email: string\n    optional phone: string\n",
+            ),
+        );
+        let log = changelog(
+            "0.1.0",
+            (&frozen_schemas(&old), &frozen_config(&old)),
+            "0.2.0",
+            (&frozen_schemas(&new), &frozen_config(&new)),
+        );
+        assert!(log.breaking.is_empty(), "{:?}", log.breaking);
+        assert!(
+            log.features.iter().any(|f| matches!(
+                &f.change,
+                NewFeature::AddedField { type_name, field_name, .. }
+                    if type_name == "Customer" && field_name == "phone"
+            )),
+            "{:?}",
+            log.features
+        );
+
+        // Without the config, core's default format makes it a break.
+        let defaults = changelog(
+            "0.1.0",
+            (&frozen_schemas(&old), &[]),
+            "0.2.0",
+            (&frozen_schemas(&new), &[]),
+        );
+        assert!(defaults
+            .breaking
+            .iter()
+            .any(|e| matches!(e.change, BreakingChange::AddedOptionalField { .. })));
     }
 
     /// Only what the package reaches of `std` is listed, apart from its
@@ -1520,7 +1589,12 @@ mod tests {
             .replace("    function ping();\n", "    function ping();\n    function cancel(id: u64) -> bool;\n");
         std::fs::write(dir.join("src/api.ids"), api).unwrap();
         let new = crate::package::build::compile_package(&dir).unwrap();
-        let log = changelog("0.1.0", &frozen_schemas(&old), "0.2.0", &frozen_schemas(&new));
+        let log = changelog(
+            "0.1.0",
+            (&frozen_schemas(&old), &frozen_config(&old)),
+            "0.2.0",
+            (&frozen_schemas(&new), &frozen_config(&new)),
+        );
         let all: Vec<(String, Option<String>, Option<String>)> = log
             .breaking
             .iter()
