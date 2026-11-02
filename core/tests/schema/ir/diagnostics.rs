@@ -51,3 +51,58 @@ fn test_diagnostic_without_span_falls_back_gracefully() {
     let rendered = render(&error, "test.ids", "struct Empty {\n}\n");
     assert!(rendered.contains("Synthetic error with no span"));
 }
+
+/// The errors `validate` reports for `code`, as `(code, offending text)`.
+fn duplicates(code: &str) -> Vec<(String, String)> {
+    let ir = IncrementalInterpreter::from_source(code);
+    let errors = validate(&ir).unwrap_err();
+    errors
+        .iter()
+        .filter(|e| e.code.id.starts_with("validation::duplicate-"))
+        .map(|e| {
+            let (start, end) = e.span.expect("a duplicate points at its repeat");
+            assert!(e.secondary.is_some(), "and back at the first: {e:?}");
+            (e.code.id.to_string(), code[start..end].lines().next().unwrap().trim().to_string())
+        })
+        .collect()
+}
+
+#[test]
+fn duplicate_names_inside_a_declaration_are_errors() {
+    assert_eq!(
+        duplicates("struct S {\n    a: u8\n    a: u16\n}\n"),
+        [("validation::duplicate-field".into(), "a: u16".into())]
+    );
+    assert_eq!(
+        duplicates("error F {\n    message = \"x\"\n    a: u8\n    a: u8\n}\n")[0].0,
+        "validation::duplicate-field"
+    );
+    assert_eq!(
+        duplicates("enum E {\n    A\n    B\n    A\n}\n"),
+        [("validation::duplicate-variant".into(), "A".into())]
+    );
+    assert_eq!(
+        duplicates("struct S {\n    a: u8\n}\nprotocol P {\n    function f(s: S) -> u32;\n    function f() -> u32;\n}\n"),
+        [("validation::duplicate-function".into(), "function f() -> u32;".into())]
+    );
+    assert_eq!(
+        duplicates("struct S {\n    a: u8\n}\nprotocol P {\n    function f(a: S, a: S) -> u32;\n}\n")[0].0,
+        "validation::duplicate-argument"
+    );
+    assert_eq!(
+        duplicates(
+            "validator V for string {\n    max: u32 = 1\n    max: u32 = 2\n    validate {\n        \
+             assert(value.length <= params.max, f\"{value.name} too long\")\n    }\n}\n"
+        )[0]
+        .0,
+        "validation::duplicate-parameter"
+    );
+}
+
+#[test]
+fn distinct_names_and_unnamed_arguments_are_not_duplicates() {
+    let code = "struct S {\n    a: u8\n    b: u8\n}\nenum E {\n    A\n    B\n}\n\
+                protocol P {\n    function f(S, S) -> u32;\n    function g(a: S, b: S) -> u32;\n}\n";
+    let ir = IncrementalInterpreter::from_source(code);
+    assert!(validate(&ir).is_ok(), "{:?}", validate(&ir));
+}
