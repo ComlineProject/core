@@ -71,7 +71,7 @@ settings = {
             r#"
 @framing = "jsonrpc"
 protocol Chat {
-    function ping() -> string;
+    function ping() -> char[max 64];
 }
 "#,
         )

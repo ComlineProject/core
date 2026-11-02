@@ -9,7 +9,7 @@ use tempfile::TempDir;
 
 fn package() -> TempDir {
     let dir = TempDir::new().unwrap();
-    fs::write(dir.path().join("config.idp"), "congregation test\nspecification_version = 1\n").unwrap();
+    fs::write(dir.path().join("config.idp"), "congregation test\nspecification_version = 1\nsettings = {\n    bounds = {\n        string = {\n            max = 256\n        }\n        array = {\n            max = 1024\n        }\n    }\n}\n").unwrap();
     fs::create_dir(dir.path().join("src")).unwrap();
     schema(dir.path(), "struct Foo {\n    a: u32\n}\n");
     dir

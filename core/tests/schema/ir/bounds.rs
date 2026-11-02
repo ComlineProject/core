@@ -316,3 +316,25 @@ fn a_default_bound_is_a_known_kind_and_a_size() {
     let messages = errors("settings {\n    bounds.string.max = \"64\"\n}\n");
     assert_eq!(messages.len(), 1, "{messages:?}");
 }
+
+#[test]
+fn union_members_differing_only_by_bound_are_an_error() {
+    let messages = |code: &str| -> Vec<String> {
+        let units = compile(code).unwrap_or_else(|e| panic!("should build: {e:?}"));
+        comline_core::schema::ir::validation::validate(&units)
+            .err()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|e| e.message)
+            .collect()
+    };
+    assert_eq!(
+        messages("struct S {\n    a: union(char[max 3] char[max 5])\n}\n"),
+        ["union members `char[max 3]` and `char[max 5]` differ only by bound"]
+    );
+    assert_eq!(
+        messages("struct S {\n    a: union(u8[max 3] u8[])\n}\n"),
+        ["union members `u8[max 3]` and `u8[]` differ only by bound"]
+    );
+    assert!(messages("struct S {\n    a: union(char[max 3] u8[max 3] u32)\n}\n").is_empty());
+}

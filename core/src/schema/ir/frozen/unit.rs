@@ -421,14 +421,18 @@ pub enum Guarantee {
     EncodingConformance,
     /// A version bump says what the change breaks (the version comparison).
     VersionHonesty,
+    /// Every value has a maximum size, so a decoder refuses an oversized
+    /// one before allocating it (bounds on types, core#98).
+    BoundedSize,
 }
 
 impl Guarantee {
-    pub const ALL: [Guarantee; 4] = [
+    pub const ALL: [Guarantee; 5] = [
         Guarantee::SchemaAgreement,
         Guarantee::EncodingAgreement,
         Guarantee::EncodingConformance,
         Guarantee::VersionHonesty,
+        Guarantee::BoundedSize,
     ];
 
     /// The written name: `schema_agreement`, ...
@@ -438,6 +442,7 @@ impl Guarantee {
             Guarantee::EncodingAgreement => "encoding_agreement",
             Guarantee::EncodingConformance => "encoding_conformance",
             Guarantee::VersionHonesty => "version_honesty",
+            Guarantee::BoundedSize => "bounded_size",
         }
     }
 
@@ -448,6 +453,7 @@ impl Guarantee {
             Guarantee::EncodingAgreement => "encoding agreement",
             Guarantee::EncodingConformance => "encoding conformance",
             Guarantee::VersionHonesty => "version honesty",
+            Guarantee::BoundedSize => "bounded size",
         }
     }
 

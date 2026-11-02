@@ -1199,7 +1199,7 @@ mod tests {
     use std::path::{Path, PathBuf};
 
     const CONFIG: &str = "//! A small package for testing the documentation model.\n\
-        //!\n//! Second paragraph.\ncongregation shop\nspecification_version = 1\n";
+        //!\n//! Second paragraph.\ncongregation shop\nspecification_version = 1\nsettings = {\n    bounds = {\n        string = {\n            max = 256\n        }\n        array = {\n            max = 1024\n        }\n    }\n}\n";
 
     const TYPES: &str = "//! Shared types.\n\n\
         /// Who buys.\n\
@@ -1414,7 +1414,7 @@ mod tests {
                 BreakingChange::AddedOptionalField {
                     type_name: "Customer".into(),
                     field_name: "phone".into(),
-                    field_type: "string".into(),
+                    field_type: "char[max 256]".into(),
                 },
                 BreakingChange::RemovedEnumVariant {
                     enum_name: "Payment".into(),
@@ -1427,7 +1427,7 @@ mod tests {
         // line, a removal only its old one.
         assert_eq!(
             (log.breaking[0].old.as_deref(), log.breaking[0].new.as_deref()),
-            (None, Some("optional phone: string"))
+            (None, Some("optional phone: char[max 256]"))
         );
         assert_eq!(
             (log.breaking[1].old.as_deref(), log.breaking[1].new.as_deref()),

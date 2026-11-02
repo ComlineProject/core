@@ -12,7 +12,7 @@ fn setup_test_package() -> (TempDir, PathBuf) {
     let package_path = temp_dir.path().to_path_buf();
     
     // Create config.idp with proper congregation DSL syntax
-    let config = "congregation test\nspecification_version = 1\n";
+    let config = "congregation test\nspecification_version = 1\nsettings = {\n    bounds = {\n        string = {\n            max = 256\n        }\n        array = {\n            max = 1024\n        }\n    }\n}\n";
     fs::write(package_path.join("config.idp"), config).unwrap();
     
     // Create src directory
@@ -79,7 +79,7 @@ fn test_struct_add_optional_field_under_json() {
     write_schema(&package_path, "ping", "struct Foo { a: s32 }");
     build_and_release(&package_path);
 
-    write_schema(&package_path, "ping", "struct Foo { a: s32\n  optional b: string }");
+    write_schema(&package_path, "ping", "struct Foo { a: s32\n  optional b: char[max 64] }");
     let result = build(&package_path).unwrap();
     assert_eq!(result.version_bump, VersionBump::Minor);
     assert_eq!(result.current_version, "0.1.1-dev.1");

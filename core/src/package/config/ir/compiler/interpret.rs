@@ -136,6 +136,16 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Default bounds, from the package's settings and the schema's
         // (core#98), stored resolved at each position.
         crate::schema::ir::compiler::bounds::apply_default_bounds(&mut frozen_units, &own_settings);
+        let unbounded = crate::schema::ir::compiler::bounds::check_bounded(&mut frozen_units);
+        if !unbounded.is_empty() {
+            let rendered: Vec<String> =
+                unbounded.iter().map(|error| schema_context.borrow().render(error)).collect();
+            schema_errors.push(format!(
+                "Schema '{}' has values without a maximum:\n{}",
+                namespace_joined,
+                rendered.join("\n\n")
+            ));
+        }
         if let Some(format) = &own_format {
             schema_errors.extend(jsonrpc_with_a_format(&frozen_units, format, &namespace_joined));
         }

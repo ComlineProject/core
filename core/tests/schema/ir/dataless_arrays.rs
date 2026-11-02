@@ -108,7 +108,7 @@ fn every_place_a_type_is_written_is_checked() {
 
 #[test]
 fn a_self_referential_struct_is_not_refused() {
-    let code = "struct Node {\n    children: Node[]\n}\n\n\
+    let code = "@max_depth = 16\nstruct Node {\n    children: Node[max 8]\n}\n\n\
                 struct Chain {\n    optional next: Chain\n}\n\n\
                 struct Forest {\n    trees: Node[]\n    chains: Chain[]\n}\n";
     assert!(messages(code).is_empty(), "{:?}", messages(code));
@@ -164,11 +164,11 @@ fn an_imported_data_less_type_is_refused_through_aliases_and_schemas() {
 #[test]
 fn an_imported_type_with_data_is_not_refused() {
     let mut project = project();
-    add_schema(&mut project, &["types"], "struct Node {\n    children: Node[]\n}\n\nstruct Flag {\n    optional set: bool\n}\n");
+    add_schema(&mut project, &["types"], "@max_depth = 16\nstruct Node {\n    children: Node[max 8]\n}\n\nstruct Flag {\n    optional set: bool\n}\n");
     add_schema(
         &mut project,
         &["api"],
-        "use types::Node\nuse types::Flag\n\nstruct Batch {\n    nodes: Node[]\n    flags: Flag[]\n}\n",
+        "use types::Node\nuse types::Flag\n\nstruct Batch {\n    nodes: Node[max 8]\n    flags: Flag[max 8]\n}\n",
     );
 
     interpret_context(&project).expect("arrays of types that carry data build");

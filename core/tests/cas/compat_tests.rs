@@ -24,7 +24,7 @@ fn package(source: &str) -> TempDir {
 fn config(dir: &Path, extra: &str) {
     fs::write(
         dir.join("config.idp"),
-        format!("congregation test\nid = \"{ID}\"\nspecification_version = 1\n{extra}"),
+        format!("congregation test\nid = \"{ID}\"\nspecification_version = 1\nsettings = {{\n    bounds = {{\n        string = {{\n            max = 256\n        }}\n        array = {{\n            max = 1024\n        }}\n    }}\n}}\n{extra}"),
     )
     .unwrap();
 }
