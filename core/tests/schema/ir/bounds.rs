@@ -338,3 +338,95 @@ fn union_members_differing_only_by_bound_are_an_error() {
     );
     assert!(messages("struct S {\n    a: union(char[max 3] u8[max 3] u32)\n}\n").is_empty());
 }
+
+// Validators beside bounds: `any[]`, std's minimums, and a validator
+// against the type's own maximum.
+
+const DEFAULTS: &str = "congregation test\nspecification_version = 1\nsettings = {\n    bounds = {\n        string = {\n            max = 256\n        }\n        array = {\n            max = 1024\n        }\n    }\n}\n";
+
+fn build(code: &str) -> Result<(), String> {
+    comline_core::package::build::PackageSources::new()
+        .config(DEFAULTS)
+        .schema(["s"], code)
+        .compile()
+        .map(|_| ())
+        .map_err(|e| e.to_string())
+}
+
+fn warnings(code: &str) -> Vec<String> {
+    use comline_core::schema::ir::compiler::Compile;
+    let ir = IncrementalInterpreter::from_source(code);
+    comline_core::schema::ir::validation::validator::validate(&ir)
+        .expect("warnings only")
+        .into_iter()
+        .map(|w| w.message)
+        .collect()
+}
+
+#[test]
+fn std_minimums_apply_to_strings_and_lists_of_anything() {
+    build(
+        "use std::validators::{NonEmpty, MinChars, MinItems, IntRange, StringBounds}\n\
+         struct O {\n    a: u8\n}\n\
+         struct S {\n    @validators = [NonEmpty]\n    a: O[max 3]\n    \
+         @validators = [NonEmpty, MinChars(min = 2)]\n    b: char[max 3]\n    \
+         @validators = [MinItems(min = 1)]\n    c: char[max 3][max 4]\n    \
+         @validators = [IntRange(min = -5, max = 12)]\n    d: s8\n    \
+         @validators = [IntRange(max = 12)]\n    e: u64\n    \
+         @validators = [StringBounds(min_chars = 1)]\n    f: string\n}\n",
+    )
+    .expect("std's validators apply");
+
+    let error = build("use std::validators::MinItems\nstruct S {\n    @validators = [MinItems(min = 1)]\n    b: string\n}\n")
+        .expect_err("MinItems is for lists");
+    assert!(error.contains("validator 'MinItems' applies to `any[]`"), "{error}");
+}
+
+#[test]
+fn any_only_names_an_array_element() {
+    let error = build("validator V for any {\n    validate {\n        assert(value > 0, f\"{value.name} bad\")\n    }\n}\n")
+        .expect_err("bare any is refused");
+    assert!(error.contains("validation::validator-any-misplaced"), "{error}");
+
+    let error = build("struct S {\n    a: any\n}\n").expect_err("any isn't a type");
+    assert!(error.contains("`any` only names an array's element in a validator's `for`"), "{error}");
+
+    // A local validator over any array, nested too.
+    build(
+        "validator Few for any[][] {\n    validate {\n        assert(value.length < 3, f\"{value.name} has too many\")\n    }\n}\n\
+         struct S {\n    @validators = [Few]\n    a: u8[max 2][max 4]\n}\n",
+    )
+    .expect("any[][] matches a list of lists");
+}
+
+#[test]
+fn a_minimum_above_the_types_maximum_is_an_error() {
+    let error = build(
+        "use std::validators::{MinChars, MinItems}\nconst N: u32 = 9\n\
+         struct S {\n    @validators = [MinChars(min = 5)]\n    a: char[max 3]\n    \
+         @validators = [MinItems(min = N)]\n    b: u8[max 4]\n}\n",
+    )
+    .expect_err("no value can pass");
+    assert!(error.contains("`MinChars(min = 5)` refuses every value: `char[max 3]` holds at most 3 characters"), "{error}");
+    assert!(error.contains("`MinItems(min = 9)` refuses every value: `u8[max 4]` holds at most 4 items"), "{error}");
+}
+
+#[test]
+fn a_cap_below_the_types_maximum_warns() {
+    let found = warnings(
+        "use std::validators::StringBounds\n\
+         struct S {\n    @validators = [StringBounds(max_chars = 10)]\n    a: char[max 30]\n    \
+         @validators = [StringBounds(min_chars = 2, max_chars = 30)]\n    b: char[max 30]\n}\n",
+    );
+    assert_eq!(
+        found,
+        ["`StringBounds(max_chars = 10)` refuses values `char[max 30]` allows (up to 30 characters)"],
+        "{found:?}"
+    );
+    // A validator of the schema's own is not judged: its names mean nothing fixed.
+    let own = warnings(
+        "validator MinChars for string {\n    min: u32\n    validate {\n        assert(value.length >= params.min, \"short\")\n    }\n}\n\
+         struct S {\n    @validators = [MinChars(min = 5)]\n    a: char[max 3]\n}\n",
+    );
+    assert!(own.is_empty(), "{own:?}");
+}

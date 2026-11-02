@@ -60,6 +60,12 @@ const VALIDATOR_MISSING_TARGET: DiagnosticCode =
     DiagnosticCode::error("validation::validator-missing-target");
 const VALIDATOR_TARGET_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::validator-target-mismatch");
+const VALIDATOR_ANY_MISPLACED: DiagnosticCode =
+    DiagnosticCode::error("validation::validator-any-misplaced");
+const VALIDATOR_MINIMUM_ABOVE_MAXIMUM: DiagnosticCode =
+    DiagnosticCode::error("bounds::validator-minimum-above-maximum");
+const VALIDATOR_CAPS_BELOW_TYPE: DiagnosticCode =
+    DiagnosticCode::warning("bounds::validator-caps-below-type");
 const VALIDATOR_ACCESSOR_UNSUPPORTED: DiagnosticCode =
     DiagnosticCode::error("validation::validator-accessor-unsupported");
 const VALIDATOR_CHECKS_NOTHING: DiagnosticCode =
@@ -619,6 +625,7 @@ pub fn validate_with(
     // Pass 3: structs that can never hold a finite value
     check_struct_cycles(units, &mut errors);
 
+    check_validator_sizes(units, &symbols, imports, &constants, &mut errors, &mut warnings);
     check_annotation_values(units, imports, &mut errors);
     check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
     check_provider(units, &mut errors);
@@ -829,6 +836,19 @@ fn check_validator_targets(
             );
             continue;
         }
+        for written in targets {
+            if any_misplaced(written, false) {
+                errors.push(
+                    Diagnostic::new(
+                        VALIDATOR_ANY_MISPLACED,
+                        format!("validator '{name}': `any` only names an array's element, not `{written}`"),
+                    )
+                    .with_context(format!("Validator '{name}'"))
+                    .with_span(*span)
+                    .with_help("write `any[]` for an array of any element type"),
+                );
+            }
+        }
         let pairs: Vec<(TypeRef, TypeRef)> =
             targets.iter().map(|written| (written.clone(), resolve(written))).collect();
 
@@ -912,7 +932,7 @@ fn check_validator_targets(
             // Bounds don't take part (core#98): `for string` applies to
             // `char[max 32]`.
             let field_unbounded = field_resolved.without_bounds();
-            if targets.is_empty() || targets.iter().any(|(_, r)| r.without_bounds() == field_unbounded) {
+            if targets.is_empty() || targets.iter().any(|(_, r)| target_accepts(&r.without_bounds(), &field_unbounded)) {
                 continue;
             }
             let applies_to = targets
@@ -1086,6 +1106,147 @@ fn resolve_type(
         })
     }
     go(ty, local_aliases, symbols, imports, 0)
+}
+
+/// The element name a validator's `for` uses for "any type": `any[]` is an
+/// array of anything. A keyword only there; elsewhere `any` is a name.
+const ANY: &str = "any";
+
+/// Whether a validator target accepts a field's type, both resolved and
+/// without bounds. `any` in an array's element accepts every element type;
+/// otherwise the two must be equal.
+fn target_accepts(target: &TypeRef, field: &TypeRef) -> bool {
+    match (target, field) {
+        (
+            TypeRef::Array { element: t, length: tl, .. },
+            TypeRef::Array { element: f, length: fl, .. },
+        ) if tl == fl => matches!(&**t, TypeRef::Named(n) if n == ANY) || target_accepts(t, f),
+        _ => target == field,
+    }
+}
+
+/// Whether `any` appears in a target other than as an array's element.
+fn any_misplaced(target: &TypeRef, in_array: bool) -> bool {
+    match target {
+        TypeRef::Named(n) => n == ANY && !in_array,
+        TypeRef::Array { element, .. } => any_misplaced(element, true),
+        TypeRef::Union(members) => members.iter().any(|m| any_misplaced(m, false)),
+        _ => false,
+    }
+}
+
+/// std's validators whose meaning is fixed, by the size they read: a
+/// minimum (`MinChars`, `MinItems`, `StringBounds.min_chars`) and a cap
+/// (`StringBounds.max_chars`). `(validator, property, for strings, is a
+/// minimum)`.
+const STD_SIZE_PROPERTIES: &[(&str, &str, bool, bool)] = &[
+    ("MinChars", "min", true, true),
+    ("MinItems", "min", false, true),
+    ("StringBounds", "min_chars", true, true),
+    ("StringBounds", "max_chars", true, false),
+];
+
+/// A std validator against the type it checks (core#98): a minimum above
+/// the type's maximum refuses every value (an error); a cap below it
+/// refuses values the type allows (a warning: the type is the place for
+/// it). Only std's are judged, whose properties mean what their names say.
+fn check_validator_sizes(
+    units: &[FrozenUnit],
+    symbols: &SymbolTable,
+    imports: &dyn ImportLookup,
+    constants: &Constants,
+    errors: &mut Vec<Diagnostic>,
+    warnings: &mut Vec<Diagnostic>,
+) {
+    let local_aliases: HashMap<&str, &TypeRef> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), target)),
+            _ => None,
+        })
+        .collect();
+    let declared_here = |name: &str| {
+        units.iter().any(|u| matches!(u, FrozenUnit::Validator { name: n, .. } if n == name))
+    };
+    for site in validated_sites(units) {
+        let resolved = resolve_type(site.ty, &local_aliases, symbols, imports);
+        let (is_string, size) = match &resolved {
+            TypeRef::Array { element, length, max } => {
+                (**element == TypeRef::Primitive(PrimitiveType::Char), max.or(*length))
+            }
+            _ => continue,
+        };
+        let Some(size) = size else { continue };
+        for param in site.parameters {
+            let FrozenUnit::ValidatorRef { name, args, span, .. } = param else { continue };
+            let bare = name.rsplit("::").next().unwrap_or(name);
+            if declared_here(bare) || !std_validator(symbols, name) {
+                continue;
+            }
+            for (validator, property, for_strings, minimum) in STD_SIZE_PROPERTIES {
+                if *validator != bare || *for_strings != is_string {
+                    continue;
+                }
+                let value = args.iter().find_map(|arg| match arg {
+                    FrozenUnit::Property { name, value } if name == property => integer_argument(value, constants),
+                    _ => None,
+                });
+                let Some(value) = value else { continue };
+                let unit = if is_string { "characters" } else { "items" };
+                let at = known_or(*span, site.span);
+                if *minimum && value > size as i128 {
+                    errors.push(
+                        Diagnostic::new(
+                            VALIDATOR_MINIMUM_ABOVE_MAXIMUM,
+                            format!(
+                                "`{bare}({property} = {value})` refuses every value: `{}` holds at most {size} {unit}",
+                                site.ty
+                            ),
+                        )
+                        .with_context(site.context.clone())
+                        .with_span(at),
+                    );
+                } else if !*minimum && value < size as i128 {
+                    warnings.push(
+                        Diagnostic::new(
+                            VALIDATOR_CAPS_BELOW_TYPE,
+                            format!(
+                                "`{bare}({property} = {value})` refuses values `{}` allows (up to {size} {unit})",
+                                site.ty
+                            ),
+                        )
+                        .with_context(site.context.clone())
+                        .with_span(at)
+                        .with_help(format!("put the maximum in the type: `char[max {value}]`")),
+                    );
+                }
+            }
+        }
+    }
+}
+
+/// Whether the validator `name` is std's: imported from `std::validators`.
+fn std_validator(symbols: &SymbolTable, name: &str) -> bool {
+    if name.starts_with("std::validators::") {
+        return true;
+    }
+    let bare = name.rsplit("::").next().unwrap_or(name);
+    symbols.symbols.iter().any(|(k, v)| {
+        v.kind == SymbolType::Import
+            && (*k == format!("std::validators::{bare}") || *k == "std::validators::*" || *k == "std::validators")
+    })
+}
+
+/// An integer argument, written or through a constant.
+fn integer_argument(value: &ConfigValue, constants: &Constants) -> Option<i128> {
+    match value {
+        ConfigValue::Integer(i) => Some(*i as i128),
+        ConfigValue::Name(r) | ConfigValue::Path(r) => match constants.resolve(r) {
+            Resolution::Value(ResolvedConstant { value: super::constants::ConstantValue::Integer(i), .. }) => Some(i),
+            _ => None,
+        },
+        _ => None,
+    }
 }
 
 /// Whether `value.length` means something for this (resolved) type.
@@ -2128,6 +2289,7 @@ fn text_type_hint(type_name: &str) -> Option<String> {
     match type_name {
         "str" => Some("`str` was removed; use `string`".to_string()),
         "String" => Some("the text type is spelled `string`".to_string()),
+        "any" => Some("`any` only names an array's element in a validator's `for` (`any[]`); a value needs a type".to_string()),
         _ => None,
     }
 }
