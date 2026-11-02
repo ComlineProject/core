@@ -300,6 +300,17 @@ pub const MODE: &str = "mode";
 pub const ANNOTATIONS_ALLOWED: &str = "annotations.allowed";
 pub const VALIDATORS_ALLOWED: &str = "validators.allowed";
 pub const DIAGNOSTICS_LEVEL: &str = "diagnostics.level";
+pub const BOUNDS_MAX: &str = "bounds.max";
+
+/// The names `bounds.<name>.max` takes: what each default bounds.
+pub const BOUND_KINDS: &[&str] = &[BOUND_STRING, BOUND_ARRAY, BOUND_DEPTH];
+/// The most characters a string holds where its type writes none.
+pub const BOUND_STRING: &str = "string";
+/// The most items a dynamic array holds where its type writes none.
+pub const BOUND_ARRAY: &str = "array";
+/// How deeply a type that can contain itself nests, where it writes no
+/// `@max_depth`.
+pub const BOUND_DEPTH: &str = "depth";
 
 /// The only value `mode` accepts.
 pub const MODE_REPLACE: &str = "replace";
@@ -389,6 +400,31 @@ pub const SHAPES: &[Shape] = &[
         },
     }),
     Shape::Path(PathShape {
+        id: BOUNDS_MAX,
+        group: "bounds",
+        leaf: "max",
+        name: NameKind::Name,
+        coarse: false,
+        scoping: Scoping::DeclScopedThenGlobal,
+        value: ValueType::Integer,
+        malformed: DiagnosticCode::error("settings::malformed-value"),
+        doc: ShapeDoc {
+            summary: "a default maximum where a type writes none",
+            description: "The maximum a position gets where its type writes none (core#98): \
+                `bounds.string.max` in characters for a `string`, `bounds.array.max` in items \
+                for a dynamic array, `bounds.depth.max` in levels for a type that can contain \
+                itself. Stored resolved at each position it reaches, so changing it is a \
+                change wherever it lands. A maximum written in the type wins.",
+            coarse_summary: None,
+            coarse_description: None,
+            name_notes: &[
+                ("string", "In characters (Unicode scalar values), at most 4294967295."),
+                ("array", "In items, at most 4294967295."),
+                ("depth", "In levels of nesting, at least 1."),
+            ],
+        },
+    }),
+    Shape::Path(PathShape {
         id: DIAGNOSTICS_LEVEL,
         group: "diagnostics",
         leaf: "level",
@@ -422,6 +458,11 @@ pub fn path_shape(id: &str) -> &'static PathShape {
             _ => None,
         })
         .unwrap_or_else(|| panic!("no path shape registered with id '{id}'"))
+}
+
+/// The shape of a default bound, `bounds.<kind>.max`.
+pub fn bounds_max() -> &'static PathShape {
+    path_shape(BOUNDS_MAX)
 }
 
 /// The shape governing `@annotation` usage.
@@ -1027,6 +1068,7 @@ mod tests {
                 "annotations.<name>.allowed",
                 "validators.<name>.allowed",
                 "validators.allowed",
+                "bounds.<name>.max",
                 "diagnostics.<code>.level",
             ]
         );
@@ -1048,6 +1090,7 @@ mod tests {
                 "annotations.<name>.allowed",
                 "validators.<name>.allowed",
                 "validators.allowed",
+                "bounds.<name>.max",
             ]
         );
         // `mode` is legal at any depth with no prefix of its own, and

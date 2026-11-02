@@ -47,6 +47,7 @@ mod tests {
                 "annotations.<name>.allowed",
                 "validators.<name>.allowed",
                 "validators.allowed",
+                "bounds.<name>.max",
                 "diagnostics.<code>.level",
             ]
         );

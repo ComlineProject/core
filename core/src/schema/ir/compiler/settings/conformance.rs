@@ -120,6 +120,33 @@ fn check_leaf(
         return;
     };
 
+    // `bounds.<kind>.max` takes only the kinds there are, and a size
+    // (core#98).
+    if matches!(matched.shape, Shape::Path(p) if p.id == keys::BOUNDS_MAX) {
+        let kind = matched.name.unwrap_or_default();
+        if !keys::BOUND_KINDS.contains(&kind) {
+            errors.push(
+                Diagnostic::new(UNKNOWN_KEY, format!("unrecognised settings key '{dotted}'"))
+                    .with_context(format!("in {label}"))
+                    .with_help(format!(
+                        "a default bound is `bounds.string.max`, `bounds.array.max` or `bounds.depth.max`, not `{kind}`"
+                    ))
+                    .maybe_span(span),
+            );
+            return;
+        }
+        if let SettingsValue::Integer(n) = value {
+            if !(1..=i64::from(u32::MAX)).contains(n) {
+                errors.push(
+                    Diagnostic::new(matched.malformed_code(), format!("'{dotted}' is {n}: a maximum is from 1 to {}", u32::MAX))
+                        .with_context(format!("in {label}"))
+                        .maybe_span(span),
+                );
+                return;
+            }
+        }
+    }
+
     if let Err(mismatch) = config_value::check(matched.value_type(), value.form()) {
         // The code comes from the shape, so this pass and `severity` can
         // never invent different codes for one mistake. A reserved word

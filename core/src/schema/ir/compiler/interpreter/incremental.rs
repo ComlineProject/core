@@ -54,7 +54,13 @@ impl IncrementalInterpreter {
         check_aliases(&declarations, use_context)?;
         crate::schema::ir::compiler::bounds::check_bounds(&declarations, use_context)?;
         check_settings_conflicts(&declarations)?;
-        Ok(Self::compile_declarations(declarations, use_context))
+        let mut units = Self::compile_declarations(declarations, use_context);
+        let package = match use_context {
+            Some((_, project)) => crate::settings::effective::package_settings(project),
+            None => crate::settings::defaults::built_in(),
+        };
+        crate::schema::ir::compiler::bounds::apply_default_bounds(&mut units, &package);
+        Ok(units)
     }
 }
 
@@ -62,7 +68,14 @@ impl Compile for IncrementalInterpreter {
     type Output = Vec<FrozenUnit>;
 
     fn from_declarations(declarations: Vec<rust_sitter::Spanned<Declaration>>) -> Self::Output {
-        Self::compile_declarations(declarations, None)
+        // On its own, a schema has the built-in settings under its own
+        // blocks: their default bounds apply (core#98).
+        let mut units = Self::compile_declarations(declarations, None);
+        crate::schema::ir::compiler::bounds::apply_default_bounds(
+            &mut units,
+            &crate::settings::defaults::built_in(),
+        );
+        units
     }
 }
 

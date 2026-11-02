@@ -318,6 +318,16 @@ fn known_annotations() -> Vec<AnnotationInfo> {
         consumed_by: &["`comline build`'s validation pass"],
     },
     AnnotationInfo {
+        key: "max_depth",
+        scopes: &[AnnotationScope::Leading, AnnotationScope::TypeAlias],
+        authority: AnnotationAuthority::Core,
+        description: "How deeply a type that can contain itself nests: a decoder refuses a \
+                       value nested deeper (core#98). Overrides `bounds.depth.max`.",
+        default: "the `bounds.depth.max` setting, where one is set",
+        value: ValueType::Integer,
+        consumed_by: &["`comline build`'s bounds pass"],
+    },
+    AnnotationInfo {
         key: "timeout_ms",
         scopes: &[AnnotationScope::Function],
         authority: AnnotationAuthority::Target,
@@ -489,13 +499,13 @@ mod tests {
         assert!(lookup("nope").is_none());
         // timeout_ms, idempotent (both Function), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
-        // framing, provider, consumer, handshake, unverified, deprecated (all
-        // Leading), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 7);
-        // validators, deprecated, plus settings (Universal).
+        // max_depth, framing, provider, consumer, handshake, unverified,
+        // deprecated (all Leading), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 8);
+        // validators, deprecated, max_depth, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();
-        assert_eq!(alias, ["deprecated", "settings", "validators"]);
+        assert_eq!(alias, ["deprecated", "max_depth", "settings", "validators"]);
     }
 
     #[test]
