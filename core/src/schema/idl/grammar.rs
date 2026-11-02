@@ -929,6 +929,9 @@ pub mod grammar {
         F64(F64Type),
         Bool(BoolType),
         String(StringType),
+        /// One Unicode scalar value. `char[…]` is a string (bounds on types,
+        /// core#98).
+        Char(CharType),
         Named(ScopedIdentifier),
         Array(Box<ArrayType>),
         Union(UnionType),
@@ -945,16 +948,40 @@ pub mod grammar {
         _close: (),
     }
 
-    /// Array type: Type[] or Type[SIZE]
+    /// Array type: `T[]`, `T[N]` (exactly N) or `T[max N]` (at most N).
     #[derive(Debug, Clone)]
     pub struct ArrayType {
         pub key: Type,
         #[rust_sitter::leaf(text = "[")]
         _open: (),
         #[rust_sitter::repeat(non_empty = false)]
-        pub size: Option<IntegerLiteral>,
+        pub size: Option<ArraySize>,
         #[rust_sitter::leaf(text = "]")]
         _close: (),
+    }
+
+    /// What's between an array's brackets: a maximum, or an exact length.
+    /// `max` is a keyword only here, right after `[`; anywhere else it's a
+    /// name like any other.
+    #[derive(Debug, Clone)]
+    pub enum ArraySize {
+        Max(MaxSize),
+        Exact(SizeValue),
+    }
+
+    /// `max N`: at most N items (characters, for a string).
+    #[derive(Debug, Clone)]
+    pub struct MaxSize {
+        #[rust_sitter::leaf(text = "max")]
+        _max: (),
+        pub value: SizeValue,
+    }
+
+    /// A size: an integer, or a constant naming one.
+    #[derive(Debug, Clone)]
+    pub enum SizeValue {
+        Integer(IntegerLiteral),
+        Constant(ScopedIdentifier),
     }
 
     /// Union type: union(Type Type ...)
@@ -1017,6 +1044,10 @@ pub mod grammar {
     #[derive(Debug, Clone)]
     #[rust_sitter::leaf(text = "string")]
     pub struct StringType;
+
+    #[derive(Debug, Clone)]
+    #[rust_sitter::leaf(text = "char")]
+    pub struct CharType;
 
     // ===== Expressions (Simplified) =====
 
@@ -1588,6 +1619,32 @@ pub mod grammar {
     impl ArrayType {
         pub fn elem_type(&self) -> &Type {
             &self.key
+        }
+
+        /// The exact length written (`T[N]`), if any.
+        pub fn exact(&self) -> Option<&SizeValue> {
+            match &self.size {
+                Some(ArraySize::Exact(value)) => Some(value),
+                _ => None,
+            }
+        }
+
+        /// The maximum written (`T[max N]`), if any.
+        pub fn max(&self) -> Option<&SizeValue> {
+            match &self.size {
+                Some(ArraySize::Max(max)) => Some(&max.value),
+                _ => None,
+            }
+        }
+    }
+
+    impl SizeValue {
+        /// As written: `16`, `MAX_NAME`, `limits::MAX`.
+        pub fn text(&self) -> String {
+            match self {
+                SizeValue::Integer(i) => i.value.to_string(),
+                SizeValue::Constant(c) => c.text.clone(),
+            }
         }
     }
 

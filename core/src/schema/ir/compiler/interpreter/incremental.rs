@@ -8,7 +8,7 @@ use crate::schema::idl::grammar::{
 };
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
-use crate::schema::ir::compiler::import_resolver::{
+use crate::schema::ir::compiler::import_resolver::{size_constant, 
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
     importable_names, ImportResolver,
 };
@@ -52,6 +52,7 @@ impl IncrementalInterpreter {
             check_imports(&declarations, current_namespace, project_context)?;
         }
         check_aliases(&declarations, use_context)?;
+        crate::schema::ir::compiler::bounds::check_bounds(&declarations, use_context)?;
         check_settings_conflicts(&declarations)?;
         Ok(Self::compile_declarations(declarations, use_context))
     }
@@ -81,6 +82,12 @@ impl IncrementalInterpreter {
             ordinals: error_ordinals,
             reexports,
         } = plan_error_space(&declarations, use_context);
+
+        // A size that names a constant (`char[max MAX_NAME]`, core#98) is
+        // stored resolved: this schema's constants, or with a project, one a
+        // `use` brings in.
+        let size_declarations = declarations.clone();
+        let size = |name: &str| size_constant(&size_declarations, use_context, name);
 
         let mut frozen_units: Vec<FrozenUnit> = vec![];
 
@@ -118,7 +125,7 @@ impl IncrementalInterpreter {
                     frozen_units.push(FrozenUnit::Constant {
                         docstring: const_decl.docstring(),
                         name,
-                        ty: TypeRef::from_grammar(type_def),
+                        ty: TypeRef::from_grammar_sized(type_def, &size),
                         value: Literal::from_grammar(value),
                         span,
                     });
@@ -138,7 +145,7 @@ impl IncrementalInterpreter {
                                 parameters: annotation_units(&field.annotations()),
                                 optional: field.optional(),
                                 name: fname,
-                                ty: TypeRef::from_grammar(field_type),
+                                ty: TypeRef::from_grammar_sized(field_type, &size),
                                 default: field.default_value().and_then(Literal::from_grammar),
                                 span: field.span,
                             }
@@ -195,7 +202,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| "arg0".to_string()),
-                                        ty: TypeRef::from_grammar(first_arg.arg_type()),
+                                        ty: TypeRef::from_grammar_sized(first_arg.arg_type(), &size),
                                         span: first_arg.arg_type_span(),
                                     }];
 
@@ -206,7 +213,7 @@ impl IncrementalInterpreter {
                                             .name()
                                             .map(|n| n.as_str().to_string())
                                             .unwrap_or_else(|| format!("arg{}", i + 1)),
-                                        ty: TypeRef::from_grammar(arg.arg_type()),
+                                        ty: TypeRef::from_grammar_sized(arg.arg_type(), &size),
                                         span: arg.arg_type_span(),
                                     });
                                 }
@@ -217,7 +224,7 @@ impl IncrementalInterpreter {
 
                             let return_type = ret_opt
                                 .as_ref()
-                                .map(|rt| TypeRef::from_grammar(rt.return_type()));
+                                .map(|rt| TypeRef::from_grammar_sized(rt.return_type(), &size));
 
                             FrozenUnit::Function {
                                 name: func_name,
@@ -253,7 +260,7 @@ impl IncrementalInterpreter {
                     // them; `None` only if a Protocol arm somehow references a
                     // name before it's planned, which can't happen.
                     let ordinal = error_ordinals.get(&error_decl.name()).copied().unwrap_or(0);
-                    frozen_units.push(frozen_error(&error_decl, ordinal, None, Some(span)));
+                    frozen_units.push(frozen_error(&error_decl, ordinal, None, Some(span), &size));
                 }
                 Declaration::Settings(settings_def) => {
                     let entries: Vec<_> = settings_def
@@ -291,7 +298,7 @@ impl IncrementalInterpreter {
                     });
                 }
                 Declaration::Validator(validator_def) => {
-                    let properties = freeze_validator_properties(&validator_def);
+                    let properties = freeze_validator_properties_sized(&validator_def, &size);
 
                     let asserts = validator_def
                         .asserts()
@@ -307,7 +314,7 @@ impl IncrementalInterpreter {
                         .collect();
 
                     let targets =
-                        validator_def.targets().into_iter().map(TypeRef::from_grammar).collect();
+                        validator_def.targets().into_iter().map(|t| TypeRef::from_grammar_sized(t, &size)).collect();
 
                     frozen_units.push(FrozenUnit::Validator {
                         docstring: validator_def.docstring(),
@@ -334,7 +341,7 @@ impl IncrementalInterpreter {
                         docstring: alias.docstring(),
                         parameters: annotation_units(&alias.annotations()),
                         name: alias.name(),
-                        target: TypeRef::from_grammar(alias.target_type()),
+                        target: TypeRef::from_grammar_sized(alias.target_type(), &size),
                         span,
                     });
                 }
@@ -456,11 +463,15 @@ fn resolve_foreign_error(
     for target_decl in &schema_ref.declarations {
         if let Declaration::Error(error_decl) = &target_decl.value {
             if error_decl.name() == name {
+                // Sized by the declaring schema's own constants.
+                let declaring = (&schema_ref.namespace[..], project_context);
+                let size = |n: &str| size_constant(&schema_ref.declarations, Some(declaring), n);
                 return Some(frozen_error(
                     error_decl,
                     ordinal,
                     Some(schema_ref.namespace_joined()),
                     None,
+                    &size,
                 ));
             }
         }
@@ -478,6 +489,7 @@ fn frozen_error(
     ordinal: u16,
     imported_from: Option<String>,
     span: Option<(usize, usize)>,
+    size: &dyn Fn(&str) -> Option<u64>,
 ) -> FrozenUnit {
     let field_units: Vec<FrozenUnit> = error_decl
         .fields()
@@ -487,7 +499,7 @@ fn frozen_error(
             parameters: annotation_units(&field.annotations()),
             optional: field.optional(),
             name: field.name(),
-            ty: TypeRef::from_grammar(field.field_type()),
+            ty: TypeRef::from_grammar_sized(field.field_type(), size),
             default: field.default_value().and_then(Literal::from_grammar),
             span: field.span,
         })
@@ -639,6 +651,15 @@ fn local_declaration_kind(
 /// A validator's properties as `FrozenUnit::Field`s - its own schema's
 /// lowering, and what an importing schema checks a call's arguments against.
 pub fn freeze_validator_properties(validator: &crate::schema::idl::grammar::Validator) -> Vec<FrozenUnit> {
+    freeze_validator_properties_sized(validator, &|_| None)
+}
+
+/// [`freeze_validator_properties`], a size that names a constant resolved
+/// through `size`.
+pub fn freeze_validator_properties_sized(
+    validator: &crate::schema::idl::grammar::Validator,
+    size: &dyn Fn(&str) -> Option<u64>,
+) -> Vec<FrozenUnit> {
     validator
         .properties()
         .iter()
@@ -647,7 +668,7 @@ pub fn freeze_validator_properties(validator: &crate::schema::idl::grammar::Vali
             parameters: vec![],
             optional: false,
             name: prop.name(),
-            ty: TypeRef::from_grammar(prop.property_type()),
+            ty: TypeRef::from_grammar_sized(prop.property_type(), size),
             default: prop.default_value().and_then(Literal::from_grammar),
             span: prop.span,
         })

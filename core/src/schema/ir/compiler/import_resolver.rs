@@ -17,7 +17,7 @@ use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::schema::ir::frozen::types::{Literal, TypeRef};
 use crate::schema::ir::validation::constants::{fits, literal_value, primitive_bound, ResolvedConstant};
 use crate::schema::ir::frozen::unit::FrozenUnit;
-use crate::schema::ir::compiler::interpreter::incremental::freeze_validator_properties;
+use crate::schema::ir::compiler::interpreter::incremental::freeze_validator_properties_sized;
 use crate::schema::ir::validation::ImportLookup;
 use crate::schema::ir::validation::data::{carries_data, Answers};
 
@@ -473,7 +473,7 @@ pub fn declared_validator_targets(
         Declaration::Validator(v) if v.name() == name => Some(
             v.targets()
                 .into_iter()
-                .map(|t| resolve_local_aliases(declarations, &TypeRef::from_grammar(t)))
+                .map(|t| resolve_local_aliases(declarations, &TypeRef::from_grammar_sized(t, &|n| size_constant(declarations, None, n))))
                 .collect(),
         ),
         _ => None,
@@ -490,7 +490,7 @@ pub fn declared_validator_properties(
 ) -> Option<Vec<FrozenUnit>> {
     declarations.iter().find_map(|decl| match &decl.value {
         Declaration::Validator(v) if v.name() == name => Some(
-            freeze_validator_properties(v)
+            freeze_validator_properties_sized(v, &|n| size_constant(declarations, None, n))
                 .into_iter()
                 .map(|mut field| {
                     if let FrozenUnit::Field { ty, .. } = &mut field {
@@ -513,7 +513,7 @@ pub fn declared_alias_target(
     declarations.iter().find_map(|decl| match &decl.value {
         Declaration::TypeAlias(a) if a.name() == name => Some(resolve_local_aliases(
             declarations,
-            &TypeRef::from_grammar(a.target_type()),
+            &TypeRef::from_grammar_sized(a.target_type(), &|n| size_constant(declarations, None, n)),
         )),
         _ => None,
     })
@@ -537,7 +537,7 @@ fn resolve_local_aliases(
             declarations.iter().find_map(|decl| match &decl.value {
                 Declaration::TypeAlias(a) if a.name() == name => Some(go(
                     declarations,
-                    &TypeRef::from_grammar(a.target_type()),
+                    &TypeRef::from_grammar_sized(a.target_type(), &|n| size_constant(declarations, None, n)),
                     depth + 1,
                 )),
                 _ => None,
@@ -599,7 +599,7 @@ impl ImportLookup for ProjectImports<'_> {
     fn constant(&self, name: &str) -> Option<ResolvedConstant> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
-        declared_constant(self.project, &schema.declarations, &schema.namespace, &bare, 0)
+        declared_constant(Some(self.project), &schema.declarations, &schema.namespace, &bare, 0)
     }
 }
 
@@ -609,7 +609,7 @@ impl ImportLookup for ProjectImports<'_> {
 /// its value doesn't come to one its type holds: that schema's own build
 /// says why. Bounded, so a cycle (reported where it's declared) ends.
 fn declared_constant(
-    project: &ProjectContext,
+    project: Option<&ProjectContext>,
     declarations: &[rust_sitter::Spanned<Declaration>],
     namespace: &[String],
     name: &str,
@@ -629,7 +629,7 @@ fn declared_constant(
         _ => None,
     });
     let Some(constant) = constant else {
-        let schema = find_schema_bringing_into_scope(bare, declarations, namespace, project)?;
+        let schema = find_schema_bringing_into_scope(bare, declarations, namespace, project?)?;
         let schema = schema.borrow();
         return declared_constant(project, &schema.declarations, &schema.namespace, bare, depth + 1);
     };
@@ -642,6 +642,42 @@ fn declared_constant(
         literal => ResolvedConstant { ty, value: literal_value(ty, &literal)? },
     };
     fits(ty, &value).then_some(ResolvedConstant { ty, value: value.value })
+}
+
+/// The size a constant named as an array's length or maximum stands for
+/// (`char[max MAX_NAME]`, core#98), read from a schema with these
+/// `declarations`: one it declares, or with `project`, one its `use`s
+/// bring in. `None` unless it's an unsigned integer constant whose value
+/// comes to a size; the build says why.
+pub fn size_constant(
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    use_context: Option<(&[String], &ProjectContext)>,
+    name: &str,
+) -> Option<u64> {
+    use crate::schema::ir::frozen::types::PrimitiveType as P;
+    use crate::schema::ir::validation::constants::ConstantValue;
+    // An integer type's bound: `char[max u16::MAX]`.
+    if let Some(bound) = crate::schema::ir::validation::constants::primitive_bound(name) {
+        return match bound.ok()?.value {
+            ConstantValue::Integer(n) if bound_is_unsigned(name) => u64::try_from(n).ok(),
+            _ => None,
+        };
+    }
+    let (namespace, project) = match use_context {
+        Some((namespace, project)) => (namespace, Some(project)),
+        None => (&[][..], None),
+    };
+    let resolved = declared_constant(project, declarations, namespace, name, 0)?;
+    match (resolved.ty, resolved.value) {
+        (P::U8 | P::U16 | P::U32 | P::U64, ConstantValue::Integer(n)) => u64::try_from(n).ok(),
+        _ => None,
+    }
+}
+
+/// Whether `ty::BOUND` names an unsigned type's bound: a size is never
+/// negative, so `s8::MIN` isn't one.
+fn bound_is_unsigned(name: &str) -> bool {
+    name.starts_with('u')
 }
 
 /// [`carries_data`] for a type declared in another schema, read from its
@@ -683,7 +719,7 @@ impl DeclaredData<'_> {
                     || carries(&TypeRef::from_grammar(field.value.field_type()), self)
             }),
             Some(Declaration::TypeAlias(a)) => {
-                carries(&TypeRef::from_grammar(a.target_type()), self)
+                carries(&TypeRef::from_grammar_sized(a.target_type(), &|n| size_constant(declarations, None, n)), self)
             }
             Some(_) => true,
             None => {

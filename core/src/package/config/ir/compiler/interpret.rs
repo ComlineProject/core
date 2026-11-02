@@ -85,6 +85,22 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             continue;
         }
 
+        if let Err(errors) = crate::schema::ir::compiler::bounds::check_bounds(
+            &declarations,
+            Some((&namespace, project_context)),
+        ) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| schema_context.borrow().render(error))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' has invalid sizes:\n{}",
+                namespace.join("::"),
+                rendered.join("\n\n")
+            ));
+            continue;
+        }
+
         if let Err(errors) = check_settings_conflicts(&declarations) {
             let rendered: Vec<String> = errors
                 .iter()

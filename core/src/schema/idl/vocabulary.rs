@@ -35,8 +35,8 @@ pub struct PrimitiveInfo {
 }
 
 /// Every primitive type keyword the grammar defines, in the order
-/// `Type`'s own variants list them. Exactly 12 — `s8 s16 s32 s64 u8 u16
-/// u32 u64 f32 f64 bool string`. No `i8`/`i16`/`i32`/`i64` — those
+/// `Type`'s own variants list them. Exactly 13 — `s8 s16 s32 s64 u8 u16
+/// u32 u64 f32 f64 bool string char`. No `i8`/`i16`/`i32`/`i64` — those
 /// are not Comline syntax (signed integers are `s`-prefixed).
 pub const PRIMITIVES: &[PrimitiveInfo] = &[
     PrimitiveInfo { name: "s8", class: PrimitiveClass::Signed, bits: Some(8), description: "8-bit signed integer" },
@@ -51,6 +51,7 @@ pub const PRIMITIVES: &[PrimitiveInfo] = &[
     PrimitiveInfo { name: "f64", class: PrimitiveClass::Float, bits: Some(64), description: "64-bit floating point" },
     PrimitiveInfo { name: "bool", class: PrimitiveClass::Bool, bits: Some(8), description: "boolean" },
     PrimitiveInfo { name: "string", class: PrimitiveClass::Text, bits: None, description: "UTF-8 text" },
+    PrimitiveInfo { name: "char", class: PrimitiveClass::Text, bits: None, description: "one Unicode character; `char[max N]` is a string of at most N" },
 ];
 
 /// Which syntactic role a reserved word plays — not load-bearing for
@@ -93,7 +94,7 @@ pub struct KeywordInfo {
     pub contextual: bool,
 }
 
-/// Every reserved word the grammar defines. Exactly 25 — deliberately
+/// Every reserved word the grammar defines. Exactly 26 — deliberately
 /// excludes `bool`/`string`, which are reserved too but belong to
 /// [`PRIMITIVES`], not here.
 pub const KEYWORDS: &[KeywordInfo] = &[
@@ -118,6 +119,7 @@ pub const KEYWORDS: &[KeywordInfo] = &[
     KeywordInfo { text: "or", kind: KeywordKind::WordOperator, description: "Joins two comparisons in a validator's `assert` condition.", example: "validator V for string {\n    validate {\n        assert(1 == 1 or 2 == 3, \"x\")\n    }\n}", contextual: false },
     KeywordInfo { text: "true", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = true\n}", contextual: false },
     KeywordInfo { text: "false", kind: KeywordKind::Literal, description: "A boolean literal — a `settings` value, an `@key = value` annotation, or a field/const default.", example: "settings S {\n    k = false\n}", contextual: false },
+    KeywordInfo { text: "max", kind: KeywordKind::TypeConstructor, description: "In an array's brackets, the most items it may hold: `T[max N]`, and `char[max N]` for a string of at most N characters.", example: "struct S {\n    name: char[max 32]\n    max: u32\n}", contextual: true },
     KeywordInfo { text: "union", kind: KeywordKind::TypeConstructor, description: "An inline list of alternative types for one field.", example: "struct S {\n    f: union(u8 string)\n}", contextual: false },
     KeywordInfo { text: "for", kind: KeywordKind::Other, description: "Names the type(s) a validator applies to.", example: "validator NonEmpty for string {\n    validate {\n        assert(value.length > 0, f\"{value.name} is empty\")\n    }\n}", contextual: false },
     KeywordInfo { text: "as", kind: KeywordKind::Other, description: "Binds an import under a new local name.", example: "use pkg::Type as T", contextual: false },
@@ -156,6 +158,7 @@ pub fn primitive_name_of(ty: &Type) -> Option<&'static str> {
         Type::F64(_) => "f64",
         Type::Bool(_) => "bool",
         Type::String(_) => "string",
+        Type::Char(_) => "char",
         _ => return None,
     };
     Some(name)

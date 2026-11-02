@@ -169,7 +169,7 @@ fn refuse_dataless_arrays(
     errors: &mut Vec<Diagnostic>,
 ) {
     match ty {
-        TypeRef::Array { element, length } => {
+        TypeRef::Array { element, length, .. } => {
             if length.is_none() && !data.carries(element) {
                 let help = match &**element {
                     TypeRef::Named(name) => {

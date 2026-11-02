@@ -743,3 +743,27 @@ fn an_imported_constant_is_checked_where_it_is_named() {
     let error = interpret_context(&project).expect_err("500 doesn't fit a u8").to_string();
     assert!(error.contains("`limits::MAX` is 500, which does not fit in `u8`"), "{error}");
 }
+
+// A size can name a constant another schema declares (core#98).
+#[test]
+fn an_imported_constant_sizes_an_array() {
+    let mut project = build_project();
+    add_schema(&mut project, &["limits"], "const NAME: u32 = 24\n");
+    add_schema(&mut project, &["api"], "use limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
+    interpret_context(&project).expect("an imported size should build");
+    let frozen = frozen_units_for(&project, "api");
+    let ty = frozen.iter().find_map(|u| match u {
+        FrozenUnit::Struct { fields, .. } => match &fields[0] {
+            FrozenUnit::Field { ty, .. } => Some(ty.to_string()),
+            _ => None,
+        },
+        _ => None,
+    });
+    assert_eq!(ty.as_deref(), Some("char[max 24]"));
+
+    let mut project = build_project();
+    add_schema(&mut project, &["limits"], "const NAME: s32 = 24\n");
+    add_schema(&mut project, &["api"], "use limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
+    let error = interpret_context(&project).expect_err("a signed size is refused").to_string();
+    assert!(error.contains("the maximum `NAME` isn't an unsigned integer constant"), "{error}");
+}

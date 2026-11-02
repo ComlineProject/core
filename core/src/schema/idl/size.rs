@@ -128,18 +128,29 @@ fn size_of_type_inner(ty: &Type, lookup: &impl SizeLookup, visiting: &mut HashSe
         Type::String(_) => WireSize::Variable,
         Type::Unit(_) => WireSize::Fixed(0),
 
+        // A single character is 1 to 4 bytes of UTF-8.
+        Type::Char(_) => WireSize::Variable,
+
         Type::Array(arr) => {
             let elem = size_of_type_inner(arr.elem_type(), lookup, visiting);
-            match (&arr.size, elem) {
-                (None, _) => WireSize::Variable, // Type[] — always unbounded
-                (Some(_), WireSize::Variable) => WireSize::Variable, // Type[N] of a variable elem is still unbounded
+            // A string (`char[…]`) or an array with only a maximum varies;
+            // only an exact length of a fixed-size element is fixed.
+            let exact = match arr.exact() {
+                Some(grammar::SizeValue::Integer(n)) => Some(n.value()),
+                // A constant's value isn't known here.
+                Some(grammar::SizeValue::Constant(_)) => return WireSize::Unknown,
+                None => None,
+            };
+            match (exact, elem) {
+                (None, _) => WireSize::Variable,
+                (Some(_), WireSize::Variable) => WireSize::Variable,
                 (Some(_), WireSize::Unknown) => WireSize::Unknown,
                 (Some(n), WireSize::Fixed(w)) => {
-                    // `IntegerLiteral`'s grammar pattern is `-?\d+`, reused
-                    // generically for array sizes — a negative or absurdly
-                    // large literal is syntactically possible from a
-                    // mid-edit buffer, so this must never panic.
-                    match u32::try_from(n.value()).ok().and_then(|n| w.checked_mul(n)) {
+                    // `IntegerLiteral`'s grammar pattern is `-?\d+` - a
+                    // negative or absurdly large literal is syntactically
+                    // possible from a mid-edit buffer, so this must never
+                    // panic.
+                    match u32::try_from(n).ok().and_then(|n| w.checked_mul(n)) {
                         Some(total) => WireSize::Fixed(total),
                         None => WireSize::Unknown,
                     }

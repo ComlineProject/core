@@ -683,7 +683,7 @@ struct Company {
         assert_eq!(ir_units.len(), 2);
         assert_eq!(
             field_kind_value(&ir_units),
-            &TypeRef::Array { element: Box::new(TypeRef::Named("Id".to_string())), length: None }
+            &TypeRef::Array { element: Box::new(TypeRef::Named("Id".to_string())), length: None, max: None }
         );
     }
 

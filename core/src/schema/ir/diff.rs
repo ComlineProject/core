@@ -604,9 +604,10 @@ impl<'a> Side<'a> {
                 Some(FrozenUnit::TypeAlias { target, .. }) => self.resolve_depth(target, depth + 1),
                 _ => ty.clone(),
             },
-            TypeRef::Array { element, length } => TypeRef::Array {
+            TypeRef::Array { element, length, max } => TypeRef::Array {
                 element: Box::new(self.resolve_depth(element, depth + 1)),
                 length: *length,
+                max: *max,
             },
             TypeRef::Union(types) => {
                 TypeRef::Union(types.iter().map(|t| self.resolve_depth(t, depth + 1)).collect())

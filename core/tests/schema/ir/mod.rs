@@ -10,3 +10,4 @@ pub mod alias_validators;
 pub mod diff_gaps;
 pub mod dataless_arrays;
 pub mod compat_rules;
+pub mod bounds;

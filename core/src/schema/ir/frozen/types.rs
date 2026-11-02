@@ -38,13 +38,16 @@ pub enum PrimitiveType {
     String,
     U128,
     S128,
+    /// One Unicode scalar value (bounds on types, core#98). An array of them
+    /// is a string: see [`TypeRef::Array`].
+    Char,
 }
 
 impl PrimitiveType {
-    pub const ALL: [PrimitiveType; 14] = [
+    pub const ALL: [PrimitiveType; 15] = [
         Self::S8, Self::S16, Self::S32, Self::S64,
         Self::U8, Self::U16, Self::U32, Self::U64,
-        Self::F32, Self::F64, Self::Bool, Self::String,
+        Self::F32, Self::F64, Self::Bool, Self::String, Self::Char,
         Self::U128, Self::S128,
     ];
 
@@ -65,6 +68,7 @@ impl PrimitiveType {
             Self::String => "string",
             Self::U128 => "u128",
             Self::S128 => "s128",
+            Self::Char => "char",
         }
     }
 
@@ -112,10 +116,17 @@ pub enum TypeRef {
     /// A struct, enum, error or `type` alias, by the name written -
     /// possibly qualified (`types::User`, `std::http::Request`).
     Named(String),
-    /// `T[]` (`length: None`) or `T[N]`.
+    /// `T[]`, `T[N]` (`length`) or `T[max N]` (`max`), at most one of the
+    /// two. An array of `char` is a string: `char[max 64]` holds at most 64
+    /// characters, `char[2]` exactly 2. A string with neither is stored as
+    /// `Primitive(String)`, whether written `string` or `char[]`, so a schema
+    /// without bounds freezes to the same bytes as before them.
     Array {
         element: Box<TypeRef>,
         length: Option<u64>,
+        /// Left out when absent, for those same bytes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<u64>,
     },
     /// `union(A B ...)`.
     Union(Vec<TypeRef>),
@@ -125,10 +136,26 @@ pub enum TypeRef {
 }
 
 impl TypeRef {
-    /// The type a grammar node spells.
+    /// The type a grammar node spells, with no constants to size arrays
+    /// with: a size that names one freezes as 0, which validation refuses.
+    /// Freezing a schema goes through [`from_grammar_sized`](Self::from_grammar_sized).
     #[cfg(feature = "compiler")]
     pub fn from_grammar(ty: &grammar::Type) -> Self {
+        Self::from_grammar_sized(ty, &|_| None)
+    }
+
+    /// The type a grammar node spells, a size that names a constant
+    /// (`char[max MAX_NAME]`) resolved through `size`. Stored resolved: a
+    /// constant that doesn't resolve to a size freezes as 0, which
+    /// validation refuses (core#98).
+    #[cfg(feature = "compiler")]
+    pub fn from_grammar_sized(ty: &grammar::Type, size: &dyn Fn(&str) -> Option<u64>) -> Self {
         use grammar::Type as G;
+        let value = |v: &grammar::SizeValue| match v {
+            // A negative size doesn't parse as a size; it's 0, refused.
+            grammar::SizeValue::Integer(i) => u64::try_from(i.value()).unwrap_or(0),
+            grammar::SizeValue::Constant(c) => size(&c.text).unwrap_or(0),
+        };
         let primitive = |p| TypeRef::Primitive(p);
         match ty {
             G::S8(_) => primitive(PrimitiveType::S8),
@@ -143,6 +170,7 @@ impl TypeRef {
             G::F64(_) => primitive(PrimitiveType::F64),
             G::Bool(_) => primitive(PrimitiveType::Bool),
             G::String(_) => primitive(PrimitiveType::String),
+            G::Char(_) => primitive(PrimitiveType::Char),
             G::Named(id) => {
                 let name = id.to_string();
                 match PrimitiveType::from_name(&name) {
@@ -151,16 +179,39 @@ impl TypeRef {
                     None => TypeRef::Named(name),
                 }
             }
-            G::Array(array) => TypeRef::Array {
-                element: Box::new(TypeRef::from_grammar(array.elem_type())),
-                // A negative size doesn't parse as an array size; anything
-                // else fits.
-                length: array.size.as_ref().map(|n| n.value().max(0) as u64),
-            },
-            G::Union(union) => {
-                TypeRef::Union(union.members().iter().map(TypeRef::from_grammar).collect())
+            G::Array(array) => {
+                let element = TypeRef::from_grammar_sized(array.elem_type(), size);
+                let (length, max) = (array.exact().map(value), array.max().map(value));
+                // `char[]` is `string`: one stored form for a string with
+                // no bound.
+                if element == TypeRef::Primitive(PrimitiveType::Char) && length.is_none() && max.is_none() {
+                    return primitive(PrimitiveType::String);
+                }
+                TypeRef::Array { element: Box::new(element), length, max }
             }
+            G::Union(union) => TypeRef::Union(
+                union.members().iter().map(|m| TypeRef::from_grammar_sized(m, size)).collect(),
+            ),
             G::Unit(_) => TypeRef::Unit,
+        }
+    }
+
+    /// This type with every maximum left out, and every string as
+    /// `string`: what a validator's `for` matches, which ignores bounds
+    /// (`for string` applies to `char[max 32]`, `for u32[]` to
+    /// `u32[max 4]`; core#98).
+    pub fn without_bounds(&self) -> TypeRef {
+        match self {
+            TypeRef::Array { element, .. } if **element == TypeRef::Primitive(PrimitiveType::Char) => {
+                TypeRef::Primitive(PrimitiveType::String)
+            }
+            TypeRef::Array { element, length, .. } => TypeRef::Array {
+                element: Box::new(element.without_bounds()),
+                length: *length,
+                max: None,
+            },
+            TypeRef::Union(members) => TypeRef::Union(members.iter().map(TypeRef::without_bounds).collect()),
+            other => other.clone(),
         }
     }
 
@@ -190,9 +241,10 @@ impl TypeRef {
     pub fn map_named(&self, resolve: &mut impl FnMut(&str) -> Option<TypeRef>) -> TypeRef {
         match self {
             TypeRef::Named(name) => resolve(name).unwrap_or_else(|| self.clone()),
-            TypeRef::Array { element, length } => TypeRef::Array {
+            TypeRef::Array { element, length, max } => TypeRef::Array {
                 element: Box::new(element.map_named(resolve)),
                 length: *length,
+                max: *max,
             },
             TypeRef::Union(members) => {
                 TypeRef::Union(members.iter().map(|m| m.map_named(resolve)).collect())
@@ -208,8 +260,9 @@ impl fmt::Display for TypeRef {
         match self {
             TypeRef::Primitive(p) => write!(f, "{p}"),
             TypeRef::Named(name) => f.write_str(name),
-            TypeRef::Array { element, length: Some(n) } => write!(f, "{element}[{n}]"),
-            TypeRef::Array { element, length: None } => write!(f, "{element}[]"),
+            TypeRef::Array { element, length: Some(n), .. } => write!(f, "{element}[{n}]"),
+            TypeRef::Array { element, max: Some(n), .. } => write!(f, "{element}[max {n}]"),
+            TypeRef::Array { element, .. } => write!(f, "{element}[]"),
             TypeRef::Union(members) => {
                 f.write_str("union(")?;
                 for (i, member) in members.iter().enumerate() {
@@ -387,14 +440,17 @@ mod tests {
         let u8_16 = TypeRef::Array {
             element: Box::new(TypeRef::Primitive(PrimitiveType::U8)),
             length: Some(16),
+        max: None,
         };
         assert_eq!(u8_16.to_string(), "u8[16]");
         let grid = TypeRef::Array {
             element: Box::new(TypeRef::Array {
                 element: Box::new(TypeRef::Named("Cell".into())),
                 length: None,
+            max: None,
             }),
             length: None,
+        max: None,
         };
         assert_eq!(grid.to_string(), "Cell[][]");
         assert_eq!(grid.base_name(), Some("Cell"));
