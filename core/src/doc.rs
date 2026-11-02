@@ -23,8 +23,12 @@
 //! meaning changed. The generator protocol follows the same rule.
 //!
 //! Everything a package declares is documented: there is no way to hide a
-//! unit. Only the package's own modules are listed; a type from a
-//! dependency or `std` appears as a [`UnitRef`] to it.
+//! unit. Only the package's own modules are its [`DocModel::modules`]; a
+//! type from a dependency or `std` appears as a [`UnitRef`] to it. What the
+//! package reaches of each dependency (and of `std`) is listed apart, in
+//! [`DocModel::dependencies`], by the same reach `comline build` versions a
+//! dependency by ([`reached_by`]): the declarations its own use or
+//! re-export, and what those use in turn.
 //!
 //! **Where the docs come from.** A unit's `///` docstring is in the frozen IR,
 //! so it's there for any built version. The `//!` headers are frozen too, as
@@ -46,7 +50,9 @@ use crate::package::build::cas::object_store::ObjectStore;
 use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::{Origin, ProjectContext};
 use crate::schema::idl::module_docs::module_docs;
-use crate::schema::ir::diff::{analyze_package_changes, BreakingChange, Modification, NewFeature};
+use crate::schema::ir::diff::{
+    analyze_package_changes, reached_by, within_reach, BreakingChange, Modification, NewFeature,
+};
 use crate::schema::ir::snippet;
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
@@ -83,6 +89,25 @@ pub struct DocModel {
     /// one was asked for.
     #[serde(default)]
     pub changelog: Vec<Changelog>,
+    /// What the package reaches of each dependency, `std` included: one
+    /// entry per dependency package it reaches anything of, by name, in
+    /// name order. Not the package's own: its modules hold only the
+    /// declarations the package's own use or re-export, and what those use.
+    /// Absent in a model from before it was added.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub dependencies: Vec<Dependency>,
+}
+
+/// A dependency (or `std`), as far as the documented package reaches it.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct Dependency {
+    /// Its name, as the documented package names it (`std` for the
+    /// standard library); a [`UnitRef::package`] to it says the same.
+    pub package: String,
+    /// Its modules the package reaches anything of, each with only the
+    /// units reached, in declaration order. A module's path is within the
+    /// dependency (`http`, not `std::http`); its header isn't kept.
+    pub modules: Vec<Module>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
@@ -282,12 +307,37 @@ pub struct UnitRef {
 pub struct Changelog {
     pub from: String,
     pub to: String,
+    /// Which versions it spans. Absent means [`ChangelogSpan::Step`].
+    #[serde(default, skip_serializing_if = "ChangelogSpan::is_step")]
+    pub span: ChangelogSpan,
     /// Changes an older peer can't work with: a major bump.
     pub breaking: Vec<ChangelogEntry<BreakingChange>>,
     /// Additions: a minor bump.
     pub features: Vec<ChangelogEntry<NewFeature>>,
     /// The rest: a patch bump.
     pub modifications: Vec<ChangelogEntry<Modification>>,
+}
+
+/// Which versions a [`Changelog`] spans.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ChangelogSpan {
+    /// From the version just before `to`: one step of the history. A
+    /// comparison across versions composes these.
+    #[default]
+    Step,
+    /// A release's changes since the previous release (`from`): what the
+    /// release's changelog shows, its dev builds' steps composed.
+    Release,
+    /// A dev build's (or the unreleased state's) changes since the last
+    /// release (`from`): everything the release it leads to holds so far.
+    SinceRelease,
+}
+
+impl ChangelogSpan {
+    pub fn is_step(&self) -> bool {
+        *self == ChangelogSpan::Step
+    }
 }
 
 /// One change, as `comline diff` reports it (its `kind` and that kind's
@@ -326,6 +376,7 @@ pub fn changelog(
     Changelog {
         from: from.to_string(),
         to: to.to_string(),
+        span: ChangelogSpan::Step,
         breaking: changes
             .breaking_changes
             .into_iter()
@@ -483,37 +534,140 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
         });
     }
 
+    let own = frozen_schemas(context);
+    let others = context
+        .schema_contexts
+        .iter()
+        .filter_map(|schema| {
+            let schema = schema.borrow();
+            if index.own(&schema.namespace) {
+                return None;
+            }
+            let units = schema.frozen_schema.borrow().clone()?;
+            Some((schema.namespace.clone(), units))
+        })
+        .collect();
     DocModel {
         model_version: DOC_MODEL_VERSION,
         package,
         modules,
         changelog: vec![],
+        dependencies: dependencies(&index, &own, others),
     }
 }
 
-/// The documentation of a built version of package `name`: its own frozen
+/// What `own` (the package's own frozen schemas) reaches of `others` (every
+/// other compiled schema, by namespace), one [`Dependency`] per package
+/// reached.
+fn dependencies(
+    index: &Index,
+    own: &[Vec<FrozenUnit>],
+    others: Vec<(Vec<String>, Vec<FrozenUnit>)>,
+) -> Vec<Dependency> {
+    let mut packages: BTreeMap<String, Vec<(Vec<String>, Vec<FrozenUnit>)>> = BTreeMap::new();
+    for (namespace, units) in others {
+        let package = index.split(&namespace).0.to_string();
+        packages.entry(package).or_default().push((namespace, units));
+    }
+    let mut dependencies = vec![];
+    for (package, schemas) in packages {
+        let all: Vec<Vec<FrozenUnit>> = schemas.iter().map(|(_, units)| units.clone()).collect();
+        let reach = reached_by(&[own], &[&all]);
+        let kept = within_reach(&all, &reach);
+        let modules: Vec<Module> = schemas
+            .iter()
+            .zip(&kept)
+            .filter_map(|((namespace, _), units)| {
+                let scope = Scope {
+                    index,
+                    namespace: namespace.join("::"),
+                    units,
+                };
+                let units: Vec<Unit> = units.iter().filter_map(|u| scope.unit(u)).collect();
+                if units.is_empty() {
+                    return None;
+                }
+                Some(Module {
+                    path: index.split(namespace).1,
+                    docs: None,
+                    units,
+                })
+            })
+            .collect();
+        if !modules.is_empty() {
+            dependencies.push(Dependency { package, modules });
+        }
+    }
+    dependencies
+}
+
+/// The names of the dependencies a built version vendored (its root tree's
+/// `dep_<name>` entries), for [`model_frozen`] and [`own_frozen_schemas`].
+pub fn frozen_dependencies(root: &Tree) -> Vec<String> {
+    root.entries
+        .iter()
+        .filter(|e| e.mode == EntryMode::Tree)
+        .filter_map(|e| e.name.strip_prefix("dep_").map(str::to_string))
+        .collect()
+}
+
+/// Of a built version's frozen schemas (its root tree's, which hold every
+/// compiled schema: the package's own, its dependencies' and `std`'s), the
+/// package's own, for [`changelog`]. `dependencies` are
+/// [`frozen_dependencies`].
+pub fn own_frozen_schemas(
+    name: &str,
+    schemas: &[Vec<FrozenUnit>],
+    dependencies: &[String],
+) -> Vec<Vec<FrozenUnit>> {
+    let index = Index {
+        own_name: name.to_string(),
+        dependencies: dependencies.to_vec(),
+        declared: BTreeMap::new(),
+    };
+    schemas
+        .iter()
+        .filter(|units| match frozen_namespace(units) {
+            Some(namespace) => index.own(&segments(&namespace)),
+            None => true,
+        })
+        .cloned()
+        .collect()
+}
+
+fn frozen_namespace(units: &[FrozenUnit]) -> Option<String> {
+    units.iter().find_map(|u| match u {
+        FrozenUnit::Namespace(ns) => Some(ns.clone()),
+        _ => None,
+    })
+}
+
+fn segments(namespace: &str) -> Vec<String> {
+    namespace.split("::").map(str::to_string).collect()
+}
+
+/// The documentation of a built version of package `name`: its frozen
 /// schemas (each starting with its `Namespace` unit, as
 /// [`crate::schema::ir::frozen::cas::blob::load_schema_from_tree`] returns
-/// them) and the headers [`read_docs`] read from it.
+/// them: the root tree's, which hold its dependencies' and `std`'s too),
+/// the names of the dependencies it vendored ([`frozen_dependencies`]), and
+/// the headers [`read_docs`] read from it.
 ///
-/// A built version keeps no source, so two things are missing next to
-/// [`model`]: protocols have no wire summary (`wire` is `None`), and a type
-/// from a dependency has no target (its schemas aren't the package's).
+/// A schema of `std` or of a dependency in `dependencies` isn't one of the
+/// package's modules: what the package reaches of it is in
+/// [`DocModel::dependencies`]. A built version keeps no source, so
+/// protocols have no wire summary (`wire` is `None`), unlike [`model`]'s.
 pub fn model_frozen(
     name: &str,
     version: Option<String>,
     schemas: &[Vec<FrozenUnit>],
+    dependencies: &[String],
     mut headers: FrozenDocs,
 ) -> DocModel {
-    let namespace = |units: &[FrozenUnit]| {
-        units.iter().find_map(|u| match u {
-            FrozenUnit::Namespace(ns) => Some(ns.clone()),
-            _ => None,
-        })
-    };
+    let namespace = |units: &[FrozenUnit]| frozen_namespace(units);
     let index = Index {
         own_name: name.to_string(),
-        dependencies: vec![],
+        dependencies: dependencies.to_vec(),
         declared: schemas
             .iter()
             .filter_map(|units| {
@@ -521,7 +675,15 @@ pub fn model_frozen(
             })
             .collect(),
     };
-    let modules = schemas
+    let mut own = vec![];
+    let mut others = vec![];
+    for units in schemas {
+        match namespace(units) {
+            Some(ns) if !index.own(&segments(&ns)) => others.push((segments(&ns), units.clone())),
+            _ => own.push(units.clone()),
+        }
+    }
+    let modules = own
         .iter()
         .filter_map(|units| {
             let path = namespace(units)?;
@@ -537,6 +699,7 @@ pub fn model_frozen(
             })
         })
         .collect();
+    let dependencies = self::dependencies(&index, &own, others);
     DocModel {
         model_version: DOC_MODEL_VERSION,
         package: Package {
@@ -546,6 +709,7 @@ pub fn model_frozen(
         },
         modules,
         changelog: vec![],
+        dependencies,
     }
 }
 
@@ -1264,6 +1428,78 @@ mod tests {
         assert!(json["changelog"][0]["breaking"][1].get("new").is_none());
         let back: DocModel = serde_json::from_value(json).unwrap();
         assert_eq!(back, model);
+    }
+
+    /// Only what the package reaches of `std` is listed, apart from its
+    /// own modules, and a type from it points there.
+    #[test]
+    fn dependencies_hold_only_what_the_package_reaches() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = package(&tmp.path().join("shop"), TYPES);
+        std::fs::write(
+            dir.join("src/web.ids"),
+            "use std::http::Request\n\nstruct Call {\n    request: Request\n}\n",
+        )
+        .unwrap();
+        let context = crate::package::build::compile_package(&dir).unwrap();
+        let model = model(&context, None);
+
+        let mut paths: Vec<&str> = model.modules.iter().map(|m| m.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, ["api", "types", "web"]);
+        assert_eq!(model.dependencies.len(), 1, "{:?}", model.dependencies);
+        let std = &model.dependencies[0];
+        assert_eq!(std.package, "std");
+        let modules: Vec<&str> = std.modules.iter().map(|m| m.path.as_str()).collect();
+        assert_eq!(modules, ["http"], "std::validators isn't reached");
+        let names: Vec<&str> = std.modules[0]
+            .units
+            .iter()
+            .filter_map(|u| match u {
+                Unit::Struct { name, .. } | Unit::Enum { name, .. } => Some(name.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(names.contains(&"Request"), "{names:?}");
+        assert!(!names.contains(&"Response"), "{names:?}");
+        let Unit::Struct { fields, .. } = unit(&model, "web", "Call") else { panic!() };
+        assert_eq!(
+            fields[0].ty,
+            Type::Named {
+                name: "Request".into(),
+                target: Some(UnitRef { package: "std".into(), schema: "http".into(), name: "Request".into() }),
+            }
+        );
+
+        // A built version's frozen schemas hold std's too: they aren't its
+        // modules either.
+        let all: Vec<Vec<FrozenUnit>> = context
+            .schema_contexts
+            .iter()
+            .filter_map(|s| s.borrow().frozen_schema.borrow().clone())
+            .collect();
+        let frozen = model_frozen("shop", None, &all, &[], FrozenDocs::default());
+        let mut paths: Vec<&str> = frozen.modules.iter().map(|m| m.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(paths, ["api", "types", "web"]);
+        assert_eq!(frozen.dependencies, model.dependencies);
+        assert_eq!(own_frozen_schemas("shop", &all, &[]), frozen_schemas(&context));
+
+        let json = serde_json::to_value(&model).unwrap();
+        let back: DocModel = serde_json::from_value(json).unwrap();
+        assert_eq!(back, model);
+    }
+
+    #[test]
+    fn a_changelog_span_defaults_to_a_step() {
+        let log: Changelog = serde_json::from_value(serde_json::json!({
+            "from": "0.1.0", "to": "0.2.0", "breaking": [], "features": [], "modifications": []
+        }))
+        .unwrap();
+        assert_eq!(log.span, ChangelogSpan::Step);
+        assert!(serde_json::to_value(&log).unwrap().get("span").is_none());
+        let release = Changelog { span: ChangelogSpan::Release, ..log };
+        assert_eq!(serde_json::to_value(&release).unwrap()["span"], "release");
     }
 
     /// The IDL lines of a changed signature, an added function, a changed

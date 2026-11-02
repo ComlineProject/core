@@ -772,6 +772,14 @@
           },
           "type": "array"
         },
+        "span": {
+          "allOf": [
+            {
+              "$ref": "#/definitions/ChangelogSpan"
+            }
+          ],
+          "description": "Which versions it spans. Absent means [`ChangelogSpan::Step`]."
+        },
         "to": {
           "type": "string"
         }
@@ -784,6 +792,26 @@
         "modifications"
       ],
       "type": "object"
+    },
+    "ChangelogSpan": {
+      "description": "Which versions a [`Changelog`] spans.",
+      "oneOf": [
+        {
+          "const": "step",
+          "description": "From the version just before `to`: one step of the history. A\ncomparison across versions composes these.",
+          "type": "string"
+        },
+        {
+          "const": "release",
+          "description": "A release's changes since the previous release (`from`): what the\nrelease's changelog shows, its dev builds' steps composed.",
+          "type": "string"
+        },
+        {
+          "const": "since_release",
+          "description": "A dev build's (or the unreleased state's) changes since the last\nrelease (`from`): everything the release it leads to holds so far.",
+          "type": "string"
+        }
+      ]
     },
     "Choice": {
       "description": "A resolved encoding: its name, its parameters and where it came from.",
@@ -807,6 +835,27 @@
         "value",
         "params",
         "source"
+      ],
+      "type": "object"
+    },
+    "Dependency": {
+      "description": "A dependency (or `std`), as far as the documented package reaches it.",
+      "properties": {
+        "modules": {
+          "description": "Its modules the package reaches anything of, each with only the\nunits reached, in declaration order. A module's path is within the\ndependency (`http`, not `std::http`); its header isn't kept.",
+          "items": {
+            "$ref": "#/definitions/Module"
+          },
+          "type": "array"
+        },
+        "package": {
+          "description": "Its name, as the documented package names it (`std` for the\nstandard library); a [`UnitRef::package`] to it says the same.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "package",
+        "modules"
       ],
       "type": "object"
     },
@@ -2117,6 +2166,13 @@
       "description": "What changed, one entry per pair of versions compared. Empty unless\none was asked for.",
       "items": {
         "$ref": "#/definitions/Changelog"
+      },
+      "type": "array"
+    },
+    "dependencies": {
+      "description": "What the package reaches of each dependency, `std` included: one\nentry per dependency package it reaches anything of, by name, in\nname order. Not the package's own: its modules hold only the\ndeclarations the package's own use or re-export, and what those use.\nAbsent in a model from before it was added.",
+      "items": {
+        "$ref": "#/definitions/Dependency"
       },
       "type": "array"
     },
