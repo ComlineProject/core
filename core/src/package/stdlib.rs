@@ -11,7 +11,7 @@
 use std::collections::HashMap;
 
 // Crate Uses
-use crate::schema::idl::grammar::{self, Declaration};
+use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::import_resolver::ImportResolver;
 
 /// The namespace every std schema lives under.
@@ -61,7 +61,7 @@ pub(crate) fn used_by(sources: &[(Vec<String>, String)]) -> Vec<(Vec<String>, St
 /// The std namespaces the `use`s in `source` (a schema at `namespace`) point
 /// at. A schema that doesn't parse has none; it reports its own parse error.
 fn std_imports(namespace: &[String], source: &str) -> Vec<Vec<String>> {
-    let Ok(document) = grammar::parse(source) else {
+    let Ok(document) = crate::schema::idl::parse::parse_schema(source) else {
         return vec![];
     };
     let resolver = ImportResolver::new(vec![], HashMap::new(), None);
@@ -121,7 +121,7 @@ mod tests {
     #[test]
     fn every_std_schema_parses() {
         for (namespace, source) in schemas() {
-            assert!(grammar::parse(source).is_ok(), "std schema `{}` doesn't parse", namespace.join("::"));
+            assert!(crate::schema::idl::grammar::parse(source).is_ok(), "std schema `{}` doesn't parse", namespace.join("::"));
         }
     }
 }

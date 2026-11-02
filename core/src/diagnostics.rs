@@ -166,6 +166,7 @@ const SYNTAX_ERROR: DiagnosticCode = DiagnosticCode::error("parse::syntax-error"
 const UNCLOSED_BRACKET: DiagnosticCode = DiagnosticCode::error("parse::unclosed-bracket");
 const MISSING_RETURN_TYPE: DiagnosticCode = DiagnosticCode::error("parse::missing-return-type");
 const INTEGER_OUT_OF_RANGE: DiagnosticCode = DiagnosticCode::error("parse::integer-out-of-range");
+const NESTING_TOO_DEEP: DiagnosticCode = DiagnosticCode::error("parse::nesting-too-deep");
 
 /// Collapse a grammar's raw `Vec<ParseError>` (both the `.ids` schema
 /// grammar and the `.idp` package-config grammar share this exact
@@ -355,6 +356,18 @@ pub fn find_out_of_range_integers(source: &str) -> Vec<Diagnostic> {
         k = end;
     }
     out
+}
+
+/// A schema nested past `limit` levels of syntax, at the first node beyond
+/// it (see `schema::idl::parse::MAX_SYNTAX_DEPTH`).
+pub fn nesting_too_deep(span: (usize, usize), limit: usize) -> Diagnostic {
+    Diagnostic::new(NESTING_TOO_DEEP, "this schema is nested too deeply")
+        .with_context(format!("past {limit} levels of syntax here"))
+        .with_span(span)
+        .with_help(
+            "name an inner part with a `type` alias: a type can nest about 80 arrays or 60 \
+             unions deep",
+        )
 }
 
 /// The one diagnostic for a `.ids` schema that failed to parse: an

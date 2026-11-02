@@ -2,6 +2,8 @@
 #[cfg(feature = "compiler")]
 pub mod grammar;  // Rust-sitter generated parser
 #[cfg(feature = "compiler")]
+pub mod parse;  // Parsing with the checks that keep it from panicking or overflowing
+#[cfg(feature = "compiler")]
 pub mod size;  // Static wire-size estimate (hover)
 #[cfg(feature = "compiler")]
 pub mod vocabulary;  // Primitive types & keywords, for editors/highlighters/docs
