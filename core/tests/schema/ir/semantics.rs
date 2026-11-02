@@ -891,3 +891,48 @@ fn a_bad_reference_in_validate_points_at_the_validator() {
         assert!(code[start..].starts_with("validator Short"), "{e:?}");
     }
 }
+
+/// The structs `validate` reports a cycle for, in declaration order.
+fn cyclic(code: &str) -> Vec<String> {
+    let ir = IncrementalInterpreter::from_source(code);
+    match validate(&ir) {
+        Ok(_) => vec![],
+        Err(errors) => errors
+            .iter()
+            .filter(|e| e.code.id == "validation::struct-cycle")
+            .map(|e| e.message.trim_start_matches("Cycle detected involving struct '").trim_end_matches('\'').to_string())
+            .collect(),
+    }
+}
+
+#[test]
+fn a_cycle_only_through_a_union_is_found() {
+    // No value of S can ever end.
+    assert_eq!(cyclic("struct S {\n    a: union(S S)\n}\n"), ["S"]);
+    // A member that ends the value makes it finite.
+    assert!(cyclic("struct S {\n    a: union(S u8)\n}\n").is_empty());
+}
+
+#[test]
+fn a_cycle_through_a_type_alias_is_found() {
+    assert_eq!(cyclic("type A = S\nstruct S {\n    a: A\n}\n"), ["S"]);
+    assert_eq!(cyclic("type A = B\ntype B = S[2]\nstruct S {\n    a: A\n}\n"), ["S"]);
+    // An alias to a dynamic array ends the cycle, as the array would.
+    assert!(cyclic("type Kids = S[]\nstruct S {\n    kids: Kids\n}\n").is_empty());
+}
+
+#[test]
+fn only_the_structs_on_a_cycle_are_reported() {
+    let code = "struct S {\n    a: T\n}\nstruct T {\n    b: S\n}\nstruct Outer {\n    s: S\n}\n";
+    assert_eq!(cyclic(code), ["S", "T"]);
+}
+
+#[test]
+fn the_cycles_already_caught_still_are() {
+    assert_eq!(cyclic("struct S {\n    a: S\n}\n"), ["S"]);
+    assert_eq!(cyclic("struct S {\n    a: S[3]\n}\n"), ["S"]);
+    assert!(cyclic("struct S {\n    a: S[]\n}\n").is_empty());
+    assert!(cyclic("struct S {\n    a: S[0]\n}\n").is_empty());
+    // Not yet: generated Rust would need the field boxed (core#167).
+    assert_eq!(cyclic("struct S {\n    optional next: S\n}\n"), ["S"]);
+}

@@ -547,20 +547,8 @@ pub fn validate_with(
 
     check_uninterpolated_messages(units, &mut warnings);
 
-    // Pass 3: Cycle Detection (Structs)
-    let unit_map: HashMap<&str, &FrozenUnit> = units.iter().filter_map(|u| match u {
-        FrozenUnit::Struct { name, .. } => Some((name.as_str(), u)),
-        _ => None
-    }).collect();
-
-    let mut visited = HashSet::new();
-    let mut visiting = HashSet::new();
-
-    for (name, _) in &unit_map {
-        if !visited.contains(name) {
-            detect_cycle(name, &unit_map, &mut visited, &mut visiting, &mut errors);
-        }
-    }
+    // Pass 3: structs that can never hold a finite value
+    check_struct_cycles(units, &mut errors);
 
     check_annotation_values(units, imports, &mut errors);
     check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
@@ -1354,43 +1342,6 @@ fn check_params(
     }
 }
 
-fn detect_cycle<'a>(
-    current: &'a str, 
-    unit_map: &HashMap<&'a str, &'a FrozenUnit>, 
-    visited: &mut HashSet<&'a str>, 
-    visiting: &mut HashSet<&'a str>,
-    errors: &mut Vec<Diagnostic>
-) {
-    visiting.insert(current);
-    
-    if let Some(FrozenUnit::Struct { fields, span, .. }) = unit_map.get(current) {
-        for field in fields {
-            if let FrozenUnit::Field { ty, .. } = field {
-                // Only a dynamic array breaks a cycle - it can be empty. A
-                // fixed array `Node[4]` always holds four, so a struct
-                // containing one of itself is still infinite.
-                if !breaks_cycle(ty) {
-                    let Some(base_type) = ty.base_name() else { continue };
-
-                    if unit_map.contains_key(base_type) {
-                        if visiting.contains(base_type) {
-                            errors.push(Diagnostic { code: STRUCT_CYCLE, help: None, secondary: None, severity_override: None,
-                                message: format!("Cycle detected involving struct '{}'", base_type),
-                                context: format!("Struct '{}' depends on '{}'", current, base_type),
-                                span: Some(*span),
-                            });
-                        } else if !visited.contains(base_type) {
-                            detect_cycle(base_type, unit_map, visited, visiting, errors);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    visiting.remove(current);
-    visited.insert(current);
-}
 
 /// Look for a `deprecated` property among a struct/error's own annotation
 /// parameters. Outer `Option`: is it deprecated at all - `None` for absent
@@ -1423,10 +1374,153 @@ fn deprecation_of(
     Ok(None)
 }
 
-/// Whether a field of this type can stand in a struct that contains
-/// itself: only through a dynamic array, which can be empty.
-fn breaks_cycle(ty: &TypeRef) -> bool {
-    matches!(ty, TypeRef::Array { length: None, .. })
+/// Whether an `optional` field ends a cycle. A struct holding an optional
+/// copy of itself (a linked list) is finite, but generated Rust would need
+/// the field boxed (`Option<Box<S>>`) to have a size, and the Rust
+/// generator doesn't box yet. Until it does, `optional` doesn't end a cycle
+/// (core#167).
+const OPTIONAL_ENDS_A_CYCLE: bool = false;
+
+/// Structs that can never hold a finite value: every value of them contains
+/// another value of them (core#167). Found as a least fixpoint, so every
+/// way a value can end counts: a dynamic array (it can be empty), a fixed
+/// array of length 0, a union with a member that can end, a type alias
+/// whose target can, and every type that isn't a struct. Aliases are
+/// resolved through the schema's own `type` declarations; a name declared
+/// elsewhere is taken as able to end, since its own schema checks it.
+///
+/// Only a struct whose value leads back to itself is reported, under
+/// `validation::struct-cycle`; one that merely contains such a struct
+/// isn't blamed for it.
+fn check_struct_cycles(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    let structs: Vec<(&str, &[FrozenUnit], (usize, usize))> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Struct { name, fields, span, .. } => Some((name.as_str(), fields.as_slice(), *span)),
+            _ => None,
+        })
+        .collect();
+    let aliases: HashMap<&str, &TypeRef> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), target)),
+            _ => None,
+        })
+        .collect();
+    let is_struct: HashSet<&str> = structs.iter().map(|(n, _, _)| *n).collect();
+
+    // `seen` guards against an alias cycle, which alias resolution reports.
+    fn ends<'a>(
+        ty: &'a TypeRef,
+        finite: &HashSet<&str>,
+        is_struct: &HashSet<&str>,
+        aliases: &HashMap<&str, &'a TypeRef>,
+        seen: &mut Vec<&'a str>,
+    ) -> bool {
+        match ty {
+            TypeRef::Primitive(_) | TypeRef::Unit => true,
+            TypeRef::Array { length: None, .. } | TypeRef::Array { length: Some(0), .. } => true,
+            TypeRef::Array { element, .. } => ends(element, finite, is_struct, aliases, seen),
+            TypeRef::Union(members) => members.iter().any(|m| ends(m, finite, is_struct, aliases, seen)),
+            TypeRef::Named(name) => {
+                let name = name.as_str();
+                if let Some(target) = aliases.get(name) {
+                    if seen.contains(&name) {
+                        return true;
+                    }
+                    seen.push(name);
+                    let ends_ = ends(target, finite, is_struct, aliases, seen);
+                    seen.pop();
+                    ends_
+                } else if is_struct.contains(name) {
+                    finite.contains(name)
+                } else {
+                    true
+                }
+            }
+        }
+    }
+    let field_ends = |field: &FrozenUnit, finite: &HashSet<&str>| match field {
+        FrozenUnit::Field { optional, ty, .. } => {
+            (*optional && OPTIONAL_ENDS_A_CYCLE) || ends(ty, finite, &is_struct, &aliases, &mut vec![])
+        }
+        _ => true,
+    };
+
+    let mut finite: HashSet<&str> = HashSet::new();
+    loop {
+        let before = finite.len();
+        for (name, fields, _) in &structs {
+            if !finite.contains(name) && fields.iter().all(|f| field_ends(f, &finite)) {
+                finite.insert(name);
+            }
+        }
+        if finite.len() == before {
+            break;
+        }
+    }
+
+    // The structs each infinite struct's never-ending fields reach.
+    fn named_in<'a>(ty: &'a TypeRef, aliases: &HashMap<&str, &'a TypeRef>, out: &mut Vec<&'a str>, depth: usize) {
+        if depth > 64 {
+            return;
+        }
+        match ty {
+            TypeRef::Named(name) => match aliases.get(name.as_str()) {
+                Some(target) => named_in(target, aliases, out, depth + 1),
+                None => out.push(name.as_str()),
+            },
+            TypeRef::Array { element, .. } => named_in(element, aliases, out, depth + 1),
+            TypeRef::Union(members) => members.iter().for_each(|m| named_in(m, aliases, out, depth + 1)),
+            _ => {}
+        }
+    }
+    let reaches: HashMap<&str, Vec<&str>> = structs
+        .iter()
+        .filter(|(name, _, _)| !finite.contains(name))
+        .map(|(name, fields, _)| {
+            let mut out = vec![];
+            for field in fields.iter().filter(|f| !field_ends(f, &finite)) {
+                if let FrozenUnit::Field { ty, .. } = field {
+                    named_in(ty, &aliases, &mut out, 0);
+                }
+            }
+            out.retain(|n| is_struct.contains(n) && !finite.contains(n));
+            (*name, out)
+        })
+        .collect();
+
+    for (name, _, span) in &structs {
+        if finite.contains(name) {
+            continue;
+        }
+        // Does `name` reach itself through never-ending fields?
+        let mut stack: Vec<&str> = reaches.get(name).cloned().unwrap_or_default();
+        let mut visited: HashSet<&str> = HashSet::new();
+        let mut on_cycle = false;
+        while let Some(next) = stack.pop() {
+            if next == *name {
+                on_cycle = true;
+                break;
+            }
+            if visited.insert(next) {
+                stack.extend(reaches.get(next).into_iter().flatten().copied());
+            }
+        }
+        if on_cycle {
+            errors.push(
+                Diagnostic::new(STRUCT_CYCLE, format!("Cycle detected involving struct '{name}'"))
+                    .with_context(format!(
+                        "every value of '{name}' contains another '{name}', so none can be written"
+                    ))
+                    .with_span(*span)
+                    .with_help(
+                        "end the cycle with a dynamic array (`T[]`), which can be empty, or a \
+                         union member that doesn't lead back",
+                    ),
+            );
+        }
+    }
 }
 
 /// A literal written for a value of type `ty` - a field or property
