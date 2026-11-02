@@ -280,10 +280,14 @@ pub enum Type {
         name: String,
         target: Option<UnitRef>,
     },
-    /// `T[]` (`length: None`) or `T[N]`.
+    /// `T[]`, `T[N]` (`length`) or `T[max N]` (`max`), at most one of the
+    /// two. An array of `char` is a string: `char[max 64]` holds at most 64
+    /// characters. `max` is absent when there is none.
     Array {
         element: Box<Type>,
         length: Option<u64>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        max: Option<u64>,
     },
     /// `union(A B ...)`.
     Union { members: Vec<Type> },
@@ -909,10 +913,10 @@ impl Scope<'_> {
                 name: name.clone(),
                 target: self.resolve(name),
             },
-            // The doc model carries bounds in rollout step 6 (core#98).
-            TypeRef::Array { element, length, .. } => Type::Array {
+            TypeRef::Array { element, length, max } => Type::Array {
                 element: Box::new(self.ty(element)),
                 length: *length,
+                max: *max,
             },
             TypeRef::Union(members) => Type::Union {
                 members: members.iter().map(|m| self.ty(m)).collect(),
@@ -1325,7 +1329,8 @@ mod tests {
             fields[1].ty,
             Type::Array {
                 element: Box::new(named("Payment", "types")),
-                length: None
+                length: None,
+                max: Some(1024)
             }
         );
         assert!(matches!(&fields[2].ty, Type::Union { members } if members.len() == 2));
