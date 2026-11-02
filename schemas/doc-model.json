@@ -1728,7 +1728,7 @@
           "type": "object"
         },
         {
-          "description": "`T[]` (`length: None`) or `T[N]`.",
+          "description": "`T[]`, `T[N]` (`length`) or `T[max N]` (`max`), at most one of the\ntwo. An array of `char` is a string: `char[max 64]` holds at most 64\ncharacters. `max` is absent when there is none.",
           "properties": {
             "element": {
               "$ref": "#/definitions/Type"
@@ -1738,6 +1738,14 @@
               "type": "string"
             },
             "length": {
+              "format": "uint64",
+              "minimum": 0,
+              "type": [
+                "integer",
+                "null"
+              ]
+            },
+            "max": {
               "format": "uint64",
               "minimum": 0,
               "type": [
