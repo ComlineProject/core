@@ -672,7 +672,7 @@
           "type": "object"
         },
         {
-          "description": "An annotation that changes what travels on the wire (`@framing`).",
+          "description": "An annotation that changes what travels on the wire (`@framing`,\n`@handshake`) or what a decoder accepts (`@max_depth`, set on the\ntype or reaching it from a `bounds.depth.max` default).",
           "properties": {
             "key": {
               "type": "string"

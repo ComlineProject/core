@@ -201,7 +201,9 @@ pub enum BreakingChange {
     ValidationTightened {
         target: String,
     },
-    /// An annotation that changes what travels on the wire (`@framing`).
+    /// An annotation that changes what travels on the wire (`@framing`,
+    /// `@handshake`) or what a decoder accepts (`@max_depth`, set on the
+    /// type or reaching it from a `bounds.depth.max` default).
     ChangedWireAnnotation {
         target: String,
         key: String,
@@ -1763,7 +1765,9 @@ fn compare_parameters_with(
             // Adding or removing the marker is judged by the set it freezes,
             // below; only a reworded reason is reported here.
             "unverified" if old_value.is_none() || new_value.is_none() => {}
-            "framing" | "handshake" => changes
+            // A depth limit is a bound: raising it breaks old receivers,
+            // lowering it old senders.
+            "framing" | "handshake" | "max_depth" => changes
                 .breaking_changes
                 .push(BreakingChange::ChangedWireAnnotation {
                     target: target.to_string(),
