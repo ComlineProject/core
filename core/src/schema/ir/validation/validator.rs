@@ -7,6 +7,7 @@ use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreter::incremental::{NOT_AN_ERROR_PREFIX, UNRESOLVED_PREFIX};
 use crate::schema::ir::frozen::types::{Literal, PrimitiveType, TypeRef};
+use super::constants::{Constants, Problem, Resolution, ResolvedConstant};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
 use crate::schema::idl::annotations;
@@ -17,6 +18,9 @@ const VALUE_OUT_OF_RANGE: DiagnosticCode =
     DiagnosticCode::error("validation::value-out-of-range");
 const LITERAL_TYPE_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::literal-type-mismatch");
+const UNKNOWN_CONSTANT: DiagnosticCode = DiagnosticCode::error("validation::unknown-constant");
+const NOT_A_CONSTANT: DiagnosticCode = DiagnosticCode::error("validation::not-a-constant");
+const CONSTANT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::constant-cycle");
 const UNKNOWN_VALIDATOR_PROPERTY: DiagnosticCode =
     DiagnosticCode::error("validation::unknown-validator-property");
 const INVALID_VALIDATOR_REFERENCE: DiagnosticCode =
@@ -128,6 +132,12 @@ pub trait ImportLookup {
     /// official encodings.
     fn encodings(&self) -> crate::schema::ir::unverified::Encodings<'_> {
         Default::default()
+    }
+    /// An imported constant's type and value, resolved in the schema that
+    /// declares it (core#168). `None` when the lookup can't say, or the name
+    /// isn't a constant there: a value that names it then goes unchecked.
+    fn constant(&self, _name: &str) -> Option<ResolvedConstant> {
+        None
     }
 }
 
@@ -267,6 +277,19 @@ pub fn validate_with(
         return Err(errors);
     }
 
+    // What a value can name: this schema's constants, the ones it imports,
+    // and an integer type's bounds. And its aliases, for the primitive a
+    // default is written for.
+    let constants = Constants::new(units, namespace, &symbols, imports);
+    let local_aliases: HashMap<&str, &TypeRef> = units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), target)),
+            _ => None,
+        })
+        .collect();
+    let primitive_of = |ty: &TypeRef| resolve_type(ty, &local_aliases, &symbols, imports).as_primitive();
+
     // Pass 2: Type Resolution & Usage
     for unit in units {
         match unit {
@@ -276,11 +299,33 @@ pub fn validate_with(
                         FrozenUnit::Field { name: field_name, ty, default, span, .. } => {
                             let context = format!("Struct '{}', field '{}'", name, field_name);
                             validate_type(ty, &symbols, &deprecated, &mut errors, &mut warnings, &context, *span);
-                            if let Some(default) = default {
-                                check_literal(ty, default, &context, *span, &mut errors);
+                            if let (Some(default), Some(primitive)) = (default, primitive_of(ty)) {
+                                check_literal(primitive, default, &constants, &context, *span, &mut errors);
                             }
                         }
                         _ => {}
+                    }
+                }
+            }
+            // An error's fields and a validator's properties take defaults
+            // the same way a struct's fields do.
+            FrozenUnit::Error { name, fields, imported_from: None, .. } => {
+                for field in fields {
+                    if let FrozenUnit::Field { name: field_name, ty, default: Some(default), span, .. } = field {
+                        if let Some(primitive) = primitive_of(ty) {
+                            let context = format!("Error '{name}', field '{field_name}'");
+                            check_literal(primitive, default, &constants, &context, *span, &mut errors);
+                        }
+                    }
+                }
+            }
+            FrozenUnit::Validator { name, properties, .. } => {
+                for property in properties {
+                    if let FrozenUnit::Field { name: property_name, ty, default: Some(default), span, .. } = property {
+                        if let Some(primitive) = primitive_of(ty) {
+                            let context = format!("Validator '{name}', property '{property_name}'");
+                            check_literal(primitive, default, &constants, &context, *span, &mut errors);
+                        }
                     }
                 }
             }
@@ -302,17 +347,27 @@ pub fn validate_with(
             FrozenUnit::Constant { name, ty, value, span, .. } => {
                 let context = format!("Constant '{name}'");
                 match (ty.as_primitive(), value) {
-                    // A constant is a primitive with a literal value - the
-                    // literal's own fit is `check_literal`'s business.
-                    (Some(_), Some(literal)) if !matches!(literal, Literal::Reference(_)) => {
-                        check_literal(ty, literal, &context, *span, &mut errors);
+                    // A constant is a primitive with a value: a literal, or
+                    // another constant (core#168). Either has to fit it; a
+                    // chain that comes back here is reported here.
+                    (Some(primitive), Some(Literal::Reference(reference))) => check_resolved(
+                        primitive,
+                        reference,
+                        constants.resolve_from(name, reference),
+                        &context,
+                        *span,
+                        &mut errors,
+                    ),
+                    (Some(primitive), Some(literal)) => {
+                        check_literal(primitive, literal, &constants, &context, *span, &mut errors);
                     }
-                    (Some(_), _) => errors.push(
+                    (Some(_), None) => errors.push(
                         Diagnostic::new(
                             INVALID_CONSTANT_TYPE,
                             format!("Constant '{name}' must have a literal value"),
                         )
                         .with_context(context)
+                        .with_help("write a literal (`5`, `\"text\"`, `true`) or another constant's name")
                         .with_span(*span),
                     ),
                     (None, _) => errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(&ty.to_string()), secondary: None, severity_override: None,
@@ -509,7 +564,7 @@ pub fn validate_with(
                 Some(SymbolType::Validator) => {
                     // Locally declared - check the keyword arguments.
                     if let Some(fields) = validator_fields.get(vname.as_str()) {
-                        check_validator_arguments(vname, fields, args, arg_spans, &field_ctx, *span, &mut errors);
+                        check_validator_arguments(vname, fields, args, arg_spans, &constants, &field_ctx, *span, &mut errors);
                     }
                 }
                 Some(other) if other != SymbolType::Import => {
@@ -524,7 +579,7 @@ pub fn validate_with(
                 // there's nothing to judge against.
                 _ if maybe_imported => {
                     if let Some(fields) = imports.validator_properties(vname) {
-                        check_validator_arguments(vname, &fields, args, arg_spans, &field_ctx, *span, &mut errors);
+                        check_validator_arguments(vname, &fields, args, arg_spans, &constants, &field_ctx, *span, &mut errors);
                     }
                 }
                 _ => {
@@ -976,7 +1031,7 @@ fn names_unknown(ty: &TypeRef, symbols: &SymbolTable, imports: &dyn ImportLookup
 /// unknown, whatever a lookup could find for it elsewhere in the project -
 /// asking anyway is how the editor once checked a validator's targets while
 /// also reporting the validator unknown.
-fn could_be_imported(symbols: &SymbolTable, name: &str) -> bool {
+pub(super) fn could_be_imported(symbols: &SymbolTable, name: &str) -> bool {
     matches!(symbols.get(name), Some(SymbolType::Import))
         || symbols.symbols.iter().any(|(k, v)| {
             v.kind == SymbolType::Import
@@ -1523,20 +1578,22 @@ fn check_struct_cycles(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
     }
 }
 
-/// A literal written for a value of type `ty` - a field or property
-/// default, a constant - has to be that type, and an integer has to fit
-/// the width declared. A reference (`MAX`, `u32::MAX`) isn't resolved yet,
-/// so it isn't judged; nor is a literal for a non-primitive type.
+/// A literal written for a value of type `primitive` - a field or property
+/// default, a constant, a validator argument - has to be that type, and an
+/// integer has to fit the width declared. A reference (`MAX`, `u32::MAX`)
+/// is judged by the value it stands for (core#168).
 fn check_literal(
-    ty: &TypeRef,
+    primitive: PrimitiveType,
     literal: &Literal,
+    constants: &Constants,
     context: &str,
     span: (usize, usize),
     errors: &mut Vec<Diagnostic>,
 ) {
-    let Some(primitive) = ty.as_primitive() else { return };
     let fits = match (primitive, literal) {
-        (_, Literal::Reference(_)) => return,
+        (p, Literal::Reference(reference)) => {
+            return check_resolved(p, reference, constants.resolve(reference), context, span, errors)
+        }
         (p, Literal::Integer(value)) if p.is_integer() => {
             let (min, max) = p.integer_range().expect("an integer primitive has a range");
             if !(min..=max).contains(&i128::from(*value)) {
@@ -1571,6 +1628,65 @@ fn check_literal(
             .with_span(span),
         );
     }
+}
+
+/// [`check_literal`] for a `reference`, once resolved: the name has to be a
+/// constant (or an integer type's bound), and its value has to fit
+/// `primitive` as a literal would.
+fn check_resolved(
+    primitive: PrimitiveType,
+    reference: &str,
+    resolution: Resolution,
+    context: &str,
+    span: (usize, usize),
+    errors: &mut Vec<Diagnostic>,
+) {
+    let diagnostic = match resolution {
+        Resolution::Unjudged => return,
+        Resolution::Value(resolved) if !super::constants::kind_fits(primitive, resolved.ty) => {
+            Diagnostic::new(
+                LITERAL_TYPE_MISMATCH,
+                format!("expected a `{primitive}` value, found `{reference}`, which is a `{}`", resolved.ty),
+            )
+        }
+        Resolution::Value(resolved) if !super::constants::in_range(primitive, &resolved.value) => {
+            Diagnostic::new(
+                VALUE_OUT_OF_RANGE,
+                format!("`{reference}` is {}, which does not fit in `{primitive}`", resolved.value),
+            )
+            .with_help(format!(
+                "name a constant `{primitive}` can hold, or widen the declared type"
+            ))
+        }
+        Resolution::Value(_) => return,
+        Resolution::Problem(Problem::Unknown { suggestion }) => {
+            let mut message = format!("no constant named `{reference}`");
+            if let Some(s) = suggestion {
+                message.push_str(&format!(" - did you mean `{s}`?"));
+            }
+            Diagnostic::new(UNKNOWN_CONSTANT, message).with_help(format!(
+                "declare it with `const {reference}: {primitive} = ...`, or import it with `use`"
+            ))
+        }
+        Resolution::Problem(Problem::NotAConstant(kind)) => Diagnostic::new(
+            NOT_A_CONSTANT,
+            format!("`{reference}` is {}, not a constant", kind.describe()),
+        ),
+        Resolution::Problem(Problem::NoBound { ty, bound }) => {
+            let help = if ty.is_integer() {
+                format!("an integer type has `{ty}::MIN` and `{ty}::MAX`")
+            } else {
+                "only an integer type has `MIN` and `MAX`".to_string()
+            };
+            Diagnostic::new(UNKNOWN_CONSTANT, format!("`{ty}` has no `{bound}`")).with_help(help)
+        }
+        Resolution::Problem(Problem::Cycle(chain)) => Diagnostic::new(
+            CONSTANT_CYCLE,
+            format!("constant '{}' refers back to itself: {}", chain[0], chain.join(" -> ")),
+        )
+        .with_help("give one of them a literal value"),
+    };
+    errors.push(diagnostic.with_context(context.to_string()).with_span(span));
 }
 
 /// Check every function's `! Name` clause.
@@ -1752,11 +1868,13 @@ pub(crate) fn is_primitive(name: &str) -> bool {
 ///
 /// An argument's error points at its name (`arg_spans`, by index into
 /// `args`), anything about the call as a whole at `span`.
+#[allow(clippy::too_many_arguments)]
 fn check_validator_arguments(
     vname: &str,
     fields: &[FrozenUnit],
     args: &[FrozenUnit],
     arg_spans: &[(usize, usize)],
+    constants: &Constants,
     context: &str,
     span: (usize, usize),
     errors: &mut Vec<Diagnostic>,
@@ -1770,6 +1888,9 @@ fn check_validator_arguments(
         })
     };
 
+    // What the arguments' values come to, reported after the loop: `error`
+    // holds `errors` until then.
+    let mut values = Vec::new();
     let mut seen: Vec<&str> = Vec::new();
     // Properties an unknown argument was taken for (`mni` - did you mean
     // `min`?): already reported, so not again as missing.
@@ -1811,6 +1932,22 @@ fn check_validator_arguments(
                 ),
                 at,
             );
+            continue;
+        }
+        // A constant's name is read for its value, and an integer has to fit
+        // the property's width, as a default does.
+        let primitive = prop_field(fields, kw).and_then(|f| match f {
+            FrozenUnit::Field { ty, .. } => ty.as_primitive(),
+            _ => None,
+        });
+        let value = match val {
+            ConfigValue::Name(r) | ConfigValue::Path(r) => Some(Literal::Reference(r.clone())),
+            ConfigValue::Integer(i) => Some(Literal::Integer(*i)),
+            _ => None,
+        };
+        if let (Some(primitive), Some(value)) = (primitive, value) {
+            let context = format!("{context}, validator '{vname}', argument '{kw}'");
+            check_literal(primitive, &value, constants, &context, at, &mut values);
         }
     }
 
@@ -1823,6 +1960,7 @@ fn check_validator_arguments(
             }
         }
     }
+    errors.extend(values);
 }
 
 /// `span`, unless it's the `(0, 0)` of a unit frozen without one.

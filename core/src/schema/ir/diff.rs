@@ -514,7 +514,36 @@ impl<'a> Side<'a> {
                 side.collect_references(unit, false);
             }
         }
+        side.through_constants(schemas);
         side
+    }
+
+    /// A constant another constant names (`const B: u32 = A`, core#168) is
+    /// used wherever that one is: changing `A` changes `B`.
+    fn through_constants(&mut self, schemas: &[&'a [FrozenUnit]]) {
+        let named: Vec<(&str, &str)> = schemas
+            .iter()
+            .flat_map(|units| units.iter())
+            .filter_map(|unit| match unit {
+                FrozenUnit::Constant { name, value: Some(Literal::Reference(r)), .. } => {
+                    Some((name.as_str(), last_segment(r)))
+                }
+                _ => None,
+            })
+            .collect();
+        for used in [&mut self.in_validators, &mut self.in_defaults] {
+            loop {
+                let more: Vec<String> = named
+                    .iter()
+                    .filter(|(name, target)| used.contains(*name) && !used.contains(*target))
+                    .map(|(_, target)| target.to_string())
+                    .collect();
+                if more.is_empty() {
+                    break;
+                }
+                used.extend(more);
+            }
+        }
     }
 
     fn collect_references(&mut self, unit: &FrozenUnit, in_validator: bool) {
@@ -2043,6 +2072,9 @@ fn constants_named(unit: &FrozenUnit, names: &mut BTreeSet<String>) {
                 names.insert(last_segment(r).to_string());
             }
             all(parameters, names);
+        }
+        FrozenUnit::Constant { value: Some(Literal::Reference(r)), .. } => {
+            names.insert(last_segment(r).to_string());
         }
         FrozenUnit::TypeAlias { parameters, .. } => all(parameters, names),
         FrozenUnit::Protocol { parameters, functions, .. } => {

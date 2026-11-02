@@ -93,10 +93,135 @@ fn a_reference_default_is_kept_not_dropped() {
     assert!(validate(&units).is_ok());
 }
 
+// A reference is judged by the value it stands for (core#168): a constant,
+// or an integer type's bound.
+
 #[test]
-fn a_constant_needs_a_literal_value() {
+fn a_constant_can_name_another_constant_or_a_bound() {
+    assert!(messages("const A: u32 = 5\nconst B: u32 = A\n").is_empty());
+    assert!(messages("const A: u32 = 5\nconst B: u32 = A\nconst C: u8 = B\n").is_empty());
+    assert!(messages("const M: u32 = u32::MAX\nconst N: s8 = s8::MIN\n").is_empty());
+    assert!(messages("const M: u64 = u64::MAX\n").is_empty());
+    // A narrower constant is fine while the value fits.
+    assert!(messages("const A: u32 = 200\nconst B: u8 = A\n").is_empty());
+}
+
+#[test]
+fn a_constant_naming_nothing_is_an_error() {
     let errors = messages("const LIMIT: u32 = OTHER\n");
-    assert_eq!(errors, ["Constant 'LIMIT' must have a literal value"]);
+    assert_eq!(errors, ["no constant named `OTHER`"]);
+    let errors = messages("const LIMIT: u32 = 1\nconst B: u32 = LIMT\n");
+    assert_eq!(errors, ["no constant named `LIMT` - did you mean `LIMIT`?"]);
+}
+
+#[test]
+fn a_constant_value_has_to_fit_where_it_is_named() {
+    let errors = messages("const A: u32 = 500\nconst B: u8 = A\n");
+    assert_eq!(errors, ["`A` is 500, which does not fit in `u8`"]);
+    let errors = messages("const B: u8 = u32::MAX\n");
+    assert_eq!(errors, ["`u32::MAX` is 4294967295, which does not fit in `u8`"]);
+    let errors = messages("const B: u8 = s8::MIN\n");
+    assert_eq!(errors, ["`s8::MIN` is -128, which does not fit in `u8`"]);
+    let errors = messages("const NAME: string = \"x\"\nconst B: u32 = NAME\n");
+    assert_eq!(errors, ["expected a `u32` value, found `NAME`, which is a `string`"]);
+    // An integer is a fine float, a float isn't an integer.
+    assert!(messages("const A: u32 = 5\nconst F: f64 = A\n").is_empty());
+    let errors = messages("const F: f32 = 5\nconst A: u32 = F\n");
+    assert_eq!(errors, ["expected a `u32` value, found `F`, which is a `f32`"]);
+}
+
+#[test]
+fn only_an_integer_type_has_bounds() {
+    let errors = messages("const F: f32 = f32::MAX\n");
+    assert_eq!(errors, ["`f32` has no `MAX`"]);
+    let errors = messages("const A: u32 = u32::LIMIT\n");
+    assert_eq!(errors, ["`u32` has no `LIMIT`"]);
+}
+
+#[test]
+fn a_constant_naming_something_else_is_an_error() {
+    let errors = messages("struct T {\n    a: u8\n}\nconst A: u32 = T\n");
+    assert_eq!(errors, ["`T` is a struct, not a constant"]);
+}
+
+#[test]
+fn constants_naming_each_other_in_a_loop_are_an_error() {
+    let errors = messages("const A: u32 = B\nconst B: u32 = A\nstruct S {\n    n: u32 = A\n}\n");
+    // Reported at each constant on the loop; the field naming one adds
+    // nothing.
+    assert_eq!(
+        errors,
+        [
+            "constant 'A' refers back to itself: A -> B -> A",
+            "constant 'B' refers back to itself: B -> A -> B",
+        ]
+    );
+    let errors = messages("const A: u32 = A\n");
+    assert_eq!(errors, ["constant 'A' refers back to itself: A -> A"]);
+    // A constant that leads into a loop isn't on it.
+    let errors = messages("const A: u32 = B\nconst B: u32 = B\n");
+    assert_eq!(errors, ["constant 'B' refers back to itself: B -> B"]);
+}
+
+#[test]
+fn a_constant_whose_own_value_is_wrong_is_reported_once() {
+    // Where it's declared, not again where it's named.
+    let errors = messages("const A: u8 = 500\nconst B: u32 = A\nstruct S {\n    n: u32 = A\n}\n");
+    assert_eq!(errors, ["the value 500 does not fit in `u8`"]);
+}
+
+#[test]
+fn a_default_naming_a_constant_is_checked() {
+    let errors = messages("const A: u32 = 500\nstruct S {\n    a: u8 = A\n    b: u8 = NOPE\n    c: u32 = A\n}\n");
+    assert_eq!(
+        errors,
+        ["`A` is 500, which does not fit in `u8`", "no constant named `NOPE`"]
+    );
+    let errors = messages("struct S {\n    a: u8 = u16::MAX\n    b: u16 = u16::MAX\n}\n");
+    assert_eq!(errors, ["`u16::MAX` is 65535, which does not fit in `u8`"]);
+}
+
+#[test]
+fn a_default_through_an_alias_is_checked() {
+    let errors = messages("type Port = u16\nstruct S {\n    p: Port = 70000\n    q: Port = 80\n}\n");
+    assert_eq!(errors, ["the value 70000 does not fit in `u16`"]);
+}
+
+#[test]
+fn an_error_field_default_naming_a_constant_is_checked() {
+    let errors = messages(
+        "const A: u32 = 500\nerror E {\n    message = \"e\"\n    a: u8 = A\n}\n",
+    );
+    assert_eq!(errors, ["`A` is 500, which does not fit in `u8`"]);
+}
+
+#[test]
+fn validator_values_naming_a_constant_are_checked() {
+    let validator = "validator Short for string {\n    max: u32 = DEFAULT\n    validate {\n        \
+                     assert(value.length <= params.max, f\"{value.name} is too long\")\n    }\n}\n";
+    // A property default.
+    let errors = messages(&format!("const DEFAULT: u32 = 10\n{validator}"));
+    assert!(errors.is_empty(), "{errors:?}");
+    let errors = messages(&format!("const DEFAULT: string = \"ten\"\n{validator}"));
+    assert_eq!(errors, ["expected a `u32` value, found `DEFAULT`, which is a `string`"]);
+    // A call's argument, by name or as an integer.
+    let field = |argument: &str| {
+        format!(
+            "const DEFAULT: u32 = 10\nconst NAME: string = \"x\"\n{validator}\
+             struct S {{\n    @validators = [Short(max = {argument})]\n    a: string\n}}\n"
+        )
+    };
+    assert!(messages(&field("DEFAULT")).is_empty());
+    assert!(messages(&field("u32::MAX")).is_empty());
+    assert_eq!(messages(&field("NAME")), ["expected a `u32` value, found `NAME`, which is a `string`"]);
+    assert_eq!(messages(&field("MISSING")), ["no constant named `MISSING`"]);
+    assert_eq!(messages(&field("-1")), ["the value -1 does not fit in `u32`"]);
+}
+
+#[test]
+fn a_default_for_an_enum_is_not_read_as_a_constant() {
+    let code = "enum Color {\n    Red\n}\nstruct S {\n    c: Color = Red\n}\n";
+    assert!(messages(code).iter().all(|m| !m.contains("constant")), "{:?}", messages(code));
 }
 
 #[test]

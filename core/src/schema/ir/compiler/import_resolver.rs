@@ -14,7 +14,8 @@ use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::utils::text::closest;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
-use crate::schema::ir::frozen::types::TypeRef;
+use crate::schema::ir::frozen::types::{Literal, TypeRef};
+use crate::schema::ir::validation::constants::{fits, literal_value, primitive_bound, ResolvedConstant};
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::compiler::interpreter::incremental::freeze_validator_properties;
 use crate::schema::ir::validation::ImportLookup;
@@ -594,6 +595,53 @@ impl ImportLookup for ProjectImports<'_> {
         let mut declared = DeclaredData { project: self.project, answers: Answers::new() };
         Some(declared.named(&schema.declarations, &schema.namespace, &bare))
     }
+
+    fn constant(&self, name: &str) -> Option<ResolvedConstant> {
+        let (schema, bare) = self.declaring_schema(name)?;
+        let schema = schema.borrow();
+        declared_constant(self.project, &schema.declarations, &schema.namespace, &bare, 0)
+    }
+}
+
+/// The constant `name` names from a schema with these `declarations`: one it
+/// declares, or one its own `use`s bring in, with its value followed through
+/// further constants the same way. `None` when there's no such constant, or
+/// its value doesn't come to one its type holds: that schema's own build
+/// says why. Bounded, so a cycle (reported where it's declared) ends.
+fn declared_constant(
+    project: &ProjectContext,
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    namespace: &[String],
+    name: &str,
+    depth: usize,
+) -> Option<ResolvedConstant> {
+    if depth == 32 {
+        return None;
+    }
+    let (prefix, bare) = match name.rsplit_once("::") {
+        Some((prefix, bare)) => (Some(prefix), bare),
+        None => (None, name),
+    };
+    // Declared here: written bare, or with this schema's own path.
+    let here = prefix.is_none_or(|prefix| prefix == namespace.join("::"));
+    let constant = declarations.iter().find_map(|decl| match &decl.value {
+        Declaration::Const(c) if here && c.name() == bare => Some(c),
+        _ => None,
+    });
+    let Some(constant) = constant else {
+        let schema = find_schema_bringing_into_scope(bare, declarations, namespace, project)?;
+        let schema = schema.borrow();
+        return declared_constant(project, &schema.declarations, &schema.namespace, bare, depth + 1);
+    };
+    let ty = TypeRef::from_grammar(constant.type_def()).as_primitive()?;
+    let value = match Literal::from_grammar(constant.value())? {
+        Literal::Reference(reference) => match primitive_bound(&reference) {
+            Some(bound) => bound.ok()?,
+            None => declared_constant(project, declarations, namespace, &reference, depth + 1)?,
+        },
+        literal => ResolvedConstant { ty, value: literal_value(ty, &literal)? },
+    };
+    fits(ty, &value).then_some(ResolvedConstant { ty, value: value.value })
 }
 
 /// [`carries_data`] for a type declared in another schema, read from its
