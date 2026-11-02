@@ -20,6 +20,10 @@ use crate::schema::ir::frozen::unit::FrozenUnit;
 /// any schema chains its constants, and a cycle is caught well before.
 const MAX_CHAIN: usize = 64;
 
+/// The word a field's default can be written as for its type's own default.
+/// Not a constant's value: a constant states its value.
+const DEFAULT: &str = "default";
+
 /// A constant's value, once every reference on the way is followed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConstantValue {
@@ -133,7 +137,13 @@ impl<'a> Constants<'a> {
     /// What `reference` stands for, read from anywhere in this schema but a
     /// constant's own value. A chain that loops is reported at the
     /// constants on the loop, not again here.
+    ///
+    /// `default` is the type's own default (`0`, `false`, `""`, an enum's
+    /// first variant), which every type has, so there's nothing to judge.
     pub fn resolve(&self, reference: &str) -> Resolution {
+        if reference == DEFAULT {
+            return Resolution::Unjudged;
+        }
         match self.follow(reference, &mut vec![]) {
             Resolution::Problem(Problem::Cycle(_)) => Resolution::Unjudged,
             other => other,

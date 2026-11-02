@@ -219,6 +219,14 @@ fn validator_values_naming_a_constant_are_checked() {
 }
 
 #[test]
+fn a_default_can_be_the_types_own_default() {
+    let code = "struct S {\n    n: u8 = default\n    s: string = default\n}\n";
+    assert!(messages(code).is_empty(), "{:?}", messages(code));
+    // A constant states its value.
+    assert_eq!(messages("const A: u8 = default\n"), ["no constant named `default`"]);
+}
+
+#[test]
 fn a_default_for_an_enum_is_not_read_as_a_constant() {
     let code = "enum Color {\n    Red\n}\nstruct S {\n    c: Color = Red\n}\n";
     assert!(messages(code).iter().all(|m| !m.contains("constant")), "{:?}", messages(code));
