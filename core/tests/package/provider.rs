@@ -21,7 +21,7 @@ fn compile(config: &str, schema: &str) -> eyre::Result<Vec<FrozenUnit>> {
 }
 
 fn protocol(annotations: &str) -> String {
-    format!("{annotations}protocol Events {{\n    function message(text: string) -> bool;\n}}\n")
+    format!("{annotations}protocol Events {{\n    function message(text: char[max 64]) -> bool;\n}}\n")
 }
 
 #[test]

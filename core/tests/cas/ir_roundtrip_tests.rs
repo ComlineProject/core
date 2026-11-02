@@ -25,7 +25,7 @@ const GREETING: string = "hello"
 const STRICT: bool = true
 
 type UserId = u64
-type Names = string[]
+type Names = char[max 64][max 16]
 
 validator Range for u8, u32 {
     min: u32 = 0
@@ -54,18 +54,18 @@ struct User {
     /// The user's id.
     id: UserId
     @validators = [StringBounds(min_chars = 1, max_chars = 32)]
-    name: string
+    name: char[max 32]
     @validators = [Range(min = 1, max = 99)]
     age: u8 = 18
-    optional nickname: string
+    optional nickname: char[max 32]
     role: Role
     tags: Names
-    scores: u32[]
+    scores: u32[max 100]
     digest: u8[32]
-    grid: s16[][]
+    grid: s16[max 8][max 8]
     ratio: f64
     weight: f32 = 1
-    either: union(string u32)
+    either: union(char[max 16] u32)
     flag: bool = false
 }
 

@@ -88,7 +88,7 @@ fn a_breaking_change_in_the_dependency_bumps_the_consumer_major() {
     comline_core::package::build::release(&consumer_dir, &Default::default()).unwrap();
 
     // Remove `id` from the dependency's struct — breaking.
-    write_dependency(&dep_dir, "struct Thing {\n    name: string\n}\n");
+    write_dependency(&dep_dir, "struct Thing {\n    name: char[max 64]\n}\n");
     let res = build(&consumer_dir).unwrap();
 
     assert_eq!(

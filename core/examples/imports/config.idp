@@ -1,2 +1,15 @@
 congregation imports_example
 specification_version = 1
+
+// Every string and list has a maximum (bounds on types); these are the
+// defaults where a type writes none.
+settings = {
+    bounds = {
+        string = {
+            max = 256
+        }
+        array = {
+            max = 1024
+        }
+    }
+}

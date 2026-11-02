@@ -18,6 +18,8 @@ const VALUE_OUT_OF_RANGE: DiagnosticCode =
     DiagnosticCode::error("validation::value-out-of-range");
 const LITERAL_TYPE_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::literal-type-mismatch");
+const UNION_MEMBERS_DIFFER_ONLY_BY_BOUND: DiagnosticCode =
+    DiagnosticCode::error("validation::union-members-differ-only-by-bound");
 const UNKNOWN_CONSTANT: DiagnosticCode = DiagnosticCode::error("validation::unknown-constant");
 const NOT_A_CONSTANT: DiagnosticCode = DiagnosticCode::error("validation::not-a-constant");
 const CONSTANT_CYCLE: DiagnosticCode = DiagnosticCode::error("validation::constant-cycle");
@@ -82,6 +84,8 @@ const UNVERIFIED_ENCODING_AGREEMENT: DiagnosticCode =
     DiagnosticCode::warning("unverified::encoding-agreement");
 const UNVERIFIED_ENCODING_CONFORMANCE: DiagnosticCode =
     DiagnosticCode::warning("unverified::encoding-conformance");
+const UNVERIFIED_BOUNDED_SIZE: DiagnosticCode =
+    DiagnosticCode::warning("unverified::bounded-size");
 const UNVERIFIED_VERSION_HONESTY: DiagnosticCode =
     DiagnosticCode::warning("unverified::version-honesty");
 
@@ -1152,7 +1156,12 @@ fn check_unverified(
         let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
             continue;
         };
-        let given_up = unverified::given_up(parameters, encodings);
+        let mut given_up = unverified::given_up(parameters, encodings);
+        // Bounded size is worked out from the types a protocol reaches, by
+        // the build's bounds pass, and frozen beside the rest (core#98).
+        if unverified::frozen_set(parameters).contains(&Guarantee::BoundedSize) {
+            given_up.push(Guarantee::BoundedSize);
+        }
         let cause = unverified::cause(parameters, encodings);
         let Some(marker) = unverified::marker(parameters) else {
             if !given_up.is_empty() {
@@ -1200,6 +1209,7 @@ fn check_unverified(
                 Guarantee::EncodingAgreement => UNVERIFIED_ENCODING_AGREEMENT,
                 Guarantee::EncodingConformance => UNVERIFIED_ENCODING_CONFORMANCE,
                 Guarantee::VersionHonesty => UNVERIFIED_VERSION_HONESTY,
+                Guarantee::BoundedSize => UNVERIFIED_BOUNDED_SIZE,
             };
             warnings.push(
                 Diagnostic::new(
@@ -1207,7 +1217,10 @@ fn check_unverified(
                     format!(
                         "protocol `{name}` is unverified: {} isn't established ({})",
                         guarantee.describe(),
-                        unverified::cause_of(parameters, encodings, guarantee)
+                        match guarantee {
+                            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
+                            _ => unverified::cause_of(parameters, encodings, guarantee),
+                        }
                     ),
                 )
                 .maybe_span(Some(*span)),
@@ -1912,6 +1925,22 @@ fn validate_type(
         TypeRef::Union(members) => {
             for member in members {
                 validate_type(member, symbols, deprecated, errors, warnings, context, span);
+            }
+            // Members that differ only by bound are one shape on the wire:
+            // nothing in `"abc"` says which of `char[max 3]` and
+            // `char[max 5]` it was sent as (core#98).
+            for (i, a) in members.iter().enumerate() {
+                if let Some(b) = members[..i].iter().find(|b| *b != a && b.without_bounds() == a.without_bounds()) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNION_MEMBERS_DIFFER_ONLY_BY_BOUND,
+                            format!("union members `{b}` and `{a}` differ only by bound"),
+                        )
+                        .with_context(context.to_string())
+                        .with_help("a decoder can't tell them apart: keep one, with the larger bound")
+                        .with_span(span),
+                    );
+                }
             }
         }
         // Primitives and `()` have nothing to resolve.
