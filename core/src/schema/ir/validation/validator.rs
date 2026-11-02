@@ -43,6 +43,11 @@ const ANNOTATION_VALUE_MISMATCH: DiagnosticCode =
 const UNRESOLVED_THROW: DiagnosticCode = DiagnosticCode::error("validation::unresolved-throw");
 const THROW_NOT_AN_ERROR: DiagnosticCode = DiagnosticCode::error("validation::throw-not-an-error");
 const DUPLICATE_THROW: DiagnosticCode = DiagnosticCode::error("validation::duplicate-throw");
+const DUPLICATE_FIELD: DiagnosticCode = DiagnosticCode::error("validation::duplicate-field");
+const DUPLICATE_VARIANT: DiagnosticCode = DiagnosticCode::error("validation::duplicate-variant");
+const DUPLICATE_FUNCTION: DiagnosticCode = DiagnosticCode::error("validation::duplicate-function");
+const DUPLICATE_ARGUMENT: DiagnosticCode = DiagnosticCode::error("validation::duplicate-argument");
+const DUPLICATE_PARAMETER: DiagnosticCode = DiagnosticCode::error("validation::duplicate-parameter");
 const MISPLACED_VALIDATORS: DiagnosticCode =
     DiagnosticCode::error("validation::misplaced-validators");
 const VALIDATOR_MISSING_TARGET: DiagnosticCode =
@@ -561,12 +566,113 @@ pub fn validate_with(
     check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
     check_provider(units, &mut errors);
     validate_throws(units, &mut errors);
+    check_duplicate_members(units, &mut errors);
     super::data::check_dataless_arrays(units, imports, &mut errors);
 
     if errors.is_empty() {
         Ok(warnings)
     } else {
         Err(errors)
+    }
+}
+
+/// Names inside one declaration must differ (core#166): a struct's or an
+/// error's fields, a validator's parameters, an enum's variants, a
+/// protocol's functions, a function's arguments. A repeat makes the wire
+/// ambiguous (which `a` is decoded?) and generates code that doesn't
+/// compile. Each repeat is reported where it's written, pointing back at
+/// the first.
+fn check_duplicate_members(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    fn repeats<'a>(
+        members: impl IntoIterator<Item = (&'a str, (usize, usize))>,
+    ) -> Vec<(&'a str, (usize, usize), (usize, usize))> {
+        let mut first: HashMap<&str, (usize, usize)> = HashMap::new();
+        let mut out = vec![];
+        for (name, span) in members {
+            // An unnamed argument (`function f(S)`) has no name to repeat.
+            if name.is_empty() {
+                continue;
+            }
+            match first.get(name) {
+                Some(&at) => out.push((name, at, span)),
+                None => {
+                    first.insert(name, span);
+                }
+            }
+        }
+        out
+    }
+    let mut report = |code: DiagnosticCode, what: &str, owner: String, name: &str, first, again| {
+        errors.push(
+            Diagnostic::new(code, format!("{owner} has two {what}s named '{name}'"))
+                .with_context(owner)
+                .with_span(again)
+                .with_secondary_span(first, "first declared here")
+                .with_help(format!("rename one {what}, or remove the repeat")),
+        );
+    };
+    fn fields(members: &[FrozenUnit]) -> Vec<(&str, (usize, usize))> {
+        members
+            .iter()
+            .filter_map(|m| match m {
+                FrozenUnit::Field { name, span, .. } => Some((name.as_str(), *span)),
+                _ => None,
+            })
+            .collect()
+    }
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, fields: members, .. } => {
+                for (field, first, again) in repeats(fields(members)) {
+                    report(DUPLICATE_FIELD, "field", format!("struct '{name}'"), field, first, again);
+                }
+            }
+            FrozenUnit::Error { name, fields: members, imported_from: None, .. } => {
+                for (field, first, again) in repeats(fields(members)) {
+                    report(DUPLICATE_FIELD, "field", format!("error '{name}'"), field, first, again);
+                }
+            }
+            FrozenUnit::Validator { name, properties, .. } => {
+                for (param, first, again) in repeats(fields(properties)) {
+                    report(DUPLICATE_PARAMETER, "parameter", format!("validator '{name}'"), param, first, again);
+                }
+            }
+            FrozenUnit::Enum { name, variants, .. } => {
+                let named = variants.iter().filter_map(|v| match v {
+                    FrozenUnit::EnumVariant(variant, span) => Some((variant.as_str(), *span)),
+                    _ => None,
+                });
+                for (variant, first, again) in repeats(named) {
+                    report(DUPLICATE_VARIANT, "variant", format!("enum '{name}'"), variant, first, again);
+                }
+            }
+            FrozenUnit::Protocol { name, functions, .. } => {
+                let named = functions.iter().filter_map(|f| match f {
+                    FrozenUnit::Function { name, span, .. } => Some((name.as_str(), *span)),
+                    _ => None,
+                });
+                for (function, first, again) in repeats(named) {
+                    report(DUPLICATE_FUNCTION, "function", format!("protocol '{name}'"), function, first, again);
+                }
+                for function in functions {
+                    let FrozenUnit::Function { name: function, arguments, .. } = function else {
+                        continue;
+                    };
+                    let named = arguments.iter().map(|a| (a.name.as_str(), a.span));
+                    for (argument, first, again) in repeats(named) {
+                        report(
+                            DUPLICATE_ARGUMENT,
+                            "argument",
+                            format!("function '{name}.{function}'"),
+                            argument,
+                            first,
+                            again,
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
     }
 }
 
