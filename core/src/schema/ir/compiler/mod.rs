@@ -25,20 +25,14 @@ pub trait Compile {
         tracing::debug!("Compiling source with rust-sitter...");
         
         // Parse with rust-sitter grammar (returns Document with Vec<Declaration>)
-        if let Some(diagnostic) =
-            crate::diagnostics::find_out_of_range_integers(source).into_iter().next()
-        {
-            panic!("{}", crate::diagnostics::render(&diagnostic, "<source>", source));
-        }
-        match crate::schema::idl::grammar::parse(source) {
+        match crate::schema::idl::parse::parse_schema(source) {
             Ok(document) => {
                 // Extract declarations from Document (field 0 is Vec<Declaration>)
                 let declarations = document.0;
                 Self::from_declarations(declarations)
             }
-            Err(e) => {
-                let diagnostic = crate::diagnostics::from_schema_parse_failure(source, &e);
-                panic!("{}", crate::diagnostics::render(&diagnostic, "<source>", source));
+            Err(diagnostics) => {
+                panic!("{}", crate::diagnostics::render(&diagnostics[0], "<source>", source));
             }
         }
     }

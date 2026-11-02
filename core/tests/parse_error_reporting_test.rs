@@ -106,3 +106,16 @@ fn an_integer_too_large_for_an_i64_is_an_error_not_a_panic() {
     assert!(message.contains("api.ids:1:"), "{message}");
 }
 
+#[test]
+fn a_schema_nested_too_deeply_is_an_error_not_a_stack_overflow() {
+    // 10,000 levels overflowed the main thread's 8 MiB stack before.
+    let source = format!("struct S {{\n    a: u8{}\n}}\n", "[]".repeat(10_000));
+    let err = PackageSources::new()
+        .schema(["api"], &source)
+        .compile()
+        .expect_err("nesting this deep must be refused");
+    let message = format!("{err:#}");
+    assert!(message.contains("parse::nesting-too-deep"), "{message}");
+    assert!(message.contains("api.ids:2:"), "{message}");
+}
+
