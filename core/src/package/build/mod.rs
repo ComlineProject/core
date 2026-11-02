@@ -382,6 +382,17 @@ fn add_schema_sources(context: &mut ProjectContext, schemas: &[(Vec<String>, Str
         let mut codemap = crate::utils::codemap::CodeMap::new();
         codemap.insert_file(name.clone(), source.clone());
 
+        // A literal the parser had to saturate is refused before its tree
+        // is used (see `IntegerLiteral`).
+        let out_of_range = crate::diagnostics::find_out_of_range_integers(source);
+        if !out_of_range.is_empty() {
+            let rendered: Vec<String> = out_of_range
+                .iter()
+                .map(|d| crate::diagnostics::render(d, &name, source))
+                .collect();
+            bail!("Failed to parse schema '{}':\n\n{}", name, rendered.join("\n"))
+        }
+
         match crate::schema::idl::grammar::parse(source) {
             Ok(document) => {
                 let schema_ctx =

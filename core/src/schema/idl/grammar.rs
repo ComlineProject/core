@@ -1060,7 +1060,14 @@ pub mod grammar {
 
     #[derive(Debug, Clone)]
     pub struct IntegerLiteral {
-        #[rust_sitter::leaf(pattern = r"-?\d+", transform = |s| s.parse().unwrap())]
+        /// The literal's value. One too large for an `i64` saturates here
+        /// rather than panicking, so every caller of [`parse`] gets a tree;
+        /// [`crate::diagnostics::find_out_of_range_integers`] reports it,
+        /// before the tree is used.
+        #[rust_sitter::leaf(
+            pattern = r"-?\d+",
+            transform = |s| s.parse().unwrap_or(if s.starts_with('-') { i64::MIN } else { i64::MAX })
+        )]
         pub value: i64,
     }
 

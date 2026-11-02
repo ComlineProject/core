@@ -387,6 +387,11 @@ impl ImportResolver {
             let source = std::fs::read_to_string(path)
                 .map_err(|e| format!("Failed to read {}: {}", path.display(), e))?;
             
+            if let Some(diagnostic) =
+                crate::diagnostics::find_out_of_range_integers(&source).into_iter().next()
+            {
+                return Err(crate::diagnostics::render(&diagnostic, &path.to_string_lossy(), &source));
+            }
             match crate::schema::idl::grammar::parse(&source) {
                 Ok(doc) => Ok(doc),
                 Err(errors) => {
