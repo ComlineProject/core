@@ -2,14 +2,64 @@
 //!
 //! Each takes its parameters by name:
 //!
-//!     @validators = [StringBounds(min_chars = 3, max_chars = 32)]
+//!     @validators = [MinChars(min = 3)]
+//!
+//! A maximum belongs in the type (`char[max 32]`, `u32[max 10]`), where a
+//! decoder checks it before allocating. These check what a type can't say:
+//! a minimum, or a range of values.
+
+/// Checks a string or a list isn't empty.
+validator NonEmpty for string, any[] {
+    validate {
+        assert(value.length > 0, f"{value.name} must not be empty")
+    }
+}
+
+/// Checks a string has at least `min` characters.
+/// @min: the fewest characters allowed
+validator MinChars for string {
+    min: u32
+
+    validate {
+        assert(value.length >= params.min,
+               f"{value.name} must be at least {params.min} characters")
+    }
+}
+
+/// Checks a list has at least `min` items.
+/// @min: the fewest items allowed
+validator MinItems for any[] {
+    min: u32
+
+    validate {
+        assert(value.length >= params.min,
+               f"{value.name} must have at least {params.min} items")
+    }
+}
+
+/// Checks an integer is within `min` and `max`, both included.
+/// @min: the smallest value allowed
+/// @max: the largest value allowed
+validator IntRange for u8, u16, u32, u64, s8, s16, s32, s64 {
+    min: s64 = s64::MIN
+    max: u64 = u64::MAX
+
+    validate {
+        assert(value >= params.min, f"{value.name} must be at least {params.min}")
+        assert(value <= params.max, f"{value.name} must be at most {params.max}")
+    }
+}
 
 /// Checks a string's length is within a minimum and a maximum.
+///
+/// Deprecated in spirit: the type carries the maximum (`char[max 32]`), and
+/// `MinChars` the minimum. `max_chars` defaults to no limit, so it never
+/// refuses what the type allows.
 /// @min_chars: minimum length of the string
 /// @max_chars: maximum length of the string
 validator StringBounds for string {
     min_chars: u32 = 0
-    max_chars: u32 = 1024
+    max_chars: u32 = u32::MAX
 
     validate {
         assert(value.length >= params.min_chars,
