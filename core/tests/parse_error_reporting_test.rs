@@ -92,3 +92,17 @@ fn a_dangling_open_brace_points_at_itself_not_the_rest_of_the_file() {
     assert!(message.contains(":4:"), "{message}");
     assert!(!message.contains(":1:1"), "{message}");
 }
+
+#[test]
+fn an_integer_too_large_for_an_i64_is_an_error_not_a_panic() {
+    let source = "const MAX: u64 = 18446744073709551615\n";
+    let err = PackageSources::new()
+        .schema(["api"], source)
+        .compile()
+        .expect_err("a literal beyond an i64 must be refused");
+    let message = format!("{err:#}");
+    assert!(message.contains("parse::integer-out-of-range"), "{message}");
+    assert!(message.contains("18446744073709551615"), "{message}");
+    assert!(message.contains("api.ids:1:"), "{message}");
+}
+

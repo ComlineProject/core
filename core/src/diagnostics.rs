@@ -165,6 +165,7 @@ const MISSING_TOKEN: DiagnosticCode = DiagnosticCode::error("parse::missing-toke
 const SYNTAX_ERROR: DiagnosticCode = DiagnosticCode::error("parse::syntax-error");
 const UNCLOSED_BRACKET: DiagnosticCode = DiagnosticCode::error("parse::unclosed-bracket");
 const MISSING_RETURN_TYPE: DiagnosticCode = DiagnosticCode::error("parse::missing-return-type");
+const INTEGER_OUT_OF_RANGE: DiagnosticCode = DiagnosticCode::error("parse::integer-out-of-range");
 
 /// Collapse a grammar's raw `Vec<ParseError>` (both the `.ids` schema
 /// grammar and the `.idp` package-config grammar share this exact
@@ -308,6 +309,50 @@ pub fn find_missing_return_types(source: &str) -> Vec<Diagnostic> {
                     ),
             );
         }
+    }
+    out
+}
+
+/// Every integer literal in a `.ids` source that doesn't fit an `i64`, the
+/// widest a literal can be stored as. The parser saturates such a literal
+/// rather than panicking (`IntegerLiteral`), so it has to be refused here,
+/// before the tree is used: otherwise `99999999999999999999` would quietly
+/// become `9223372036854775807`. Strings and comments are skipped (see
+/// [`code_bytes`]), and so are digits inside a name (`f123`).
+pub fn find_out_of_range_integers(source: &str) -> Vec<Diagnostic> {
+    let code = code_bytes(source);
+    let mut out = Vec::new();
+    let mut k = 0;
+    while k < code.len() {
+        let (pos, b) = code[k];
+        let follows = |i: usize| i > 0 && code[i - 1].0 + 1 == code[i].0;
+        let in_name = follows(k)
+            && (code[k - 1].1.is_ascii_alphanumeric() || code[k - 1].1 == b'_');
+        let negative = b == b'-'
+            && code.get(k + 1).is_some_and(|&(p, d)| p == pos + 1 && d.is_ascii_digit());
+        if in_name || !(b.is_ascii_digit() || negative) {
+            k += 1;
+            continue;
+        }
+        let mut end = k + 1;
+        while end < code.len() && follows(end) && code[end].1.is_ascii_digit() {
+            end += 1;
+        }
+        let span = (pos, code[end - 1].0 + 1);
+        let text = &source[span.0..span.1];
+        if text.parse::<i64>().is_err() {
+            out.push(
+                Diagnostic::new(INTEGER_OUT_OF_RANGE, format!("the integer `{text}` is too large"))
+                    .with_context("out of range")
+                    .with_span(span)
+                    .with_help(format!(
+                        "an integer literal can be from {} to {} for now",
+                        i64::MIN,
+                        i64::MAX
+                    )),
+            );
+        }
+        k = end;
     }
     out
 }
@@ -667,6 +712,31 @@ mod tests {
         assert_eq!(d.message, "unclosed `{`");
         let (start, _) = d.span.unwrap();
         assert_eq!(&source[start..start + 1], "{");
+    }
+
+    #[test]
+    fn an_integer_too_large_for_an_i64_is_found_at_its_own_position() {
+        let source = "const A: u64 = 99999999999999999999\nconst B: s64 = -9223372036854775809\n";
+        let found = find_out_of_range_integers(source);
+        let spans: Vec<&str> = found.iter().map(|d| &source[d.span.unwrap().0..d.span.unwrap().1]).collect();
+        assert_eq!(spans, ["99999999999999999999", "-9223372036854775809"]);
+        assert!(found.iter().all(|d| d.code.id == "parse::integer-out-of-range"));
+    }
+
+    #[test]
+    fn integers_that_fit_names_strings_and_comments_are_not_out_of_range() {
+        let source = "const A: s64 = 9223372036854775807\nconst B: s64 = -9223372036854775808\n\
+            struct f99999999999999999999 {\n    /// 99999999999999999999 in a doc\n    \
+            a: u8 = 5 // 99999999999999999999\n    /* 99999999999999999999 */\n}\n\
+            const S: string = \"99999999999999999999\"\n";
+        assert!(find_out_of_range_integers(source).is_empty());
+    }
+
+    #[test]
+    fn the_parser_saturates_rather_than_panics() {
+        let document = crate::schema::idl::grammar::parse("const A: u64 = 99999999999999999999\n")
+            .expect("parses, with the literal saturated");
+        assert_eq!(document.0.len(), 1);
     }
 
     #[test]
