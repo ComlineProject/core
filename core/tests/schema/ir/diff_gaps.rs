@@ -91,6 +91,36 @@ fn constants_are_compared() {
     ));
 }
 
+// A constant named only by another constant is used where that one is
+// (core#168): changing it is counted by what it reaches.
+#[test]
+fn a_constant_through_another_counts_where_that_one_is_used() {
+    let validator = BOUNDS.replace("max: u32 = 10", "max: u32 = LIMIT");
+    let package = |base: u32| {
+        format!(
+            "const BASE: u32 = {base}\nconst LIMIT: u32 = BASE\n{validator}\
+             struct S {{\n    @validators = [Bounds()]\n    name: string\n}}\n"
+        )
+    };
+    let changed = diff(&package(10), &package(5));
+    assert!(
+        matches!(
+            changed.breaking_changes.as_slice(),
+            [BreakingChange::ValidationTightened { target }] if target == "BASE"
+        ),
+        "{changed:?}"
+    );
+
+    let defaults = |base: u32| {
+        format!("const BASE: u32 = {base}\nconst DEFAULT: u32 = BASE\nstruct S {{\n    n: u32 = DEFAULT\n}}\n")
+    };
+    let changed = diff(&defaults(1), &defaults(2));
+    assert!(
+        matches!(changed.modifications.as_slice(), [Modification::ChangedConstantValue { .. }]),
+        "{changed:?}"
+    );
+}
+
 #[test]
 fn aliases_are_compared() {
     let added = diff("", "type Id = u64\n");

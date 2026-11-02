@@ -717,3 +717,29 @@ fn test_type_alias_cycle_fails_compilation() {
         result
     );
 }
+
+// A constant another schema declares is read for its value (core#168),
+// followed through that schema's own constants.
+#[test]
+fn an_imported_constant_is_checked_where_it_is_named() {
+    let mut project = build_project();
+    add_schema(&mut project, &["limits"], "const BASE: u32 = 500\nconst MAX: u32 = BASE\nconst SMALL: u8 = 7\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use limits::MAX\nuse limits::SMALL\n\nconst OWN: u32 = MAX\n\nstruct R {\n    a: u32 = MAX\n    b: u8 = SMALL\n}\n",
+    );
+    interpret_context(&project).expect("values that fit should build");
+
+    let mut project = build_project();
+    add_schema(&mut project, &["limits"], "const BASE: u32 = 500\nconst MAX: u32 = BASE\n");
+    add_schema(&mut project, &["api"], "use limits::MAX\n\nstruct R {\n    a: u8 = MAX\n}\n");
+    let error = interpret_context(&project).expect_err("500 doesn't fit a u8").to_string();
+    assert!(error.contains("`MAX` is 500, which does not fit in `u8`"), "{error}");
+
+    let mut project = build_project();
+    add_schema(&mut project, &["limits"], "const MAX: u32 = 500\n");
+    add_schema(&mut project, &["api"], "use limits\n\nconst OWN: u8 = limits::MAX\n");
+    let error = interpret_context(&project).expect_err("500 doesn't fit a u8").to_string();
+    assert!(error.contains("`limits::MAX` is 500, which does not fit in `u8`"), "{error}");
+}
