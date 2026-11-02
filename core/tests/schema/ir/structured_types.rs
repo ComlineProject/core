@@ -53,7 +53,7 @@ fn a_fixed_array_keeps_its_length() {
     let units = IncrementalInterpreter::from_source("struct S {\n    digest: u8[32]\n    tags: string[]\n}\n");
     assert_eq!(
         *first_field_type(&units),
-        TypeRef::Array { element: Box::new(TypeRef::Primitive(P::U8)), length: Some(32) }
+        TypeRef::Array { element: Box::new(TypeRef::Primitive(P::U8)), length: Some(32), max: None }
     );
     assert_eq!(first_field_type(&units).to_string(), "u8[32]");
 }

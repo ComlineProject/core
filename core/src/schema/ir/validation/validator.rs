@@ -288,7 +288,21 @@ pub fn validate_with(
             _ => None,
         })
         .collect();
-    let primitive_of = |ty: &TypeRef| resolve_type(ty, &local_aliases, &symbols, imports).as_primitive();
+    // A default has to be its type's kind of value and, for a string with a
+    // bound, fit it (core#98).
+    let check_default = |ty: &TypeRef, default: &Literal, context: &str, span, errors: &mut Vec<Diagnostic>| {
+        match resolve_type(ty, &local_aliases, &symbols, imports) {
+            TypeRef::Primitive(primitive) => check_literal(primitive, default, &constants, context, span, errors),
+            TypeRef::Array { element, length, max } if *element == TypeRef::Primitive(PrimitiveType::Char) => {
+                let before = errors.len();
+                check_literal(PrimitiveType::String, default, &constants, context, span, errors);
+                if errors.len() == before {
+                    check_text_size(default, length, max, &constants, context, span, errors);
+                }
+            }
+            _ => {}
+        }
+    };
 
     // Pass 2: Type Resolution & Usage
     for unit in units {
@@ -299,8 +313,8 @@ pub fn validate_with(
                         FrozenUnit::Field { name: field_name, ty, default, span, .. } => {
                             let context = format!("Struct '{}', field '{}'", name, field_name);
                             validate_type(ty, &symbols, &deprecated, &mut errors, &mut warnings, &context, *span);
-                            if let (Some(default), Some(primitive)) = (default, primitive_of(ty)) {
-                                check_literal(primitive, default, &constants, &context, *span, &mut errors);
+                            if let Some(default) = default {
+                                check_default(ty, default, &context, *span, &mut errors);
                             }
                         }
                         _ => {}
@@ -312,20 +326,16 @@ pub fn validate_with(
             FrozenUnit::Error { name, fields, imported_from: None, .. } => {
                 for field in fields {
                     if let FrozenUnit::Field { name: field_name, ty, default: Some(default), span, .. } = field {
-                        if let Some(primitive) = primitive_of(ty) {
-                            let context = format!("Error '{name}', field '{field_name}'");
-                            check_literal(primitive, default, &constants, &context, *span, &mut errors);
-                        }
+                        let context = format!("Error '{name}', field '{field_name}'");
+                        check_default(ty, default, &context, *span, &mut errors);
                     }
                 }
             }
             FrozenUnit::Validator { name, properties, .. } => {
                 for property in properties {
                     if let FrozenUnit::Field { name: property_name, ty, default: Some(default), span, .. } = property {
-                        if let Some(primitive) = primitive_of(ty) {
-                            let context = format!("Validator '{name}', property '{property_name}'");
-                            check_literal(primitive, default, &constants, &context, *span, &mut errors);
-                        }
+                        let context = format!("Validator '{name}', property '{property_name}'");
+                        check_default(ty, default, &context, *span, &mut errors);
                     }
                 }
             }
@@ -895,7 +905,10 @@ fn check_validator_targets(
                 }
                 None => continue,
             };
-            if targets.is_empty() || targets.iter().any(|(_, r)| *r == field_resolved) {
+            // Bounds don't take part (core#98): `for string` applies to
+            // `char[max 32]`.
+            let field_unbounded = field_resolved.without_bounds();
+            if targets.is_empty() || targets.iter().any(|(_, r)| r.without_bounds() == field_unbounded) {
                 continue;
             }
             let applies_to = targets
@@ -1616,6 +1629,21 @@ fn check_literal(
         (p, Literal::Integer(_)) => p.is_float(),
         (PrimitiveType::Bool, Literal::Bool(_)) => true,
         (PrimitiveType::String, Literal::String(_)) => true,
+        // A `char` is written as a string of exactly one character.
+        (PrimitiveType::Char, Literal::String(text)) => {
+            let count = text.chars().count();
+            if count != 1 {
+                errors.push(
+                    Diagnostic::new(
+                        VALUE_OUT_OF_RANGE,
+                        format!("a `char` is one character, found {count} in {literal}"),
+                    )
+                    .with_context(context.to_string())
+                    .with_span(span),
+                );
+            }
+            return;
+        }
         _ => false,
     };
     if !fits {
@@ -1623,6 +1651,46 @@ fn check_literal(
             Diagnostic::new(
                 LITERAL_TYPE_MISMATCH,
                 format!("expected a `{primitive}` value, found {} `{literal}`", literal.describe()),
+            )
+            .with_context(context.to_string())
+            .with_span(span),
+        );
+    }
+}
+
+/// A string default against its type's length or maximum, in characters:
+/// `char[max 3] = "abcd"` doesn't fit.
+fn check_text_size(
+    default: &Literal,
+    length: Option<u64>,
+    max: Option<u64>,
+    constants: &Constants,
+    context: &str,
+    span: (usize, usize),
+    errors: &mut Vec<Diagnostic>,
+) {
+    let text = match default {
+        Literal::String(text) => text.clone(),
+        Literal::Reference(r) => match constants.resolve(r) {
+            Resolution::Value(ResolvedConstant { value: super::constants::ConstantValue::String(text), .. }) => text,
+            _ => return,
+        },
+        _ => return,
+    };
+    let count = text.chars().count() as u64;
+    let problem = match (length, max) {
+        (Some(n), _) if count != n => Some(format!("exactly {n}")),
+        (_, Some(n)) if count > n => Some(format!("at most {n}")),
+        _ => None,
+    };
+    if let Some(holds) = problem {
+        errors.push(
+            Diagnostic::new(
+                VALUE_OUT_OF_RANGE,
+                format!(
+                    "the default {text:?} is {count} character{}; the type holds {holds}",
+                    if count == 1 { "" } else { "s" }
+                ),
             )
             .with_context(context.to_string())
             .with_span(span),

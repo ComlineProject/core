@@ -909,7 +909,8 @@ impl Scope<'_> {
                 name: name.clone(),
                 target: self.resolve(name),
             },
-            TypeRef::Array { element, length } => Type::Array {
+            // The doc model carries bounds in rollout step 6 (core#98).
+            TypeRef::Array { element, length, .. } => Type::Array {
                 element: Box::new(self.ty(element)),
                 length: *length,
             },

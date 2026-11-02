@@ -702,7 +702,8 @@ impl<'a, 'i> Builder<'a, 'i> {
         match ty {
             TypeRef::Primitive(p) => Ty::Primitive(TypeRef::Primitive(*p).to_string()),
             TypeRef::Unit => Ty::Unit,
-            TypeRef::Array { element, length } => {
+            // Bounds join the compatibility facts with `comline@2` (core#98).
+            TypeRef::Array { element, length, .. } => {
                 Ty::Array(Box::new(self.ty(element, namespace, depth + 1)), *length)
             }
             TypeRef::Union(types) => {
