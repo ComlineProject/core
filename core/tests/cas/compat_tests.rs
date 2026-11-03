@@ -372,3 +372,240 @@ fn a_renamed_namespace_keeps_its_protocols_history() {
     assert_eq!(line(&f, "Users"), "0.1.0");
     assert_eq!(since(&f, "Health", "ping"), "0.1.0");
 }
+
+// ---------- wire numbers (core#127) ----------
+
+fn number(facts: &PackageFacts, protocol: &str) -> u16 {
+    facts.protocols.iter().find(|p| p.name == protocol).unwrap().number
+}
+
+fn fnumber(facts: &PackageFacts, protocol: &str, function: &str) -> u16 {
+    let p = facts.protocols.iter().find(|p| p.name == protocol).unwrap();
+    p.functions.iter().find(|f| f.name == function).unwrap().number
+}
+
+fn history(dir: &Path) -> compat::History {
+    let store = ObjectStore::new(dir);
+    compat::history_of_commit(&store, &read_ref(dir, main_ref()).unwrap()).unwrap()
+}
+
+#[test]
+fn numbers_are_assigned_in_order_and_kept_across_builds_and_releases() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    let first = facts(dir.path());
+    assert_eq!((number(&first, "Users"), number(&first, "Health")), (0, 1));
+    assert_eq!(fnumber(&first, "Users", "get"), 0);
+    assert_eq!(fnumber(&first, "Health", "ping"), 0);
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+
+    // A function inserted before the others and a protocol added first:
+    // the released ones keep theirs, the new ones come after.
+    let more = format!(
+        "protocol Admin {{\n    function reset();\n}}\n\n{}",
+        V1.replace("    function ping() -> u32;\n", "    function version() -> u32;\n    function ping() -> u32;\n")
+    );
+    schema(dir.path(), &more);
+    build(dir.path()).unwrap();
+    let built = facts(dir.path());
+    assert_eq!(number(&built, "Admin"), 2);
+    assert_eq!((number(&built, "Users"), number(&built, "Health")), (0, 1));
+    assert_eq!(fnumber(&built, "Health", "ping"), 0);
+    assert_eq!(fnumber(&built, "Health", "version"), 1);
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    let released = facts(dir.path());
+    assert_eq!(number(&released, "Admin"), 2);
+    assert_eq!(fnumber(&released, "Health", "version"), 1);
+    // The earlier release's facts didn't change.
+    let old = compat::facts(dir.path(), Some("0.1.0")).unwrap();
+    assert_eq!((number(&old, "Users"), number(&old, "Health")), (0, 1));
+    assert_reproducible(dir.path());
+}
+
+#[test]
+fn a_removed_number_is_retired_and_a_re_added_item_gets_a_new_one() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+
+    // Removed and added back before a release: what builds did and undid
+    // doesn't count, it keeps its number.
+    schema(dir.path(), &V1.replace("    function ping() -> u32;\n", "    function version() -> u32;\n"));
+    build(dir.path()).unwrap();
+    assert_eq!(fnumber(&facts(dir.path()), "Health", "version"), 1);
+    schema(dir.path(), V1);
+    build(dir.path()).unwrap();
+    assert_eq!(fnumber(&facts(dir.path()), "Health", "ping"), 0);
+
+    // Removed in a release: retired, under the name that had it.
+    let without = V1
+        .replace("    function ping() -> u32;\n", "    function version() -> u32;\n")
+        .replace("protocol Users {\n    function get(id: u64) -> User;\n}\n\n", "");
+    schema(dir.path(), &without);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    let h = history(dir.path());
+    assert_eq!(h.retired, vec![compat::Retired { number: 0, name: "ping::Users".into() }]);
+    let health = h.protocols.iter().find(|p| p.path == "ping::Health").unwrap();
+    assert_eq!(health.retired, vec![compat::Retired { number: 0, name: "ping".into() }]);
+    assert_eq!(health.functions[0].number, 1);
+
+    // Added back: new numbers, above everything the scope ever had.
+    schema(dir.path(), &format!("{without}\n{}", "protocol Users {\n    function get(id: u64) -> User;\n}\n")
+        .replace("    function version() -> u32;\n", "    function version() -> u32;\n    function ping() -> u32;\n"));
+    build(dir.path()).unwrap();
+    let back = facts(dir.path());
+    assert_eq!(number(&back, "Users"), 2);
+    assert_eq!(number(&back, "Health"), 1);
+    assert_eq!(fnumber(&back, "Health", "ping"), 2);
+    assert_eq!(fnumber(&back, "Health", "version"), 1);
+    // Still retired: the numbers are held by new items, the old ones' stay
+    // reserved.
+    assert!(history(dir.path()).retired.iter().any(|r| r.number == 0));
+    assert_reproducible(dir.path());
+}
+
+#[test]
+fn an_explicit_id_wins_and_assigned_numbers_skip_it() {
+    let dir = package(&V1.replace("protocol Health", "@id = 0\nprotocol Health").replace(
+        "    function ping() -> u32;\n",
+        "    function ping() -> u32;\n    @id = 0\n    function version() -> u32;\n",
+    ));
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    assert_eq!((number(&f, "Users"), number(&f, "Health")), (1, 0));
+    assert_eq!((fnumber(&f, "Health", "ping"), fnumber(&f, "Health", "version")), (1, 0));
+    assert_reproducible(dir.path());
+
+    // Two of the same in one scope.
+    schema(dir.path(), &V1.replace("protocol Health", "@id = 3\nprotocol Health").replace("protocol Users", "@id = 3\nprotocol Users"));
+    let err = build(dir.path()).unwrap_err().to_string();
+    assert!(err.contains("`ping::Users` and `ping::Health` both have `@id = 3`"), "{err}");
+
+    // Out of range.
+    schema(dir.path(), &V1.replace("protocol Health", "@id = 70000\nprotocol Health"));
+    let err = build(dir.path()).unwrap_err().to_string();
+    assert!(err.contains("an id is a u16"), "{err}");
+}
+
+#[test]
+fn the_reuse_guard_refuses_an_id_history_gave_another_item() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+
+    // Users holds 0.
+    schema(dir.path(), &V1.replace("protocol Health", "@id = 0\nprotocol Health"));
+    let err = build(dir.path()).unwrap_err().to_string();
+    assert!(err.contains("`@id = 0` on protocol `ping::Health`: 0 was protocol `ping::Users`'s number"), "{err}");
+
+    // `ping` is retired: its number stays reserved.
+    schema(dir.path(), &V1.replace("    function ping() -> u32;\n", "    function version() -> u32;\n"));
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    schema(dir.path(), &V1.replace("    function ping() -> u32;\n", "    function version() -> u32;\n    @id = 0\n    function status() -> u32;\n"));
+    let err = build(dir.path()).unwrap_err().to_string();
+    assert!(err.contains("`@id = 0` on function `status`: 0 was function `ping`'s number"), "{err}");
+
+    // The item that had it may take it back explicitly.
+    schema(dir.path(), &V1.replace("    function ping() -> u32;\n", "    function version() -> u32;\n    @id = 0\n    function ping() -> u32;\n"));
+    build(dir.path()).unwrap();
+    assert_eq!(fnumber(&facts(dir.path()), "Health", "ping"), 0);
+    assert!(history(dir.path()).protocols.iter().all(|p| p.retired.is_empty()));
+    assert_reproducible(dir.path());
+}
+
+#[test]
+fn a_released_item_keeps_its_number_when_its_explicit_id_is_dropped() {
+    let dir = package(&V1.replace("protocol Health", "@id = 7\nprotocol Health"));
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    assert_eq!(number(&facts(dir.path()), "Health"), 7);
+    schema(dir.path(), V1);
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    assert_eq!((number(&f, "Users"), number(&f, "Health")), (0, 7));
+    // Changing it is a new number: the old one is retired.
+    schema(dir.path(), &V1.replace("protocol Health", "@id = 9\nprotocol Health"));
+    build(dir.path()).unwrap();
+    assert_eq!(number(&facts(dir.path()), "Health"), 9);
+    assert_eq!(history(dir.path()).retired, vec![compat::Retired { number: 7, name: "ping::Health".into() }]);
+    assert_reproducible(dir.path());
+}
+
+#[test]
+fn a_renamed_protocol_keeps_its_number() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    schema(dir.path(), &V1.replace("protocol Health", "protocol Status"));
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    assert_eq!(number(&f, "Status"), 1);
+    assert_eq!(fnumber(&f, "Status", "ping"), 0);
+    assert!(history(dir.path()).retired.is_empty());
+    assert_reproducible(dir.path());
+}
+
+/// A history as stored before numbers: no `number`, `retired` or `numbered`.
+#[derive(serde_derive::Serialize)]
+struct OldHistory {
+    protocols: Vec<OldProtocol>,
+}
+#[derive(serde_derive::Serialize)]
+struct OldProtocol {
+    path: String,
+    line: String,
+    functions: Vec<OldFunction>,
+}
+#[derive(serde_derive::Serialize)]
+struct OldFunction {
+    name: String,
+    since: String,
+}
+
+#[test]
+fn a_version_stored_without_numbers_gets_them_computed_when_read() {
+    use comline_core::package::build::cas::objects::{Blob, EntryMode};
+    use comline_core::package::build::cas::storage::to_cbor;
+    use comline_core::package::build::cas::update_ref;
+
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    let store = ObjectStore::new(dir.path());
+    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
+    let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
+    let stored = compat::read_history(&store, &tree).unwrap().unwrap();
+    assert!(stored.numbered);
+
+    // The same commit, its facts as an older core stored them.
+    let old = OldHistory {
+        protocols: stored
+            .protocols
+            .iter()
+            .map(|p| OldProtocol {
+                path: p.path.clone(),
+                line: p.line.clone(),
+                functions: p.functions.iter().map(|f| OldFunction { name: f.name.clone(), since: f.since.clone() }).collect(),
+            })
+            .collect(),
+    };
+    let blob = store.write(&Blob::new(to_cbor(&old).unwrap()).to_bytes().unwrap()).unwrap();
+    let mut old_tree = compat::without_facts(&tree);
+    old_tree.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), blob);
+    commit.tree = store.write(&old_tree.to_bytes().unwrap()).unwrap();
+    let old_hash = store.write(&commit.to_bytes().unwrap()).unwrap();
+    update_ref(dir.path(), main_ref(), &old_hash).unwrap();
+
+    let read = compat::read_history(&store, &old_tree).unwrap().unwrap();
+    assert!(!read.numbered);
+    assert_eq!(compat::history_of_commit(&store, &old_hash).unwrap(), stored);
+    let f = facts(dir.path());
+    assert_eq!((number(&f, "Users"), number(&f, "Health")), (0, 1));
+
+    // A build after it numbers against it.
+    schema(dir.path(), &format!("{V1}\nprotocol Admin {{\n    function reset();\n}}\n"));
+    build(dir.path()).unwrap();
+    assert_eq!(number(&facts(dir.path()), "Admin"), 2);
+}

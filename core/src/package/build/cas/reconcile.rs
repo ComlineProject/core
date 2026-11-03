@@ -19,12 +19,12 @@
 // - If both sides released since they split, it refuses: two releases
 //   can't both keep their version.
 //
-// Wire numbers (`comline@2`, runtime#15) need nothing extra here: like a
-// protocol's line and its functions' "since", they'll be assigned against
-// the last release on the first-parent line (`crate::compat::history`),
-// so the reconciling build renumbers the ones added since that release the
-// same way, and released ones keep theirs. Whatever assigns them must
-// follow first parents only, as every history walk does today.
+// Wire numbers (`comline@2`, runtime#15, core#127) need nothing extra
+// here: like a protocol's line and its functions' "since", they're
+// assigned against the last release on the first-parent line
+// (`crate::compat::history`), so the reconciling build renumbers the ones
+// added since that release the same way, and released ones keep theirs
+// (`a_reconcile_renumbers_unreleased_items_and_keeps_released_ones`).
 //
 // Nothing is deleted: the other side's commits stay in the store. The ref
 // is written clean (one hash) by the build that reconciles.

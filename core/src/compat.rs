@@ -19,6 +19,15 @@
 //! raised bump, or 1.0). Both are computed against the last release, not
 //! build by build, so what a series of builds did and undid doesn't count.
 //!
+//! - **Number:** each protocol's `u16` wire number, unique in the package,
+//!   and each function's, unique in its protocol (core#127). Numbered
+//!   against the last release too: what it fixed never changes, and a
+//!   build after it numbers what it added above every number the scope
+//!   has ever had, retired ones included. A number becomes binding at
+//!   `comline release`; until then a reconcile (core#198) renumbers it.
+//!   A number whose item is gone is retired and never reused. `@id = N`
+//!   writes one out; see [`number_scope`].
+//!
 //! They need history, so each build records them in its root tree, as a
 //! `facts` blob ([`FACTS_ENTRY`]) beside `config` and `docs`; a version
 //! built before that gets them computed when read. The hashes need only
@@ -56,6 +65,14 @@ type Schemas = Vec<Vec<FrozenUnit>>;
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct History {
     pub protocols: Vec<ProtocolHistory>,
+    /// Protocol numbers the package has had and no protocol holds now,
+    /// by number: never assigned again.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired: Vec<Retired>,
+    /// Whether the numbers were assigned. `false` in a history stored
+    /// before there were any: they're computed when it's read.
+    #[serde(default)]
+    pub numbered: bool,
 }
 
 /// One protocol's line and its functions' "since" versions.
@@ -66,8 +83,14 @@ pub struct ProtocolHistory {
     pub path: String,
     /// The release at which it last broke.
     pub line: String,
+    /// Its wire number, unique in the package.
+    #[serde(default)]
+    pub number: u16,
     /// In wire (declaration) order.
     pub functions: Vec<FunctionFacts>,
+    /// Function numbers it has had and no function holds now.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub retired: Vec<Retired>,
 }
 
 /// A function and the release it first appeared in.
@@ -75,6 +98,17 @@ pub struct ProtocolHistory {
 pub struct FunctionFacts {
     pub name: String,
     pub since: String,
+    /// Its wire number, unique in its protocol.
+    #[serde(default)]
+    pub number: u16,
+}
+
+/// A number no item holds any more, and the item that last held it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Retired {
+    pub number: u16,
+    /// The protocol's path, or the function's name.
+    pub name: String,
 }
 
 /// Everything a version provides for `comline@2`.
@@ -98,6 +132,8 @@ pub struct ProtocolFacts {
     pub namespace: String,
     pub name: String,
     pub line: String,
+    /// Its wire number, unique in the package.
+    pub number: u16,
     /// blake3, hex, of the protocol's canonical wire shape ([`shape_hash`]).
     pub shape_hash: String,
     pub functions: Vec<FunctionFacts>,
@@ -159,10 +195,28 @@ pub fn release_of(version: &str) -> String {
 pub fn history_of_commit(store: &ObjectStore, hash: &Hash) -> Result<History> {
     let commit = Commit::from_bytes(&store.read(hash)?)?;
     let tree = Tree::from_bytes(&store.read(&commit.tree)?)?;
-    if let Some(history) = read_history(store, &tree)? {
-        return Ok(history);
+    match read_history(store, &tree)? {
+        Some(history) if history.numbered => Ok(history),
+        // Stored before numbers were: its lines and "since" as stored, its
+        // numbers computed as a build would have assigned them.
+        Some(mut history) => {
+            let computed = compute_history_of_commit(store, &commit, &tree)?;
+            for p in &mut history.protocols {
+                let Some(c) = computed.protocols.iter().find(|c| c.path == p.path) else { continue };
+                p.number = c.number;
+                p.retired = c.retired.clone();
+                for f in &mut p.functions {
+                    if let Some(cf) = c.functions.iter().find(|cf| cf.name == f.name) {
+                        f.number = cf.number;
+                    }
+                }
+            }
+            history.retired = computed.retired;
+            history.numbered = true;
+            Ok(history)
+        }
+        None => compute_history_of_commit(store, &commit, &tree),
     }
-    compute_history_of_commit(store, &commit, &tree)
 }
 
 /// The history of `commit` computed from what came before, ignoring any it
@@ -193,20 +247,7 @@ pub fn history(
 ) -> Result<History> {
     let new = Loaded::of(store, tree)?;
     let Some((before, old_tree)) = previous else {
-        return Ok(History {
-            protocols: new
-                .protocols()
-                .into_iter()
-                .map(|(namespace, name, functions)| ProtocolHistory {
-                    path: protocol_path(namespace, name),
-                    line: target.to_string(),
-                    functions: functions
-                        .into_iter()
-                        .map(|f| FunctionFacts { name: f.to_string(), since: target.to_string() })
-                        .collect(),
-                })
-                .collect(),
-        });
+        return first_history(&new, target);
     };
     let old = Loaded::of(store, old_tree)?;
     let comparison = compare(store, old_tree, tree)?;
@@ -238,11 +279,13 @@ pub fn history(
         })
         .collect();
     let old_paths: BTreeSet<String> =
-        old.protocols().into_iter().map(|(ns, name, _)| protocol_path(ns, name)).collect();
-    let facts = WireFacts::of((&old.own, &old.config), (&new.own, &new.config));
+        old.protocols().into_iter().map(|d| protocol_path(d.namespace, d.name)).collect();
+    let mut facts = WireFacts::of((&old.own, &old.config), (&new.own, &new.config));
+    facts.numbers = number_map(before);
 
     let mut protocols = vec![];
-    for (namespace, name, functions) in new.protocols() {
+    let mut earliers = vec![];
+    for ProtocolDecl { namespace, name, functions, .. } in new.protocols() {
         // Where it was at the last release.
         let was_namespace = namespace_renames
             .iter()
@@ -278,16 +321,231 @@ pub fn history(
         };
         let functions = functions
             .into_iter()
-            .map(|f| {
+            .map(|(f, _)| {
                 let since = earlier
                     .and_then(|p| p.functions.iter().find(|e| e.name == f))
                     .map_or_else(|| target.to_string(), |e| e.since.clone());
-                FunctionFacts { name: f.to_string(), since }
+                FunctionFacts { name: f.to_string(), since, number: 0 }
             })
             .collect();
-        protocols.push(ProtocolHistory { path: protocol_path(namespace, name), line, functions });
+        protocols.push(ProtocolHistory {
+            path: protocol_path(namespace, name),
+            line,
+            number: 0,
+            functions,
+            retired: vec![],
+        });
+        earliers.push(earlier);
     }
-    Ok(History { protocols })
+    let mut history = History { protocols, retired: vec![], numbered: false };
+    number(&mut history, Some(before), &earliers, &new)?;
+    Ok(history)
+}
+
+/// The history of a first version: everything is `target`'s, numbered
+/// from 0 in declaration order (written `@id`s aside).
+fn first_history(new: &Loaded, target: &str) -> Result<History> {
+    let protocols: Vec<ProtocolHistory> = new
+        .protocols()
+        .into_iter()
+        .map(|ProtocolDecl { namespace, name, functions, .. }| ProtocolHistory {
+            path: protocol_path(namespace, name),
+            line: target.to_string(),
+            number: 0,
+            functions: functions
+                .into_iter()
+                .map(|(f, _)| FunctionFacts { name: f.to_string(), since: target.to_string(), number: 0 })
+                .collect(),
+            retired: vec![],
+        })
+        .collect();
+    let earliers = vec![None; protocols.len()];
+    let mut history = History { protocols, retired: vec![], numbered: false };
+    number(&mut history, None, &earliers, new)?;
+    Ok(history)
+}
+
+// ---------- numbers ----------
+
+/// A history's numbers as [`WireFacts::numbers`] keys them.
+pub fn number_map(history: &History) -> BTreeMap<String, u16> {
+    let mut numbers = BTreeMap::new();
+    if !history.numbered {
+        return numbers;
+    }
+    for p in &history.protocols {
+        numbers.insert(p.path.clone(), p.number);
+        for f in &p.functions {
+            numbers.insert(format!("{}.{}", p.path, f.name), f.number);
+        }
+    }
+    numbers
+}
+
+/// Number `history`'s protocols and functions (`history.protocols` in the
+/// order of `new.protocols()`), against the last release's history
+/// `before`, where `earliers[i]` is protocol `i` as that release had it
+/// (renames followed), if it had it.
+fn number(
+    history: &mut History,
+    before: Option<&History>,
+    earliers: &[Option<&ProtocolHistory>],
+    new: &Loaded,
+) -> Result<()> {
+    let declared = new.protocols();
+    let mut items = vec![];
+    for (d, earlier) in declared.iter().zip(earliers) {
+        let path = protocol_path(d.namespace, d.name);
+        let explicit = explicit_id(d.parameters, &format!("protocol `{path}`"))?;
+        items.push(Item { name: path, earlier: earlier.map(|e| e.path.clone()), explicit });
+    }
+    let (released, retired): (Vec<(String, u16)>, &[Retired]) = match before {
+        Some(b) => (b.protocols.iter().map(|p| (p.path.clone(), p.number)).collect(), &b.retired),
+        None => (vec![], &[]),
+    };
+    let (numbers, retired) = number_scope("protocol", "the package", &released, retired, &items)?;
+    history.retired = retired;
+
+    for (((p, d), earlier), number) in history.protocols.iter_mut().zip(&declared).zip(earliers).zip(numbers) {
+        p.number = number;
+        let mut items = vec![];
+        for (f, parameters) in &d.functions {
+            let explicit = explicit_id(parameters, &format!("function `{}.{f}`", p.path))?;
+            items.push(Item { name: f.to_string(), earlier: Some(f.to_string()), explicit });
+        }
+        let (released, retired): (Vec<(String, u16)>, &[Retired]) = match earlier {
+            Some(e) => (e.functions.iter().map(|f| (f.name.clone(), f.number)).collect(), &e.retired),
+            None => (vec![], &[]),
+        };
+        let scope = format!("protocol `{}`", p.path);
+        let (numbers, retired) = number_scope("function", &scope, &released, retired, &items)?;
+        for (f, n) in p.functions.iter_mut().zip(numbers) {
+            f.number = n;
+        }
+        p.retired = retired;
+    }
+    history.numbered = true;
+    Ok(())
+}
+
+/// One item to number: its name now, its name at the last release if it
+/// was there, and the `@id` written on it.
+struct Item {
+    name: String,
+    earlier: Option<String>,
+    explicit: Option<u16>,
+}
+
+/// Number one scope's items (a package's protocols, or a protocol's
+/// functions), given what the last release numbered (`released`, by name)
+/// and had retired. Returns each item's number, and the scope's retired
+/// numbers after.
+///
+/// - An `@id` wins. It's unique in the scope, and it can't be a number
+///   that history shows belonged to another item (the reuse guard): that
+///   would make an old peer call the wrong thing.
+/// - An item the release had keeps its number.
+/// - A new item gets the next number above every number the scope has
+///   ever had (released and retired), skipping any taken by an `@id`.
+/// - A number the release had that no item holds now is retired.
+///
+/// Every number is computed against the release, so the numbers a build
+/// assigned and a later build of the same line undid don't count: until
+/// a release fixes them, numbers are provisional.
+fn number_scope(
+    what: &str,
+    scope: &str,
+    released: &[(String, u16)],
+    retired: &[Retired],
+    items: &[Item],
+) -> Result<(Vec<u16>, Vec<Retired>)> {
+    // Who each number has belonged to.
+    let mut owner: BTreeMap<u16, &str> = BTreeMap::new();
+    for r in retired {
+        owner.insert(r.number, &r.name);
+    }
+    for (name, n) in released {
+        owner.insert(*n, name);
+    }
+
+    let mut used: BTreeMap<u16, &str> = BTreeMap::new();
+    for item in items {
+        let Some(id) = item.explicit else { continue };
+        if let Some(other) = used.insert(id, &item.name) {
+            bail!(
+                "{what}s `{other}` and `{}` both have `@id = {id}`: an id is unique in {scope}",
+                item.name
+            );
+        }
+        if let Some(was) = owner.get(&id) {
+            if *was != item.name && item.earlier.as_deref() != Some(*was) {
+                bail!(
+                    "`@id = {id}` on {what} `{}`: {id} was {what} `{was}`'s number in an earlier \
+                     release, and a number is never reused, since an older peer would call `{was}`; \
+                     pick another id",
+                    item.name
+                );
+            }
+        }
+    }
+
+    let mut numbers: Vec<Option<u16>> = vec![None; items.len()];
+    for (i, item) in items.iter().enumerate() {
+        if let Some(id) = item.explicit {
+            numbers[i] = Some(id);
+            continue;
+        }
+        let kept = item
+            .earlier
+            .as_ref()
+            .and_then(|e| released.iter().find(|(name, _)| name == e))
+            .map(|(_, n)| *n);
+        if let Some(n) = kept.filter(|n| !used.contains_key(n)) {
+            numbers[i] = Some(n);
+            used.insert(n, &item.name);
+        }
+    }
+
+    let mut next: u32 = owner.keys().next_back().map_or(0, |n| u32::from(*n) + 1);
+    for (i, item) in items.iter().enumerate() {
+        if numbers[i].is_some() {
+            continue;
+        }
+        while next <= u32::from(u16::MAX) && used.contains_key(&(next as u16)) {
+            next += 1;
+        }
+        if next > u32::from(u16::MAX) {
+            bail!("no {what} number is left for `{}` in {scope}: all 65536 have been used", item.name);
+        }
+        numbers[i] = Some(next as u16);
+        used.insert(next as u16, &item.name);
+        next += 1;
+    }
+
+    let retired = owner
+        .iter()
+        .filter(|(n, _)| !used.contains_key(n))
+        .map(|(n, name)| Retired { number: *n, name: name.to_string() })
+        .collect();
+    Ok((numbers.into_iter().map(|n| n.expect("numbered")).collect(), retired))
+}
+
+/// The `@id = N` written on a protocol or function, if any.
+fn explicit_id(parameters: &[FrozenUnit], what: &str) -> Result<Option<u16>> {
+    for p in parameters {
+        let FrozenUnit::Property { name, value } = p else { continue };
+        if name != "id" {
+            continue;
+        }
+        return match value {
+            ConfigValue::Integer(n) => match u16::try_from(*n) {
+                Ok(n) => Ok(Some(n)),
+                Err(_) => bail!("`@id = {n}` on {what}: an id is a u16, from 0 to 65535"),
+            },
+            other => bail!("`@id` on {what} is {other:?}: an id is an integer, from 0 to 65535"),
+        };
+    }
+    Ok(None)
 }
 
 /// `history` with every version `from` named as `to`: a release made as
@@ -301,13 +559,17 @@ pub fn renamed(history: &History, from: &str, to: &str) -> History {
             .map(|p| ProtocolHistory {
                 path: p.path.clone(),
                 line: rename(&p.line),
+                number: p.number,
                 functions: p
                     .functions
                     .iter()
-                    .map(|f| FunctionFacts { name: f.name.clone(), since: rename(&f.since) })
+                    .map(|f| FunctionFacts { name: f.name.clone(), since: rename(&f.since), number: f.number })
                     .collect(),
+                retired: p.retired.clone(),
             })
             .collect(),
+        retired: history.retired.clone(),
+        numbered: history.numbered,
     }
 }
 
@@ -343,6 +605,15 @@ fn package_handshake(config: &[ConfigUnit]) -> Option<&str> {
         ConfigUnit::Handshake(h) => Some(h.as_str()),
         _ => None,
     })
+}
+
+/// A protocol as declared: where, its annotations, and its functions with
+/// theirs, in order.
+struct ProtocolDecl<'a> {
+    namespace: &'a str,
+    name: &'a str,
+    parameters: &'a [FrozenUnit],
+    functions: Vec<(&'a str, &'a [FrozenUnit])>,
 }
 
 /// A stored version: its own schemas, its dependencies' (vendored), and
@@ -396,22 +667,29 @@ impl Loaded {
 
     /// The package's own protocols and their functions, in order. Std's
     /// schemas aren't the package's.
-    fn protocols(&self) -> Vec<(&str, &str, Vec<&str>)> {
+    fn protocols(&self) -> Vec<ProtocolDecl<'_>> {
         let mut found = vec![];
         for units in &self.own {
             if schema_namespace(units).is_some_and(|ns| ns == "std" || ns.starts_with("std::")) {
                 continue;
             }
             for unit in units {
-                if let FrozenUnit::Protocol { name, functions, .. } = unit {
+                if let FrozenUnit::Protocol { name, functions, parameters, .. } = unit {
                     let functions = functions
                         .iter()
                         .filter_map(|f| match f {
-                            FrozenUnit::Function { name, .. } => Some(name.as_str()),
+                            FrozenUnit::Function { name, parameters, .. } => {
+                                Some((name.as_str(), parameters.as_slice()))
+                            }
                             _ => None,
                         })
                         .collect();
-                    found.push((schema_namespace(units).unwrap_or(""), name.as_str(), functions));
+                    found.push(ProtocolDecl {
+                        namespace: schema_namespace(units).unwrap_or(""),
+                        name: name.as_str(),
+                        parameters: parameters.as_slice(),
+                        functions,
+                    });
                 }
             }
         }
@@ -474,20 +752,26 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
         dependencies: vec![theirs],
         config: context.config_frozen.clone().unwrap_or_default(),
     };
-    let history = History {
+    // Numbered as a first version is; an `@id` the numbering refuses is
+    // the build's to report, so the facts leave the numbers at 0.
+    let history = first_history(&loaded, version).unwrap_or_else(|_| History {
         protocols: loaded
             .protocols()
             .into_iter()
-            .map(|(namespace, name, functions)| ProtocolHistory {
+            .map(|ProtocolDecl { namespace, name, functions, .. }| ProtocolHistory {
                 path: protocol_path(namespace, name),
                 line: version.to_string(),
+                number: 0,
                 functions: functions
                     .into_iter()
-                    .map(|f| FunctionFacts { name: f.to_string(), since: version.to_string() })
+                    .map(|(f, _)| FunctionFacts { name: f.to_string(), since: version.to_string(), number: 0 })
                     .collect(),
+                retired: vec![],
             })
             .collect(),
-    };
+        retired: vec![],
+        numbered: false,
+    });
     assemble(&loaded, &history, version)
 }
 
@@ -513,7 +797,8 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
                 namespace: namespace.to_string(),
                 name: name.clone(),
                 line: h.line.clone(),
-                shape_hash: shape_hash(unit, namespace, &index, &in_play),
+                number: h.number,
+                shape_hash: shape_hash(unit, namespace, &index, &in_play, h),
                 functions: h.functions.clone(),
             });
         }
@@ -675,6 +960,10 @@ struct Field {
 
 #[derive(Serialize)]
 struct Function {
+    /// Its number, where the framing calls by number (`calls = by_id`).
+    /// Left out otherwise, so a shape hashes as it did before numbers.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    number: Option<u16>,
     name: String,
     arguments: Vec<(String, Ty)>,
     returns: Option<Ty>,
@@ -685,6 +974,9 @@ struct Function {
 
 #[derive(Serialize)]
 struct Shape<'a> {
+    /// The protocol's number, where the framing calls by number.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    number: Option<u16>,
     encodings: Vec<(&'a str, &'a str, &'a str)>,
     functions: Vec<Function>,
     declared: Vec<Declared>,
@@ -798,14 +1090,22 @@ impl<'a, 'i> Builder<'a, 'i> {
 /// reach, aliases resolved, each numbered in the order it's first reached.
 /// Order counts only where it travels: functions in declaration order
 /// where the framing calls them by index, fields and variants where the
-/// format goes by position; otherwise each is sorted by name. Bounds
+/// format goes by position; otherwise each is sorted by name. Numbers
+/// count only where the framing calls by number (`calls = by_id`): then
+/// the protocol's and each function's number is hashed, and the order
+/// isn't. Bounds
 /// travel: each maximum (`T[max N]`, `char[max N]`) and `@max_depth`,
 /// resolved, since a changed one changes what a peer accepts. Docstrings,
 /// spans, validators, constants, defaults, advisory annotations and every
 /// namespace and type name are left out: none of them travels.
-fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: &[EncodingFacts]) -> String {
+fn shape_hash(
+    protocol: &FrozenUnit,
+    namespace: &str,
+    index: &Index,
+    encodings: &[EncodingFacts],
+    history: &ProtocolHistory,
+) -> String {
     use crate::encodings::{official, EncodingKind, Profile};
-    let FrozenUnit::Protocol { functions, .. } = protocol else { return String::new() };
 
     // Order is hashed only where it travels, by the encodings' profiles (as
     // the diff reads them, `WireFacts`); an encoding without an official
@@ -818,6 +1118,26 @@ fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: 
     };
     let (format, framing) = (profile(EncodingKind::Format, "format"), profile(EncodingKind::Framing, "framing"));
     let calls_ordered = !states(framing, "calls", &["by_name", "by_id"]);
+    let by_id = states(framing, "calls", &["by_id"]);
+    shape_hash_with(protocol, namespace, index, encodings, history, format, calls_ordered, by_id)
+}
+
+/// [`shape_hash`], with what the encodings' profiles say decided.
+#[allow(clippy::too_many_arguments)]
+fn shape_hash_with(
+    protocol: &FrozenUnit,
+    namespace: &str,
+    index: &Index,
+    encodings: &[EncodingFacts],
+    history: &ProtocolHistory,
+    format: Option<&crate::encodings::Profile>,
+    calls_ordered: bool,
+    by_id: bool,
+) -> String {
+    let FrozenUnit::Protocol { functions, .. } = protocol else { return String::new() };
+    let states = |p: Option<&crate::encodings::Profile>, fact: &str, values: &[&str]| {
+        p.and_then(|p| p.facts.get(fact)).is_some_and(|f| values.contains(&f.value.as_str()))
+    };
     let mut builder = Builder {
         index,
         fields_ordered: !states(format, "struct_fields", &["by_name"]),
@@ -856,9 +1176,13 @@ fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: 
                 _ => None,
             })
             .collect();
-        shaped.push(Function { name: name.clone(), arguments, returns, throws, direction });
+        let number = by_id
+            .then(|| history.functions.iter().find(|f| &f.name == name).map(|f| f.number))
+            .flatten();
+        shaped.push(Function { number, name: name.clone(), arguments, returns, throws, direction });
     }
     let shape = Shape {
+        number: by_id.then_some(history.number),
         encodings: encodings.iter().map(|e| (e.kind.as_str(), e.name.as_str(), e.param_hash.as_str())).collect(),
         functions: shaped,
         declared: builder.declared.into_iter().map(|d| d.expect("declared")).collect(),
@@ -878,5 +1202,71 @@ fn render(value: &ConfigValue) -> String {
     match value {
         ConfigValue::Str(s) | ConfigValue::Name(s) | ConfigValue::Path(s) => s.clone(),
         other => format!("{other:?}"),
+    }
+}
+
+#[cfg(all(test, feature = "compiler"))]
+mod tests {
+    use super::*;
+    use crate::encodings::{official, EncodingKind};
+    use crate::schema::ir::compiler::interpreter::incremental::IncrementalInterpreter;
+    use crate::schema::ir::compiler::Compile;
+
+    fn loaded(code: &str) -> Loaded {
+        let mut units = vec![FrozenUnit::Namespace("pkg::api".to_string())];
+        units.extend(IncrementalInterpreter::from_source(code));
+        Loaded { own: vec![units], dependencies: vec![], config: vec![] }
+    }
+
+    fn numbered(protocol: u16, functions: &[(&str, u16)]) -> ProtocolHistory {
+        ProtocolHistory {
+            path: "pkg::api::P".to_string(),
+            line: "0.1.0".to_string(),
+            number: protocol,
+            functions: functions
+                .iter()
+                .map(|(name, number)| FunctionFacts { name: name.to_string(), since: "0.1.0".to_string(), number: *number })
+                .collect(),
+            retired: vec![],
+        }
+    }
+
+    /// The shape hash, under the official encodings in play (`by_id: None`)
+    /// or with calls by number forced on or off.
+    fn hash(code: &str, history: &ProtocolHistory, by_id: Option<bool>) -> String {
+        let loaded = loaded(code);
+        let index = Index::of(&loaded);
+        let protocol = loaded.own[0].iter().find(|u| matches!(u, FrozenUnit::Protocol { .. })).unwrap();
+        let encodings = encodings_in_play(protocol, &[]);
+        match by_id {
+            None => shape_hash(protocol, "pkg::api", &index, &encodings, history),
+            Some(by_id) => {
+                let format = official::profile(EncodingKind::Format, &encodings[0].name);
+                shape_hash_with(protocol, "pkg::api", &index, &encodings, history, format, !by_id, by_id)
+            }
+        }
+    }
+
+    const P: &str = "protocol P {\n    function a();\n    function b() -> u32;\n}\n";
+    const REORDERED: &str = "protocol P {\n    function b() -> u32;\n    function a();\n}\n";
+
+    #[test]
+    fn numbers_count_in_the_shape_only_where_calls_are_by_number() {
+        let first = numbered(0, &[("a", 0), ("b", 1)]);
+        let moved = numbered(0, &[("a", 0), ("b", 2)]);
+        let other_protocol = numbered(4, &[("a", 0), ("b", 1)]);
+
+        // By index (core's default framing): numbers don't count, order does.
+        assert_eq!(hash(P, &first, None), hash(P, &moved, None));
+        assert_eq!(hash(P, &first, None), hash(P, &other_protocol, None));
+        assert_ne!(hash(P, &first, None), hash(P, &first, Some(true)));
+        assert_ne!(hash(P, &first, None), hash(REORDERED, &first, None));
+        // The same as before numbers existed: forced off is the default.
+        assert_eq!(hash(P, &first, None), hash(P, &first, Some(false)));
+
+        // By number: the numbers count, the order doesn't.
+        assert_eq!(hash(P, &first, Some(true)), hash(REORDERED, &first, Some(true)));
+        assert_ne!(hash(P, &first, Some(true)), hash(P, &moved, Some(true)));
+        assert_ne!(hash(P, &first, Some(true)), hash(P, &other_protocol, Some(true)));
     }
 }

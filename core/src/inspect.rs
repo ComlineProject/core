@@ -25,8 +25,8 @@
 //! it or doesn't. A package can't see its own consumers, so for its own
 //! protocols acceptance is [`Acceptance::Unknown`].
 //!
-//! Compatibility facts (a protocol's line, version or shape hash) aren't
-//! here: they don't exist yet (core#119).
+//! Compatibility facts (a protocol's line, wire number or shape hash)
+//! aren't here: they need history, and `crate::compat` has them.
 
 // Standard Uses
 use std::collections::BTreeMap;

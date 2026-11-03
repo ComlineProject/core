@@ -269,3 +269,29 @@ fn renames() {
     assert_eq!(kinds(&changes), ["renamed_namespace"]);
     assert_eq!(bump(&changes), Bump::Major);
 }
+
+#[test]
+fn an_id_is_a_wire_number_only_where_calls_are_by_number() {
+    let by_id = |numbers: &[(&str, u16)]| WireFacts {
+        calls_stable: [("pkg::api::P".to_string(), true)].into(),
+        calls_by_id: [("pkg::api::P".to_string(), true)].into(),
+        numbers: numbers.iter().map(|(k, n)| (k.to_string(), *n)).collect(),
+        ..WireFacts::default()
+    };
+    let p = |id: &str, fid: &str| format!("{id}protocol P {{\n    {fid}function f();\n    function g();\n}}\n");
+    check(&[
+        ("protocol id changed, by number", under(&by_id(&[]), &p("@id = 1\n", ""), &p("@id = 2\n", "")), Bump::Major, "changed_wire_annotation"),
+        ("function id changed, by number", under(&by_id(&[]), &p("", "@id = 1\n    "), &p("", "@id = 2\n    ")), Bump::Major, "changed_wire_annotation"),
+        ("protocol id changed, by index", default(&p("@id = 1\n", ""), &p("@id = 2\n", "")), Bump::Patch, "changed_annotation"),
+        ("id changed, by name", under(&json(), &p("", "@id = 1\n    "), &p("", "@id = 2\n    ")), Bump::Patch, "changed_annotation"),
+        // Writing out the number it already has moves nothing.
+        ("id written as assigned", under(&by_id(&[("pkg::api::P.f", 3)]), &p("", ""), &p("", "@id = 3\n    ")), Bump::Patch, "changed_annotation"),
+        ("id written, another number", under(&by_id(&[("pkg::api::P.f", 3)]), &p("", ""), &p("", "@id = 4\n    ")), Bump::Major, "changed_wire_annotation"),
+        // Unknown number: counted as moved.
+        ("id written, no facts", under(&by_id(&[]), &p("", ""), &p("", "@id = 4\n    ")), Bump::Major, "changed_wire_annotation"),
+        // Dropped: it keeps the number it was released with.
+        ("id dropped", under(&by_id(&[]), &p("@id = 1\n", ""), &p("", "")), Bump::Patch, "changed_annotation"),
+        // Reordered, by number: nothing travels by position.
+        ("reordered, by number", under(&by_id(&[]), &p("", ""), "protocol P {\n    function g();\n    function f();\n}\n"), Bump::None, ""),
+    ]);
+}

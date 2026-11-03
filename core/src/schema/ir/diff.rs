@@ -388,6 +388,16 @@ pub struct WireFacts {
     /// functions by something stable (`calls = by_name` or `by_id`) rather
     /// than by their index. A protocol not listed is called by index.
     pub calls_stable: BTreeMap<String, bool>,
+    /// Per protocol: whether its framing calls functions by their number
+    /// (`calls = by_id`), so a protocol's or a function's number travels
+    /// (`comline@2`, core#127). A protocol not listed isn't.
+    pub calls_by_id: BTreeMap<String, bool>,
+    /// The old version's wire numbers, from its facts
+    /// (`comline_core::compat`): `namespace::Protocol` for a protocol,
+    /// `namespace::Protocol.function` for a function. Empty when the
+    /// caller has none; an `@id` written where none was then counts as a
+    /// moved number.
+    pub numbers: BTreeMap<String, u16>,
 }
 
 impl WireFacts {
@@ -442,6 +452,10 @@ impl WireFacts {
                 && all(&formats, "missing_optional", &["absent"]),
             variants_by_name: all(&formats, "enum_variants", &["by_name"]),
             errors_by_name: all(&framings, "errors", &["by_name"]),
+            calls_by_id: calls
+                .iter()
+                .map(|(key, profiles)| (key.clone(), all(profiles, "calls", &["by_id"])))
+                .collect(),
             calls_stable: calls
                 .into_iter()
                 .map(|(key, profiles)| {
@@ -449,11 +463,17 @@ impl WireFacts {
                     (key, stable)
                 })
                 .collect(),
+            numbers: BTreeMap::new(),
         }
     }
 
     fn calls_stable(&self, namespace: &str, protocol: &str) -> bool {
         self.calls_stable.get(&protocol_key(namespace, protocol)).copied().unwrap_or(false)
+    }
+
+    /// Whether protocol `namespace::protocol`'s framing calls by number.
+    pub fn calls_by_id(&self, namespace: &str, protocol: &str) -> bool {
+        self.calls_by_id.get(&protocol_key(namespace, protocol)).copied().unwrap_or(false)
     }
 }
 
@@ -1052,6 +1072,7 @@ fn analyze(old_schema: &[FrozenUnit], new_schema: &[FrozenUnit], cx: &Context) -
                     cx,
                     &mut changes,
                 );
+                compare_id(name, None, old_params, new_params, cx, &mut changes);
                 compare_parameters(name, old_params, new_params, &mut changes);
                 // Protocol.docstring is a plain String (not Option<String>
                 // like the others) - wrap for a uniform comparison helper.
@@ -1651,6 +1672,7 @@ fn compare_protocol_functions(
             });
         }
 
+        compare_id(protocol_name, Some(&func_name), old.parameters, new.parameters, cx, changes);
         compare_parameters(&target, old.parameters, new.parameters, changes);
         if old.docstring != new.docstring {
             changes.modifications.push(Modification::DocstringChanged { name: target });
@@ -1708,6 +1730,55 @@ fn format_function_signature(args: &[FrozenArgument], ret: &Option<TypeRef>) -> 
     format!("({}) -> {}", args.join(", "), ret_type)
 }
 
+/// An `@id` written, changed or dropped on protocol `protocol` or its
+/// function `function` (`comline@2`, core#127). It's breaking only where
+/// the number moved and the protocol's framing calls by number
+/// (`calls = by_id`); anywhere else it's an annotation like any other.
+///
+/// The number it had is its old `@id`, else what the old version's facts
+/// assigned it ([`WireFacts::numbers`]). Dropping an `@id` keeps the
+/// number: an item keeps what it was released with.
+fn compare_id(
+    protocol: &str,
+    function: Option<&str>,
+    old: &[FrozenUnit],
+    new: &[FrozenUnit],
+    cx: &Context,
+    changes: &mut SchemaChanges,
+) {
+    let (old_props, new_props) = (property_map(old), property_map(new));
+    let old_value = old_props.get("id").map(|v| render_value(v));
+    let new_value = new_props.get("id").map(|v| render_value(v));
+    if old_value == new_value {
+        return;
+    }
+    let key = match function {
+        Some(f) => format!("{}.{f}", protocol_key(&cx.namespace, protocol)),
+        None => protocol_key(&cx.namespace, protocol),
+    };
+    let target = match function {
+        Some(f) => format!("{protocol}.{f}"),
+        None => protocol.to_string(),
+    };
+    let was = old_value.clone().or_else(|| cx.facts.numbers.get(&key).map(u16::to_string));
+    let moved = new_value.as_ref().is_some_and(|new| was.as_ref() != Some(new));
+    if moved && cx.facts.calls_by_id(&cx.namespace, protocol) {
+        changes.breaking_changes.push(BreakingChange::ChangedWireAnnotation {
+            target,
+            key: "id".to_string(),
+            old_value,
+            new_value,
+        });
+    } else {
+        changes.modifications.push(Modification::ChangedAnnotation {
+            target,
+            key: "id".to_string(),
+            old_value,
+            new_value,
+        });
+    }
+}
+
 /// A rendered `@handshake` value as the handshake it selects.
 fn effective_handshake(rendered: &Option<String>) -> &str {
     rendered.as_deref().unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
@@ -1762,6 +1833,8 @@ fn compare_parameters_with(
         match key {
             // Build-time only: it never reaches a peer or generated code.
             "settings" => {}
+            // A wire number: judged by `compare_id`, which knows the framing.
+            "id" => {}
             // Adding or removing the marker is judged by the set it freezes,
             // below; only a reworded reason is reported here.
             "unverified" if old_value.is_none() || new_value.is_none() => {}

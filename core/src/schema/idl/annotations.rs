@@ -328,6 +328,19 @@ fn known_annotations() -> Vec<AnnotationInfo> {
         consumed_by: &["`comline build`'s bounds pass"],
     },
     AnnotationInfo {
+        key: "id",
+        scopes: &[AnnotationScope::Leading, AnnotationScope::Function],
+        authority: AnnotationAuthority::Core,
+        description: "This protocol's or function's wire number, written out (a `u16`, unique \
+                       among the package's protocols or the protocol's functions). Optional: \
+                       every protocol and function gets a number in the version's facts, bound \
+                       at `comline release`. An id that history shows belonged to another item \
+                       is refused. No effect on a struct.",
+        default: "the number assigned in the version's facts",
+        value: ValueType::Integer,
+        consumed_by: &["`comline build`'s numbering (`comline_core::compat`)"],
+    },
+    AnnotationInfo {
         key: "timeout_ms",
         scopes: &[AnnotationScope::Function],
         authority: AnnotationAuthority::Target,
@@ -497,11 +510,11 @@ mod tests {
         assert!(lookup("validators").is_some());
         assert!(lookup("deprecated").is_some());
         assert!(lookup("nope").is_none());
-        // timeout_ms, idempotent (both Function), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Function).count(), 3);
-        // max_depth, framing, provider, consumer, handshake, unverified,
+        // id, timeout_ms, idempotent (all Function), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Function).count(), 4);
+        // id, max_depth, framing, provider, consumer, handshake, unverified,
         // deprecated (all Leading), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 8);
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 9);
         // validators, deprecated, max_depth, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();
