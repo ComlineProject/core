@@ -650,6 +650,10 @@ enum Ty {
     Union(Vec<Ty>),
     Unit,
     Unresolved(String),
+    /// `T[max N]`, `char[max N]` included: a changed maximum changes what a
+    /// peer accepts (core#98). Its own variant, so a type without one hashes
+    /// as it did before bounds.
+    Bounded(Box<Ty>, u64),
 }
 
 #[derive(Serialize)]
@@ -657,6 +661,9 @@ enum Declared {
     Struct(Vec<Field>),
     Enum(Vec<String>),
     Error { ordinal: u16, name: String, fields: Vec<Field> },
+    /// A struct that can contain itself, with its `@max_depth`, resolved
+    /// (core#98): decoders refuse deeper values, so it travels.
+    DepthLimited(Vec<Field>, u64),
 }
 
 #[derive(Serialize)]
@@ -702,9 +709,13 @@ impl<'a, 'i> Builder<'a, 'i> {
         match ty {
             TypeRef::Primitive(p) => Ty::Primitive(TypeRef::Primitive(*p).to_string()),
             TypeRef::Unit => Ty::Unit,
-            // Bounds join the compatibility facts with `comline@2` (core#98).
-            TypeRef::Array { element, length, .. } => {
-                Ty::Array(Box::new(self.ty(element, namespace, depth + 1)), *length)
+            // A maximum is part of the wire contract (core#98).
+            TypeRef::Array { element, length, max } => {
+                let element = Box::new(self.ty(element, namespace, depth + 1));
+                match max {
+                    Some(max) => Ty::Bounded(element, *max),
+                    None => Ty::Array(element, *length),
+                }
             }
             TypeRef::Union(types) => {
                 Ty::Union(types.iter().map(|t| self.ty(t, namespace, depth + 1)).collect())
@@ -726,7 +737,13 @@ impl<'a, 'i> Builder<'a, 'i> {
         self.seen.insert(key, i);
         self.declared.push(None);
         let declared = match unit {
-            FrozenUnit::Struct { fields, .. } => Declared::Struct(self.fields(fields, namespace, depth)),
+            FrozenUnit::Struct { fields, parameters, .. } => {
+                let fields = self.fields(fields, namespace, depth);
+                match max_depth(parameters) {
+                    Some(max) => Declared::DepthLimited(fields, max),
+                    None => Declared::Struct(fields),
+                }
+            }
             FrozenUnit::Error { fields, ordinal, name, .. } => Declared::Error {
                 ordinal: *ordinal,
                 name: name.clone(),
@@ -781,7 +798,9 @@ impl<'a, 'i> Builder<'a, 'i> {
 /// reach, aliases resolved, each numbered in the order it's first reached.
 /// Order counts only where it travels: functions in declaration order
 /// where the framing calls them by index, fields and variants where the
-/// format goes by position; otherwise each is sorted by name. Docstrings,
+/// format goes by position; otherwise each is sorted by name. Bounds
+/// travel: each maximum (`T[max N]`, `char[max N]`) and `@max_depth`,
+/// resolved, since a changed one changes what a peer accepts. Docstrings,
 /// spans, validators, constants, defaults, advisory annotations and every
 /// namespace and type name are left out: none of them travels.
 fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: &[EncodingFacts]) -> String {
@@ -845,6 +864,14 @@ fn shape_hash(protocol: &FrozenUnit, namespace: &str, index: &Index, encodings: 
         declared: builder.declared.into_iter().map(|d| d.expect("declared")).collect(),
     };
     blake3::hash(&to_cbor(&shape).expect("CBOR of a shape")).to_hex().to_string()
+}
+
+/// A struct's `@max_depth`, as written or filled in from settings.
+fn max_depth(parameters: &[FrozenUnit]) -> Option<u64> {
+    parameters.iter().find_map(|p| match p {
+        FrozenUnit::Property { name, value: ConfigValue::Integer(n) } if name == "max_depth" => u64::try_from(*n).ok(),
+        _ => None,
+    })
 }
 
 fn render(value: &ConfigValue) -> String {
