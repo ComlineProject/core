@@ -4,15 +4,19 @@
 // CAS Design Philosophy: Append-Only Immutable Storage
 //
 // Comline's CAS is designed for permanent, linear versioning:
-// - Commits form an unbroken chain via parent links
-// - Objects are NEVER deleted or garbage collected  
+// - Commits form an unbroken chain via first-parent links
+// - Objects are NEVER deleted or garbage collected
 // - All versions remain buildable forever
-// - No branches, force pushes, or history rewriting
+// - One ref, `refs/heads/main`; no force pushes or history rewriting
+//
+// Git branches that each build are joined back into one line by the next
+// build after the merge (`reconcile`): it continues from one head and
+// records the other as a second parent, which history walks don't follow.
 //
 // This ensures 100% reproducible builds for any historical version.
-// Every commit is reachable by traversing backwards from refs/heads/main.
+// Every version on the line is reachable from refs/heads/main by first
+// parents.
 
-// Moduleschemas.
 // Objects are stored by their blake3 hash with lz4 compression.
 
 // Modules
@@ -26,6 +30,8 @@ pub mod build;         // Build process implementation
 pub mod version;       // Version bump types
 #[cfg(feature = "compiler")]
 pub mod release;       // Releases on top of builds
+#[cfg(feature = "compiler")]
+pub mod reconcile;     // Joining two heads after a Git merge
 #[cfg(feature = "compiler")]
 mod package;
 #[cfg(feature = "compiler")]
