@@ -240,3 +240,72 @@ fn a_head_that_contains_the_other_fast_forwards() {
     assert_eq!(head(ours.path()), b);
     parents(ours.path());
 }
+
+fn numbers(dir: &Path) -> std::collections::BTreeMap<String, (u16, Vec<(String, u16)>)> {
+    compat::facts(dir, None)
+        .unwrap()
+        .protocols
+        .into_iter()
+        .map(|p| (p.name, (p.number, p.functions.into_iter().map(|f| (f.name, f.number)).collect())))
+        .collect()
+}
+
+const ADMIN: &str = "protocol Admin {\n    function reset();\n}\n";
+
+#[test]
+fn a_reconcile_renumbers_unreleased_items_and_keeps_released_ones() {
+    // Neither side released: both sides' new protocols had 1, and the
+    // reconciling build numbers them apart.
+    let ours = package();
+    build(ours.path()).unwrap();
+    release(ours.path(), &ReleaseRequest::default()).unwrap();
+    let theirs = branch(ours.path());
+    fs::write(ours.path().join("src/admin.ids"), ADMIN).unwrap();
+    build(ours.path()).unwrap();
+    assert_eq!(numbers(ours.path())["Admin"].0, 1);
+    fs::write(theirs.path().join("src/teams.ids"), THEIRS).unwrap();
+    build(theirs.path()).unwrap();
+    assert_eq!(numbers(theirs.path())["Teams"].0, 1);
+
+    merge(ours.path(), theirs.path());
+    build(ours.path()).unwrap();
+    let n = numbers(ours.path());
+    assert_eq!(n["Users"].0, 0, "released: kept");
+    let mut new = [n["Admin"].0, n["Teams"].0];
+    new.sort();
+    assert_eq!(new, [1, 2]);
+
+    // One side released: its numbers are binding, the other side's move.
+    for released_side_is_ours in [true, false] {
+        let ours = package();
+        build(ours.path()).unwrap();
+        release(ours.path(), &ReleaseRequest::default()).unwrap();
+        let theirs = branch(ours.path());
+        let (releasing, building) =
+            if released_side_is_ours { (ours.path(), theirs.path()) } else { (theirs.path(), ours.path()) };
+
+        // Both add a function to `Users` (each numbered 1) and a protocol
+        // (each numbered 1).
+        fs::write(releasing.join("src/users.ids"), OURS).unwrap();
+        fs::write(releasing.join("src/admin.ids"), ADMIN).unwrap();
+        build(releasing).unwrap();
+        release(releasing, &ReleaseRequest::default()).unwrap();
+        let listed = BASE.replace("    function get(id: u64) -> User;\n", "    function get(id: u64) -> User;\n    function list() -> u32;\n");
+        fs::write(building.join("src/users.ids"), &listed).unwrap();
+        fs::write(building.join("src/teams.ids"), THEIRS).unwrap();
+        build(building).unwrap();
+        assert_eq!(numbers(building)["Users"].1, vec![("get".into(), 0), ("list".into(), 1)]);
+        assert_eq!(numbers(building)["Teams"].0, 1);
+
+        merge(ours.path(), theirs.path());
+        let both = OURS.replace("    function count() -> u32;\n", "    function count() -> u32;\n    function list() -> u32;\n");
+        fs::write(ours.path().join("src/users.ids"), &both).unwrap();
+        fs::write(ours.path().join("src/admin.ids"), ADMIN).unwrap();
+        fs::write(ours.path().join("src/teams.ids"), THEIRS).unwrap();
+        build(ours.path()).unwrap();
+        let n = numbers(ours.path());
+        assert_eq!(n["Users"], (0, vec![("get".into(), 0), ("count".into(), 1), ("list".into(), 2)]));
+        assert_eq!(n["Admin"].0, 1, "released: kept");
+        assert_eq!(n["Teams"].0, 2, "unreleased: renumbered past the release");
+    }
+}

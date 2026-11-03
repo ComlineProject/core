@@ -189,7 +189,11 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
     // Files are paired by namespace, not by their position in the glob:
     // adding, renaming or reordering a file must not pair the wrong schemas.
     // The format-dependent rules read the facts of the encodings in play.
-    let facts = WireFacts::of((&old_own, &old_config), (&new_own, &new_config));
+    let mut facts = WireFacts::of((&old_own, &old_config), (&new_own, &new_config));
+    // The old version's wire numbers: an `@id` is judged against them.
+    facts.numbers = crate::compat::read_history(store, old)?
+        .map(|h| crate::compat::number_map(&h))
+        .unwrap_or_default();
     let schema_changes = analyze_package_changes_with(&old_own, &new_own, &facts);
     let mut bump = changes_bump(&schema_changes);
 
