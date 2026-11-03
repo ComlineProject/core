@@ -250,6 +250,7 @@ pub fn build_with(
         version_bump: build_info.version_bump,
         release_bump: build_info.release_bump,
         last_release: build_info.last_release,
+        reconciled: build_info.reconciled,
         context: latest_project,
     })
 }
@@ -437,6 +438,9 @@ pub struct BuildResult {
     pub release_bump: VersionBump,
     /// The last release, if there is one
     pub last_release: Option<String>,
+    /// Set when this build joined two heads a Git merge left in
+    /// `.comline/refs/heads/main` (see [`cas::reconcile`])
+    pub reconciled: Option<cas::reconcile::Reconciled>,
     /// The underlying project context
     pub context: ProjectContext,
 }

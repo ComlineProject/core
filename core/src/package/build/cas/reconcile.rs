@@ -121,8 +121,8 @@ pub fn read_heads(project_path: &Path) -> Result<Heads> {
 /// reconciles the two. A no-op if the ref already points at `other`.
 ///
 /// It writes the ref in the same form Git leaves a conflict in, so there's
-/// one path for both. (A CLI flag such as `comline build --reconcile
-/// <hash>` would call this before building.)
+/// one path for both. `comline build --reconcile <hash>` calls this
+/// before building.
 pub fn mark_diverged(project_path: &Path, other: &Hash) -> Result<()> {
     let store = ObjectStore::new(project_path);
     if !store.exists(other) {
@@ -143,6 +143,20 @@ pub fn mark_diverged(project_path: &Path, other: &Hash) -> Result<()> {
         format!("<<<<<<< current\n{current}\n=======\n{other}\n>>>>>>> reconcile\n"),
     )?;
     Ok(())
+}
+
+/// What a build did with a history that diverged: carried by
+/// [`BuildInfo`](super::build::BuildInfo) and the build result, so a caller
+/// can say so.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reconciled {
+    /// The head the line continued from: the build's first parent, or the
+    /// head the ref was repaired to when nothing needed building.
+    pub onto: Hash,
+    /// The other head, recorded as the new build's second parent. `None` on
+    /// a fast-forward (one head already contained the other), or when
+    /// nothing changed and no build was recorded.
+    pub second_parent: Option<Hash>,
 }
 
 /// How a build continues from two heads.

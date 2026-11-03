@@ -42,6 +42,8 @@ pub struct BuildInfo {
     /// Changes inside dependencies present in both builds, per dependency.
     pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     pub config_changes: ConfigChanges,
+    /// Set when this build joined two heads left by a Git merge.
+    pub reconciled: Option<reconcile::Reconciled>,
 }
 
 /// Vendor one resolved dependency's own frozen schema into the commit: a
@@ -322,6 +324,7 @@ pub fn process_initial_freezing(
         schema_changes: None,
         dependency_changes: vec![],
         config_changes: ConfigChanges::default(),
+        reconciled: None,
     })
 }
 
@@ -423,6 +426,8 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
             schema_changes: None,
             dependency_changes: vec![],
             config_changes: ConfigChanges::default(),
+            reconciled: reconciling
+                .map(|_| reconcile::Reconciled { onto: parent_hash, second_parent: None }),
         });
     }
 
@@ -503,5 +508,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         schema_changes: merged_changes,
         dependency_changes,
         config_changes,
+        reconciled: reconciling
+            .map(|other| reconcile::Reconciled { onto: parent_hash, second_parent: other }),
     })
 }

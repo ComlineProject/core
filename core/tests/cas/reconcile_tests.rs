@@ -8,7 +8,7 @@ use std::path::Path;
 
 use comline_core::compat;
 use comline_core::package::build::cas::objects::Commit;
-use comline_core::package::build::cas::reconcile::{mark_diverged, read_heads, Heads};
+use comline_core::package::build::cas::reconcile::{mark_diverged, read_heads, Heads, Reconciled};
 use comline_core::package::build::cas::{main_ref, read_ref, Hash, ObjectStore};
 use comline_core::package::build::{build, latest_release, release, ReleaseRequest};
 use tempfile::TempDir;
@@ -114,6 +114,7 @@ fn without_releases_the_dev_counts_are_renumbered_onto_one_line() {
     assert_eq!(built.previous_version.as_deref(), Some(onto_version.as_str()));
     assert_eq!(built.current_version, format!("0.1.0-dev.{}", onto_count + 1));
     assert_eq!(built.last_release, None);
+    assert_eq!(built.reconciled, Some(Reconciled { onto, second_parent: Some(other) }));
 
     // The facts are the merged tree's, against no release: everything is
     // the first release's.
@@ -121,7 +122,9 @@ fn without_releases_the_dev_counts_are_renumbered_onto_one_line() {
     assert_eq!(since(ours.path(), "Teams", "get"), "0.1.0");
 
     // A build after that is an ordinary one.
-    assert_eq!(build(ours.path()).unwrap().current_version, built.current_version);
+    let again = build(ours.path()).unwrap();
+    assert_eq!(again.current_version, built.current_version);
+    assert_eq!(again.reconciled, None);
 }
 
 #[test]
@@ -238,5 +241,6 @@ fn a_head_that_contains_the_other_fast_forwards() {
     let built = build(ours.path()).unwrap();
     assert_eq!(built.current_version, "0.1.0-dev.2");
     assert_eq!(head(ours.path()), b);
+    assert_eq!(built.reconciled, Some(Reconciled { onto: b, second_parent: None }));
     parents(ours.path());
 }
