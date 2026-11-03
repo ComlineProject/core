@@ -12,7 +12,8 @@ use std::path::Path;
 // Crate Uses
 use super::object_store::ObjectStore;
 use super::objects::{Commit, EntryMode, Tree};
-use super::refs::{main_ref, read_ref, ref_exists, update_ref};
+use super::reconcile::{self, read_heads, Heads};
+use super::refs::{main_ref, ref_exists, update_ref};
 use super::storage::Hash;
 use super::version::{dev_version, next_release, VersionBump};
 use crate::compat::release_of;
@@ -337,7 +338,20 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         return process_initial_freezing(project_path, latest_project);
     }
 
-    let parent_hash = read_ref(project_path, main_ref())?;
+    // After a Git merge the ref can hold two heads: continue from one, and
+    // record the other as this build's second parent (see `reconcile`).
+    // Refuses, before anything is written, if both sides released.
+    let (parent_hash, reconciling) = match read_heads(project_path)? {
+        Heads::One(head) => (head, None),
+        Heads::Two(ours, theirs) => {
+            let plan = reconcile::plan(&store, ours, theirs)?;
+            tracing::info!(
+                "CAS: reconciling diverged heads {ours} and {theirs}: continuing from {}",
+                plan.onto
+            );
+            (plan.onto, Some(plan.other))
+        }
+    };
     let parent_bytes = store.read(&parent_hash)?;
     let parent_commit = Commit::from_bytes(&parent_bytes)?;
 
@@ -394,6 +408,11 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     if unchanged {
         // No changes
         tracing::debug!("CAS: No changes detected");
+        // Reconciling onto a head whose tree is already the merged one:
+        // nothing to build, but the ref is repaired to that head.
+        if reconciling.is_some() {
+            update_ref(project_path, main_ref(), &parent_hash)?;
+        }
         let (release, _) = last_release(&store, parent_hash)?;
         return Ok(BuildInfo {
             version_bump: VersionBump::None,
@@ -447,12 +466,19 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     let root_tree_hash = store.write(&root_tree.to_bytes()?)?;
 
     // Create new commit
-    let commit = create_version_commit(
+    let mut commit = create_version_commit(
         root_tree_hash,
         parent_hash,
         &new_version.to_string(),
         &format!("Build ({version_bump:?} change)"),
     );
+    // A build that reconciles two heads (fast-forwards have no `other`):
+    // the other head as a second parent, so its commits stay reachable.
+    // Every history walk follows first parents only.
+    if let Some(Some(other)) = reconciling {
+        commit.parents.push(other);
+        commit.message = format!("Build ({version_bump:?} change), reconciling {other}");
+    }
     let commit_bytes = commit.to_bytes()?;
     let commit_hash = store.write(&commit_bytes)?;
 

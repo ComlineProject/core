@@ -30,6 +30,12 @@ pub fn read_ref(project_path: &Path, ref_name: &str) -> Result<Hash> {
     }
     
     let hex = fs::read_to_string(&refs_path)?;
+    if super::reconcile::is_conflicted(&hex) {
+        return Err(eyre!(
+            "`.comline/{ref_name}` has Git conflict markers: the history diverged in a merge. \
+             Run `comline build` to reconcile the two heads into one line"
+        ));
+    }
     Hash::from_hex(hex.trim())
 }
 

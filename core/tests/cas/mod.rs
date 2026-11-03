@@ -14,3 +14,4 @@ pub mod ir_roundtrip_tests;
 pub mod dependency_vendoring_tests;
 pub mod release_tests;
 pub mod compat_tests;
+pub mod reconcile_tests;
