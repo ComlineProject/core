@@ -223,6 +223,46 @@ fn the_shape_hash_sees_the_wire_and_nothing_else() {
 }
 
 #[test]
+fn the_shape_hash_sees_bounds() {
+    let shape_of = |source: &str| {
+        let dir = package(source);
+        build(dir.path()).unwrap();
+        shape(&facts(dir.path()), "Users")
+    };
+    let v = |name: &str, tags: &str| {
+        format!(
+            "struct User {{\n    id: u64\n    name: {name}\n    tags: {tags}\n}}\n\nprotocol Users {{\n    function get(id: u64) -> User;\n}}\n"
+        )
+    };
+    let base = shape_of(&v("char[max 32]", "u32[max 8]"));
+
+    // A docstring leaves it alone; spelling the same maximum through a
+    // constant does too, since it's stored resolved.
+    let documented = v("char[max 32]", "u32[max 8]").replace("    name:", "    /// The name.\n    name:");
+    assert_eq!(shape_of(&documented), base);
+    let constant = format!("const NAME: u32 = 32\n\n{}", v("char[max NAME]", "u32[max 8]"));
+    assert_eq!(shape_of(&constant), base);
+
+    // Every maximum travels: a string's, an array's, and the settings
+    // default an unwritten one takes (`bounds.string.max = 256`).
+    assert_ne!(shape_of(&v("char[max 33]", "u32[max 8]")), base);
+    assert_ne!(shape_of(&v("char[max 32]", "u32[max 9]")), base);
+    assert_eq!(shape_of(&v("string", "u32[max 8]")), shape_of(&v("char[max 256]", "u32[max 8]")));
+    assert_ne!(shape_of(&v("string", "u32[max 8]")), base);
+    // A single `char` isn't a string of one.
+    assert_ne!(shape_of(&v("char", "u32[max 8]")), shape_of(&v("char[max 1]", "u32[max 8]")));
+
+    // `@max_depth` travels too.
+    let tree = |depth: u32| {
+        format!(
+            "@max_depth = {depth}\nstruct Node {{\n    children: Node[max 4]\n}}\n\nprotocol Users {{\n    function get(id: u64) -> Node;\n}}\n"
+        )
+    };
+    assert_ne!(shape_of(&tree(8)), shape_of(&tree(9)));
+    assert_eq!(shape_of(&tree(8).replace("@max_depth", "/// A node.\n@max_depth")), shape_of(&tree(8)));
+}
+
+#[test]
 fn encodings_carry_a_hash_of_their_parameters() {
     use std::collections::BTreeMap;
     let a = compat::encoding("framing", "jsonrpc", BTreeMap::new());
