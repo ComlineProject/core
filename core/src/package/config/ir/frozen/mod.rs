@@ -209,10 +209,9 @@ pub fn stated_handshake(units: &[FrozenUnit]) -> Option<&str> {
 
 /// The package's default handshake: its `handshake = "..."`, else
 /// [`default_handshake`](crate::schema::idl::annotations::default_handshake)
-/// for its `wire.framing`.
+/// for its framing.
 pub fn handshake(units: &[FrozenUnit]) -> &str {
-    stated_handshake(units)
-        .unwrap_or_else(|| crate::schema::idl::annotations::default_handshake(wire(units).1.is_some()))
+    stated_handshake(units).unwrap_or_else(|| crate::schema::idl::annotations::default_handshake(wire_framing(units)))
 }
 
 /// The parameters written with the package's default handshake. Empty for

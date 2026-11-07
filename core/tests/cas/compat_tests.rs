@@ -764,12 +764,16 @@ fn the_stored_history_records_the_effective_encodings() {
     assert_eq!(stored(dir.path(), "Own"), named("json@1", "jsonrpc", "comline@1"));
     assert_eq!(stored(dir.path(), "P"), named("json@1", "jsonrpc", "comline@2"));
 
-    // A stated framing keeps `comline@1`, the handshake it had before
-    // core's defaults moved, even when it's the default framing.
+    // Writing the default framing out changes nothing; any other framing
+    // keeps `comline@1`, which needs no connection.
     let dir = package(V1);
     config(dir.path(), "wire = { framing = \"datagram@3\" }\n");
     build(dir.path()).unwrap();
-    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@3", "comline@1"));
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@3", DEFAULT_HANDSHAKE));
+    let dir = package(V1);
+    config(dir.path(), "wire = { framing = \"datagram@2\" }\n");
+    build(dir.path()).unwrap();
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@2", "comline@1"));
 }
 
 /// What's read back is what's recorded, not what today's defaults would say.

@@ -420,24 +420,23 @@ impl HandshakeValue {
 pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 
 /// The handshake a protocol runs when neither it nor its package names one,
-/// and it takes the default framing too: `comline@2` needs a connection
-/// and the wire numbers `datagram@3` carries. A protocol whose framing is
-/// stated (its `@framing` or the package's `wire.framing`) gets
-/// [`IMPLICIT_HANDSHAKE`] instead: see [`default_handshake`].
+/// and its framing is [`DEFAULT_FRAMING`]: `comline@2` needs a connection
+/// and the wire numbers `datagram@3` carries. A protocol on any other
+/// framing gets [`IMPLICIT_HANDSHAKE`] instead: see [`default_handshake`].
 pub const DEFAULT_HANDSHAKE: &str = "comline@2";
 
 /// What a protocol's frozen IR means when it carries no `@handshake`: core's
-/// default before `comline@2`, and still the default for a protocol whose
-/// framing is stated, which may not run on a connection.
+/// default before `comline@2`, and still the default for a protocol on any
+/// framing but `datagram@3`, which may not run on a connection.
 pub const IMPLICIT_HANDSHAKE: &str = "comline@1";
 
-/// The handshake a protocol gets when neither it nor its package names one:
-/// [`DEFAULT_HANDSHAKE`] when its framing is core's default too, else
-/// [`IMPLICIT_HANDSHAKE`]. Stating a framing therefore keeps the handshake
-/// it had before the defaults moved, and a lockstep framing never gets a
-/// handshake that needs a connection.
-pub fn default_handshake(framing_stated: bool) -> &'static str {
-    if framing_stated { IMPLICIT_HANDSHAKE } else { DEFAULT_HANDSHAKE }
+/// The handshake a protocol on `framing` (canonical) gets when neither it
+/// nor its package names one: [`DEFAULT_HANDSHAKE`] on [`DEFAULT_FRAMING`],
+/// else [`IMPLICIT_HANDSHAKE`]. So writing the default framing out changes
+/// nothing, a package stating `datagram@2` keeps the handshake it had, and
+/// a lockstep framing never gets a handshake that needs a connection.
+pub fn default_handshake(framing: &str) -> &'static str {
+    if framing == DEFAULT_FRAMING { DEFAULT_HANDSHAKE } else { IMPLICIT_HANDSHAKE }
 }
 /// The official "no handshake": nothing sent, nothing checked.
 pub const HANDSHAKE_NONE: &str = "none";
@@ -620,8 +619,8 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        `{ name = \"comline@2\", scope = package }` (`scope`, `newer_consumer`, \
                        `same_version_differs`, `exchange`); `none` sends and checks nothing. \
                        Overrides the package's `handshake` in `config.idp`. No effect on a struct.",
-        default: "the package's `handshake`, else `comline@2` with the default framing and \
-                  `comline@1` with a stated one",
+        default: "the package's `handshake`, else `comline@2` on `datagram@3` and `comline@1` \
+                  on any other framing",
         value: handshake_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
