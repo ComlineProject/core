@@ -36,6 +36,11 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         .map(crate::package::config::ir::frozen::handshake)
         .unwrap_or(DEFAULT_HANDSHAKE)
         .to_string();
+    let own_handshake_params = project_context
+        .config_frozen
+        .as_deref()
+        .map(crate::package::config::ir::frozen::handshake_params)
+        .unwrap_or_default();
     let (own_format, own_framing) = project_context
         .config_frozen
         .as_deref()
@@ -123,7 +128,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
-        apply_package_handshake(&mut frozen_units, &own_handshake);
+        apply_package_handshake(&mut frozen_units, &own_handshake, &own_handshake_params);
         crate::schema::ir::unverified::freeze(
             &mut frozen_units,
             &crate::schema::ir::unverified::Encodings::of(project_context),
@@ -347,11 +352,24 @@ fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
 /// name its own, so the choice is part of each protocol's frozen IR (and its
 /// hash): changing the package default then shows up as a change to the
 /// protocols it reaches. `comline@1` is what an absent `@handshake` already
-/// means, so it's left implicit and existing IR hashes don't move.
-fn apply_package_handshake(units: &mut [FrozenUnit], package_handshake: &str) {
-    if package_handshake == DEFAULT_HANDSHAKE {
+/// means, so it's left implicit and existing IR hashes don't move. Parameters
+/// freeze in `@handshake`'s dictionary form, as if the protocol had written it;
+/// without any it's the plain name.
+fn apply_package_handshake(
+    units: &mut [FrozenUnit],
+    package_handshake: &str,
+    params: &std::collections::BTreeMap<String, String>,
+) {
+    if package_handshake == DEFAULT_HANDSHAKE && params.is_empty() {
         return;
     }
+    let value = if params.is_empty() {
+        ConfigValue::Str(package_handshake.to_string())
+    } else {
+        let name = ("name".to_string(), ConfigValue::Str(package_handshake.to_string()));
+        let params = params.iter().map(|(k, v)| (k.clone(), ConfigValue::Str(v.clone())));
+        ConfigValue::Dict(std::iter::once(name).chain(params).collect())
+    };
     for unit in units {
         let FrozenUnit::Protocol { parameters, .. } = unit else {
             continue;
@@ -362,7 +380,7 @@ fn apply_package_handshake(units: &mut [FrozenUnit], package_handshake: &str) {
         if !declared {
             parameters.push(FrozenUnit::Property {
                 name: "handshake".to_string(),
-                value: ConfigValue::Str(package_handshake.to_string()),
+                value: value.clone(),
             });
         }
     }

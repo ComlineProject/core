@@ -28,5 +28,7 @@ pub const OFFICIAL_PROFILES: &[(&str, &str)] = &[
     ("profiles/jsonrpc@1.json", include_str!("../packages/comline/profiles/jsonrpc@1.json")),
     ("profiles/datagram@1.json", include_str!("../packages/comline/profiles/datagram@1.json")),
     ("profiles/datagram@2.json", include_str!("../packages/comline/profiles/datagram@2.json")),
+    ("profiles/datagram@3.json", include_str!("../packages/comline/profiles/datagram@3.json")),
     ("profiles/comline@1.json", include_str!("../packages/comline/profiles/comline@1.json")),
+    ("profiles/comline@2.json", include_str!("../packages/comline/profiles/comline@2.json")),
 ];

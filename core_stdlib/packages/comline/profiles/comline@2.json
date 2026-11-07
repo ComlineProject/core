@@ -1,0 +1,22 @@
+{
+  "name": "comline@2",
+  "kind": "handshake",
+  "facts": {
+    "encoding_agreement": {
+      "value": true,
+      "proven_by": [
+        "handshake-comline2/offer-accept",
+        "handshake-comline2/offer-encoding-mismatch",
+        "handshake-comline2/offer-exchange-mismatch"
+      ]
+    },
+    "schema_agreement": {
+      "value": true,
+      "proven_by": [
+        "handshake-comline2/offer-accept",
+        "handshake-comline2/offer-line-mismatch",
+        "handshake-comline2/offer-package-mismatch"
+      ]
+    }
+  }
+}

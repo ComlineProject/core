@@ -1,6 +1,6 @@
 //! The official encodings package, `comline`: `packed@1`, `json@1`,
-//! `msgpack@1`, `datagram@1`, `datagram@2`, `jsonrpc@1` and `comline@1`,
-//! declared under `encodings` in its `config.idp` with their profiles and the
+//! `msgpack@1`, `datagram@1`, `datagram@2`, `datagram@3`, `jsonrpc@1`,
+//! `comline@1` and `comline@2`, declared under `encodings` in its `config.idp` with their profiles and the
 //! official generators' mappings, the same way any package declares its own.
 //!
 //! It is embedded by `comline-core-stdlib` beside std
@@ -210,7 +210,9 @@ mod tests {
                 ("jsonrpc@1", EncodingKind::Framing),
                 ("datagram@1", EncodingKind::Framing),
                 ("datagram@2", EncodingKind::Framing),
+                ("datagram@3", EncodingKind::Framing),
                 ("comline@1", EncodingKind::Handshake),
+                ("comline@2", EncodingKind::Handshake),
             ]
         );
         // Each maps onto both official generators, but for MessagePack,
@@ -246,14 +248,15 @@ mod tests {
             (EncodingKind::Format, "packed"),
             (EncodingKind::Format, "datagram@2"),
             (EncodingKind::Framing, "packed@1"),
-            (EncodingKind::Framing, "datagram@3"),
+            (EncodingKind::Framing, "datagram@4"),
             (EncodingKind::Handshake, "comline"),
+            (EncodingKind::Handshake, "comline@3"),
             (EncodingKind::Handshake, "None"),
         ] {
             assert_eq!(resolve(kind, written), None, "{written}");
         }
-        assert_eq!(names(EncodingKind::Framing), ["jsonrpc", "datagram", "datagram@2"]);
-        assert_eq!(names(EncodingKind::Handshake), ["comline@1", "none"]);
+        assert_eq!(names(EncodingKind::Framing), ["jsonrpc", "datagram", "datagram@2", "datagram@3"]);
+        assert_eq!(names(EncodingKind::Handshake), ["comline@1", "comline@2", "none"]);
     }
 
     #[test]

@@ -7,16 +7,18 @@
 //!
 //! The profiles under `profiles/` are copied from ComlineProject/runtime
 //! `runtime/conformance/profiles/` at rev
-//! 64505b40b39c93c5db40e981ba3eef14ecc0fc90, where the conformance corpus
-//! proves them. `comline@1`'s states that it establishes schema and encoding
-//! agreement. `none` isn't declared: it's the absence of a handshake, not
+//! cf5e06780793d8e71b0ec1133da8fd6c0e42b8e9, where the conformance corpus
+//! proves them. `comline@1`'s and `comline@2`'s state that they establish
+//! schema and encoding agreement. `none` isn't declared: it's the absence of a handshake, not
 //! one, and establishes neither.
 //!
 //! The mappings are what the official generators emit today: comline-rust's
 //! `framing_for`/`format_type` and comline-typescript's `framing_for`/
 //! `codec_class`. Rust's `comline-runtime` is pinned by git rev, not by a
 //! version, so its mappings name no version. TypeScript has no MessagePack
-//! codec, so `msgpack@1` has no TypeScript mapping.
+//! codec, so `msgpack@1` has no TypeScript mapping. `datagram@3` and
+//! `comline@2` are available, not defaults, and comline-typescript has neither
+//! yet: their TypeScript mappings name the types it will add.
 congregation comline
 specification_version = 1
 
@@ -68,12 +70,28 @@ encodings = {
             typescript = { type = "Datagram2Framing" package = "@comline/runtime" version = "^0.1.0" }
         }
     }
+    "datagram@3" = {
+        kind = "framing"
+        profile = "profiles/datagram@3.json"
+        map = {
+            rust = { type = "comline_runtime::contract::Datagram3Framing" package = "comline-runtime" }
+            typescript = { type = "Datagram3Framing" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
     "comline@1" = {
         kind = "handshake"
         profile = "profiles/comline@1.json"
         map = {
             rust = { type = "comline_runtime::handshake::ComlineHandshake" package = "comline-runtime" }
             typescript = { type = "ComlineHandshake" package = "@comline/runtime" version = "^0.1.0" }
+        }
+    }
+    "comline@2" = {
+        kind = "handshake"
+        profile = "profiles/comline@2.json"
+        map = {
+            rust = { type = "comline_runtime::comline2::Comline2Handshake" package = "comline-runtime" }
+            typescript = { type = "Comline2Handshake" package = "@comline/runtime" version = "^0.1.0" }
         }
     }
 }

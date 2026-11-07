@@ -26,6 +26,7 @@
 //! a future registry would only need to change how [`lookup`]/[`for_scope`]
 //! are implemented, not [`AnnotationInfo`]'s shape.
 
+use std::collections::BTreeMap;
 use std::sync::LazyLock;
 
 use crate::config_value::{DictKey, StrVariant, ValueType};
@@ -240,6 +241,168 @@ impl FramingValue {
     }
 }
 
+/// One parameter a handshake takes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct HandshakeParam {
+    pub key: &'static str,
+    /// Every value it can have, its default first.
+    pub values: &'static [&'static str],
+    /// A wire parameter changes what the two ends exchange, so both have to
+    /// agree on it and it's part of the handshake's parameter hash. Any other
+    /// is a policy, which each end applies on its own.
+    pub wire: bool,
+}
+
+/// `comline@2`'s parameters (runtime#15).
+pub const COMLINE2_PARAMS: &[HandshakeParam] = &[
+    HandshakeParam { key: "scope", values: &["protocol", "package"], wire: false },
+    HandshakeParam { key: "newer_consumer", values: &["degrade", "refuse"], wire: false },
+    HandshakeParam { key: "same_version_differs", values: &["refuse", "warn"], wire: false },
+    HandshakeParam { key: "exchange", values: &["offer", "symmetric"], wire: true },
+];
+
+/// The parameters the handshake `name` takes. Only `comline@2` takes any: a
+/// third party's profile can't declare parameters, as it can't for a framing.
+pub fn handshake_params(name: &str) -> &'static [HandshakeParam] {
+    match name {
+        "comline@2" => COMLINE2_PARAMS,
+        _ => &[],
+    }
+}
+
+/// Check the parameters written for the handshake `name`. The error is a
+/// sentence, for `config.idp`'s `handshake` and `@handshake` alike.
+pub fn check_handshake_params<'a>(
+    name: &str,
+    written: impl IntoIterator<Item = (&'a str, &'a str)>,
+) -> Result<(), String> {
+    let params = handshake_params(name);
+    let mut seen: Vec<&str> = vec![];
+    for (key, value) in written {
+        if seen.contains(&key) {
+            return Err(format!("handshake parameter `{key}` is set twice"));
+        }
+        seen.push(key);
+        if params.is_empty() {
+            return Err(format!("handshake `{name}` takes no parameters, so `{key}` can't be set"));
+        }
+        let Some(param) = params.iter().find(|p| p.key == key) else {
+            let expected: Vec<String> = params.iter().map(|p| format!("`{}`", p.key)).collect();
+            return Err(format!(
+                "`{key}` isn't a parameter of handshake `{name}`: expected {}",
+                expected.join(", ")
+            ));
+        };
+        if !param.values.contains(&value) {
+            let expected: Vec<String> = param.values.iter().map(|v| format!("`{v}`")).collect();
+            return Err(format!(
+                "handshake `{name}`'s `{key}` can't be `{value}`: expected {}",
+                expected.join(" or ")
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// `@handshake`'s value: an official handshake's name, or the dictionary form,
+/// of which the bare name is shorthand for `{ name = ... }`. The dictionary's
+/// keys are `comline@2`'s; which handshake takes what is
+/// [`check_handshake_params`]'s.
+fn handshake_value() -> ValueType {
+    let handshakes = ValueType::StrEnum(official::variants(EncodingKind::Handshake));
+    let mut keys = vec![DictKey { key: "name", value: handshakes, required: true }];
+    for param in COMLINE2_PARAMS {
+        let strings: Vec<StrVariant> = param.values.iter().map(|v| StrVariant::new(v)).collect();
+        let alternatives = [ValueType::Keyword(param.values), ValueType::StrEnum(Box::leak(strings.into_boxed_slice()))];
+        keys.push(DictKey { key: param.key, value: ValueType::AnyOf(Box::leak(Box::new(alternatives))), required: false });
+    }
+    let keys: &'static [DictKey] = Box::leak(keys.into_boxed_slice());
+    ValueType::AnyOf(Box::leak(Box::new([handshakes, ValueType::Dict(keys)])))
+}
+
+/// A protocol's handshake, read from either form of `@handshake`. A parameter
+/// written as its default is the same as one left out, so **the two forms, and
+/// a default written out, can't be told apart anywhere they mean the same.**
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandshakeValue {
+    /// The canonical name, or a namespaced one as written.
+    pub name: String,
+    /// Those set to something other than their default.
+    pub params: BTreeMap<String, String>,
+}
+
+impl HandshakeValue {
+    /// `name`, with its parameters at their defaults.
+    pub fn named(name: &str) -> HandshakeValue {
+        HandshakeValue { name: canonical_value("handshake", name).unwrap_or(name).to_string(), params: BTreeMap::new() }
+    }
+
+    /// `name`, with the parameters written.
+    pub fn with<'a>(name: &str, written: impl IntoIterator<Item = (&'a str, &'a str)>) -> HandshakeValue {
+        let mut value = HandshakeValue::named(name);
+        let known = handshake_params(&value.name);
+        for (key, written) in written {
+            let default = known.iter().find(|p| p.key == key).and_then(|p| p.values.first());
+            if default != Some(&written) {
+                value.params.insert(key.to_string(), written.to_string());
+            }
+        }
+        value
+    }
+
+    /// `@handshake`'s value, `"name"` or `{ name = ..., k = v }`. `None` for a
+    /// value that isn't a handshake, which validation reports.
+    pub fn of(value: &ConfigValue) -> Option<HandshakeValue> {
+        match value {
+            ConfigValue::Str(name) => Some(HandshakeValue::named(name)),
+            ConfigValue::Dict(entries) => {
+                let ConfigValue::Str(name) = value.entry("name")? else { return None };
+                let params = entries.iter().filter(|(k, _)| k != "name").filter_map(|(k, v)| match v {
+                    ConfigValue::Str(v) | ConfigValue::Name(v) => Some((k.as_str(), v.as_str())),
+                    _ => None,
+                });
+                Some(HandshakeValue::with(name, params))
+            }
+            _ => None,
+        }
+    }
+
+    /// The handshake a protocol's parameters select: its `@handshake`, which
+    /// holds the package's where the package set one, else the default.
+    pub fn of_protocol(parameters: &[FrozenUnit]) -> HandshakeValue {
+        parameters
+            .iter()
+            .find_map(|p| match p {
+                FrozenUnit::Property { name, value } if name == "handshake" => HandshakeValue::of(value),
+                _ => None,
+            })
+            .unwrap_or_else(|| HandshakeValue::named(DEFAULT_HANDSHAKE))
+    }
+
+    /// The value of `key`, its default if left out. `None` if this handshake
+    /// doesn't take it.
+    pub fn param(&self, key: &str) -> Option<&str> {
+        let param = handshake_params(&self.name).iter().find(|p| p.key == key)?;
+        Some(self.params.get(key).map_or(param.values[0], String::as_str))
+    }
+
+    /// What both ends must agree on: the non-default wire parameters. This,
+    /// with the name, is what the parameter hash covers.
+    pub fn wire_params(&self) -> BTreeMap<String, String> {
+        let known = handshake_params(&self.name);
+        self.params
+            .iter()
+            .filter(|(k, _)| known.iter().find(|p| p.key == k.as_str()).is_none_or(|p| p.wire))
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect()
+    }
+
+    /// Whether the two exchange the same bytes, whatever each end's policies.
+    pub fn same_wire(&self, other: &HandshakeValue) -> bool {
+        self.name == other.name && self.wire_params() == other.wire_params()
+    }
+}
+
 /// Which side implements a protocol (`@provider`), or calls it
 /// (`@consumer`): the side that dialled (`Client`), the side that accepted
 /// (`Server`), or both (`Multiple`).
@@ -422,11 +585,13 @@ fn known_annotations() -> Vec<AnnotationInfo> {
         scopes: &[AnnotationScope::Leading],
         authority: AnnotationAuthority::Target,
         description: "What runs on a connection before the first call: `comline@1` checks that \
-                       both ends share the schema, format and framing; `none` sends and checks \
-                       nothing. Overrides the package's `handshake` in `config.idp`. No effect \
-                       on a struct.",
+                       both ends share the schema, format and framing; `comline@2` checks \
+                       compatibility by each protocol's line, and takes parameters: \
+                       `{ name = \"comline@2\", scope = package }` (`scope`, `newer_consumer`, \
+                       `same_version_differs`, `exchange`); `none` sends and checks nothing. \
+                       Overrides the package's `handshake` in `config.idp`. No effect on a struct.",
         default: "the package's `handshake`, else comline@1",
-        value: ValueType::StrEnum(official::variants(EncodingKind::Handshake)),
+        value: handshake_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
@@ -583,14 +748,15 @@ mod tests {
         assert!(err.contains("`packed@1`, `json@1`, `msgpack@1`"), "{err}");
         assert_eq!(check_framing("datagram@1"), Ok("datagram"));
         assert_eq!(check_framing("json-rpc"), Ok("jsonrpc"));
-        assert!(check_framing("datagram@3").unwrap_err().contains("`datagram@2`"));
+        assert_eq!(check_framing("datagram@3"), Ok("datagram@3"));
+        assert!(check_framing("datagram@4").unwrap_err().contains("`datagram@2`, `datagram@3`"));
         assert_eq!(DEFAULT_FRAMING, FRAMING_DATAGRAM2);
         assert_eq!(DEFAULT_FORMAT, FORMAT_PACKED);
     }
 
     #[test]
     fn completion_offers_only_the_canonical_framings() {
-        assert_eq!(value_spellings("framing"), vec!["jsonrpc", "datagram", "datagram@2"]);
+        assert_eq!(value_spellings("framing"), vec!["jsonrpc", "datagram", "datagram@2", "datagram@3"]);
         // A key with no closed set has nothing to offer, rather than
         // the editor inventing something.
         assert!(value_spellings("timeout_ms").is_empty());
@@ -618,17 +784,18 @@ mod tests {
     #[test]
     fn handshake_names_are_checked_and_canonical() {
         assert_eq!(check_handshake("comline@1"), Ok("comline@1"));
+        assert_eq!(check_handshake("comline@2"), Ok("comline@2"));
         assert_eq!(check_handshake("none"), Ok("none"));
-        assert_eq!(value_spellings("handshake"), vec!["comline@1", "none"]);
+        assert_eq!(value_spellings("handshake"), vec!["comline@1", "comline@2", "none"]);
 
         // A namespaced one isn't official; whether it's declared is checked
         // later, so the namespaced variant lets it through as written.
         assert!(check_handshake("com.acme.hello@1").is_err());
         assert_eq!(check_handshake_or_namespaced("com.acme.hello@1"), Ok("com.acme.hello@1".to_string()));
 
-        for typo in ["comline", "comline@2", "None", "hello@1", "com.acme.hello"] {
+        for typo in ["comline", "comline@3", "None", "hello@1", "com.acme.hello"] {
             let err = check_handshake_or_namespaced(typo).unwrap_err();
-            assert!(err.contains("`comline@1`, `none`"), "{typo}: {err}");
+            assert!(err.contains("`comline@1`, `comline@2`, `none`"), "{typo}: {err}");
         }
     }
 

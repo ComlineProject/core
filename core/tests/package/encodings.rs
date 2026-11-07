@@ -264,8 +264,8 @@ fn every_official_name_and_alias_resolves_as_before() {
 /// package's declarations.
 #[test]
 fn an_unknown_name_lists_the_declared_official_ones() {
-    let err = error_of("wire = { framing = \"datagram@3\" }\n", PLAIN, &[]);
-    assert!(err.contains("expected one of `jsonrpc`, `datagram`, `datagram@2`"), "{err}");
+    let err = error_of("wire = { framing = \"datagram@4\" }\n", PLAIN, &[]);
+    assert!(err.contains("expected one of `jsonrpc`, `datagram`, `datagram@2`, `datagram@3`"), "{err}");
     let err = error_of("wire = { format = \"packed\" }\n", PLAIN, &[]);
     assert!(err.contains("expected one of `packed@1`, `json@1`, `msgpack@1`"), "{err}");
 }

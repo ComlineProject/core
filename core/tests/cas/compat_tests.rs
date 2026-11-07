@@ -609,3 +609,196 @@ fn a_version_stored_without_numbers_gets_them_computed_when_read() {
     build(dir.path()).unwrap();
     assert_eq!(number(&facts(dir.path()), "Admin"), 2);
 }
+
+// ---------- `comline@2`'s parameters ----------
+
+/// A package with `handshake = <written>`, whose protocol says why where it
+/// gives something up.
+fn handshake_config(dir: &Path, written: &str) {
+    fs::write(
+        dir.join("config.idp"),
+        format!("congregation test\nid = \"{ID}\"\nspecification_version = 1\nhandshake = {written}\nsettings = {{ annotations = {{ unverified = {{ allowed = true }} }} }}\n"),
+    )
+    .unwrap();
+}
+
+const MARKED: &str = "@unverified = \"rolling out\"\nprotocol P {\n    function f();\n}\n";
+const UNMARKED: &str = "protocol P {\n    function f();\n}\n";
+
+fn handshake_facts(written: &str) -> compat::EncodingFacts {
+    let dir = package(MARKED);
+    handshake_config(dir.path(), written);
+    build(dir.path()).unwrap();
+    facts(dir.path()).encodings.into_iter().find(|e| e.kind == "handshake").unwrap()
+}
+
+#[test]
+fn only_a_changed_exchange_moves_the_handshakes_parameter_hash() {
+    let plain = handshake_facts("\"comline@2\"");
+    assert!(plain.params.is_empty());
+
+    // A default written out hashes as leaving it out.
+    for written in [
+        "{ name = \"comline@2\" }",
+        "{ name = \"comline@2\" exchange = \"offer\" }",
+        "{ name = \"comline@2\" scope = \"protocol\" newer_consumer = \"degrade\" same_version_differs = \"refuse\" exchange = \"offer\" }",
+    ] {
+        assert_eq!(handshake_facts(written), plain, "{written}");
+    }
+    // A policy isn't in it.
+    for written in [
+        "{ name = \"comline@2\" scope = \"package\" }",
+        "{ name = \"comline@2\" newer_consumer = \"refuse\" }",
+        "{ name = \"comline@2\" same_version_differs = \"warn\" }",
+    ] {
+        assert_eq!(handshake_facts(written).param_hash, plain.param_hash, "{written}");
+    }
+    // `exchange` is.
+    let symmetric = handshake_facts("{ name = \"comline@2\" exchange = \"symmetric\" }");
+    assert_ne!(symmetric.param_hash, plain.param_hash);
+    assert_eq!(symmetric.params.get("exchange").map(String::as_str), Some("symmetric"));
+    assert_eq!(symmetric, compat::encoding("handshake", "comline@2", symmetric.params.clone()));
+    // A policy written with it still isn't in it.
+    let both = handshake_facts("{ name = \"comline@2\" exchange = \"symmetric\" scope = \"package\" }");
+    assert_eq!(both.param_hash, symmetric.param_hash);
+}
+
+/// A built version of `from`, released, then `to`: its bump and line.
+fn step(from: (&str, &str), to: (&str, &str)) -> (VersionBump, String, PackageFacts, PackageFacts) {
+    let dir = package(from.1);
+    handshake_config(dir.path(), from.0);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    let before = facts(dir.path());
+    handshake_config(dir.path(), to.0);
+    schema(dir.path(), to.1);
+    let built = build(dir.path()).unwrap();
+    let after = facts(dir.path());
+    assert_reproducible(dir.path());
+    (built.release_bump, line(&after, "P"), before, after)
+}
+
+#[test]
+fn changing_exchange_is_a_wire_break_and_moves_the_line() {
+    let (bump, line, before, after) =
+        step(("\"comline@2\"", UNMARKED), ("{ name = \"comline@2\" exchange = \"symmetric\" }", UNMARKED));
+    assert_eq!(bump, VersionBump::Major);
+    assert_eq!(line, "0.2.0");
+    assert_ne!(shape(&before, "P"), shape(&after, "P"));
+}
+
+#[test]
+fn a_stricter_or_neutral_policy_is_a_patch_and_moves_no_line() {
+    for (from, to) in [
+        ("\"comline@2\"", "{ name = \"comline@2\" scope = \"package\" }"),
+        ("\"comline@2\"", "{ name = \"comline@2\" newer_consumer = \"refuse\" }"),
+        ("{ name = \"comline@2\" newer_consumer = \"refuse\" }", "\"comline@2\""),
+    ] {
+        let (bump, line, before, after) = step((from, UNMARKED), (to, UNMARKED));
+        assert_eq!(bump, VersionBump::Patch, "{from} -> {to}");
+        assert_eq!(line, "0.1.0", "{from} -> {to}");
+        assert_eq!(shape(&before, "P"), shape(&after, "P"), "{from} -> {to}");
+    }
+    // Back from `warn`: the guarantee returns, and that's a patch too.
+    let warn = "{ name = \"comline@2\" same_version_differs = \"warn\" }";
+    let (bump, line, ..) = step((warn, MARKED), ("\"comline@2\"", MARKED));
+    assert_eq!(bump, VersionBump::Patch);
+    assert_eq!(line, "0.1.0");
+}
+
+/// `warn` needs `@unverified` to build at all; marked, it's major, as giving up
+/// any guarantee is, but no wire change, so peers on the line stay.
+#[test]
+fn giving_up_version_honesty_is_major_and_moves_no_line() {
+    let warn = "{ name = \"comline@2\" same_version_differs = \"warn\" }";
+    let (bump, line, before, after) = step(("\"comline@2\"", MARKED), (warn, MARKED));
+    assert_eq!(bump, VersionBump::Major);
+    assert_eq!(line, "0.1.0");
+    assert_eq!(shape(&before, "P"), shape(&after, "P"));
+}
+
+#[test]
+fn writing_a_default_out_changes_nothing() {
+    let (bump, line, before, after) =
+        step(("\"comline@2\"", UNMARKED), ("{ name = \"comline@2\" exchange = \"offer\" scope = \"protocol\" }", UNMARKED));
+    assert_eq!(bump, VersionBump::None);
+    assert_eq!(line, "0.1.0");
+    assert_eq!(shape(&before, "P"), shape(&after, "P"));
+}
+
+/// What the step that flips core's defaults reads old versions from: what
+/// was in effect is stored, whoever chose it.
+#[test]
+fn the_stored_history_records_the_effective_encodings() {
+    use comline_core::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE};
+
+    let stored = |dir: &Path, protocol: &str| {
+        let store = ObjectStore::new(dir);
+        let commit = Commit::from_bytes(&store.read(&read_ref(dir, main_ref()).unwrap()).unwrap()).unwrap();
+        let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
+        let history = compat::read_history(&store, &tree).unwrap().unwrap();
+        let protocol = history.protocols.iter().find(|p| p.path.ends_with(protocol)).unwrap();
+        protocol.encodings.iter().map(|e| (e.kind.clone(), e.name.clone())).collect::<Vec<_>>()
+    };
+    let named = |format: &str, framing: &str, handshake: &str| {
+        vec![
+            ("format".to_string(), format.to_string()),
+            ("framing".to_string(), framing.to_string()),
+            ("handshake".to_string(), handshake.to_string()),
+        ]
+    };
+
+    // The implicit default: nothing in the IR says which, the facts do.
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE));
+
+    // And kept at a release, whatever the defaults are later.
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE));
+
+    // A package's choice and a protocol's own, per protocol.
+    let dir = package("@handshake = \"comline@1\"\nprotocol Own {\n    function f();\n}\n\nprotocol P {\n    function f();\n}\n");
+    config(dir.path(), "wire = { framing = \"jsonrpc\" }\nhandshake = \"comline@2\"\n");
+    build(dir.path()).unwrap();
+    assert_eq!(stored(dir.path(), "Own"), named("json@1", "jsonrpc", "comline@1"));
+    assert_eq!(stored(dir.path(), "P"), named("json@1", "jsonrpc", "comline@2"));
+
+    // `datagram@3` calls by number; nothing else differs here.
+    let dir = package(V1);
+    config(dir.path(), "wire = { framing = \"datagram@3\" }\n");
+    build(dir.path()).unwrap();
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@3", DEFAULT_HANDSHAKE));
+}
+
+/// What's read back is what's recorded, not what today's defaults would say.
+#[test]
+fn the_facts_read_the_recorded_encodings() {
+    use comline_core::package::build::cas::objects::{Blob, EntryMode};
+    use comline_core::package::build::cas::storage::to_cbor;
+    use comline_core::package::build::cas::update_ref;
+
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    let store = ObjectStore::new(dir.path());
+    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
+    let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
+    let mut history = compat::read_history(&store, &tree).unwrap().unwrap();
+    for p in &mut history.protocols {
+        for e in &mut p.encodings {
+            if e.kind == "handshake" {
+                *e = compat::encoding("handshake", "an-older-default", Default::default());
+            }
+        }
+    }
+    let blob = store.write(&Blob::new(to_cbor(&history).unwrap()).to_bytes().unwrap()).unwrap();
+    let mut changed = compat::without_facts(&tree);
+    changed.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), blob);
+    commit.tree = store.write(&changed.to_bytes().unwrap()).unwrap();
+    let new_hash = store.write(&commit.to_bytes().unwrap()).unwrap();
+    update_ref(dir.path(), main_ref(), &new_hash).unwrap();
+
+    let read = facts(dir.path());
+    assert!(read.encodings.iter().any(|e| e.kind == "handshake" && e.name == "an-older-default"), "{:?}", read.encodings);
+}

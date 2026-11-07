@@ -1777,11 +1777,6 @@ fn compare_id(
     }
 }
 
-/// A rendered `@handshake` value as the handshake it selects.
-fn effective_handshake(rendered: &Option<String>) -> &str {
-    rendered.as_deref().unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
-}
-
 /// Compare a declaration's annotations: `@key = value` properties,
 /// `@deprecated`, and the validators applied to it.
 fn compare_parameters(
@@ -1811,10 +1806,31 @@ fn compare_parameters_with(
         if old_value == new_value {
             continue;
         }
-        // An absent `@handshake` means `comline@1`; spelling it out changes
-        // nothing a peer sees.
-        if key == "handshake" && effective_handshake(&old_value) == effective_handshake(&new_value) {
-            continue;
+        // An absent `@handshake` means `comline@1`, and a parameter left out
+        // its default; spelling either out changes nothing a peer sees. Only
+        // the name and the wire parameters are the wire: a policy is each
+        // end's own, so changing one is a patch, whatever the guarantee it
+        // gives up says below.
+        if key == "handshake" {
+            use crate::schema::idl::annotations::{HandshakeValue, DEFAULT_HANDSHAKE};
+            let meaning = |props: &BTreeMap<&str, &ConfigValue>| match props.get(key) {
+                Some(value) => HandshakeValue::of(value),
+                None => Some(HandshakeValue::named(DEFAULT_HANDSHAKE)),
+            };
+            if let (Some(old), Some(new)) = (meaning(&old_props), meaning(&new_props)) {
+                if old == new {
+                    continue;
+                }
+                if old.same_wire(&new) {
+                    changes.modifications.push(Modification::ChangedAnnotation {
+                        target: target.to_string(),
+                        key: key.to_string(),
+                        old_value,
+                        new_value,
+                    });
+                    continue;
+                }
+            }
         }
         // `"jsonrpc"` is shorthand for `{ name = "jsonrpc" }`, and an alias
         // spells the same framing: compared by what they mean.
@@ -1867,6 +1883,9 @@ fn compare_parameters_with(
             guarantees: gave_up,
         });
     }
+    // A stricter handshake policy is a patch, reported above: version honesty
+    // only comes and goes with `same_version_differs`.
+    let restored: Vec<Guarantee> = restored.into_iter().filter(|g| *g != Guarantee::VersionHonesty).collect();
     if !restored.is_empty() {
         changes.new_features.push(NewFeature::RestoredGuarantees {
             target: target.to_string(),
@@ -2206,7 +2225,12 @@ pub fn concerns_protocol(change: &BreakingChange, protocol: &str, reach: &BTreeS
         | RenamedEnumVariant { enum_name, .. }
         | ReorderedEnumVariants { enum_name } => reached(enum_name),
         ValidationTightened { target }
-        | ChangedWireAnnotation { target, .. }
-        | GaveUpGuarantees { target, .. } => reached(target),
+        | ChangedWireAnnotation { target, .. } => reached(target),
+        // Version honesty is given up by a policy (`same_version_differs =
+        // warn`), not by the wire: the bump says so, and peers on this line
+        // still understand each other.
+        GaveUpGuarantees { target, guarantees } => {
+            reached(target) && guarantees.iter().any(|g| *g != Guarantee::VersionHonesty)
+        }
     }
 }
