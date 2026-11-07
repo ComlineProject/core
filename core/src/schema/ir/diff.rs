@@ -7,9 +7,8 @@ use crate::schema::ir::frozen::unit::{
 use crate::schema::ir::unverified;
 use crate::encodings::{official, EncodingKind, Profile};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{
-    FramingValue, DEFAULT_FORMAT, DEFAULT_FRAMING, FORMAT_JSON, FRAMING_JSONRPC,
-};
+use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING};
+use crate::schema::ir::unverified::{default_format, Encodings};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use schemars::JsonSchema;
@@ -404,7 +403,7 @@ impl WireFacts {
     /// The facts of both versions of a package: each version's schemas and
     /// frozen config (its `wire` defaults; empty for none). Each protocol's
     /// framing is its frozen `@framing`, else the package's, else core's;
-    /// its format the package's, else JSON under JSON-RPC, else core's (as
+    /// its format the package's, else its framing's default (as
     /// `comline_core::inspect` resolves them). A package with no protocol
     /// has its default format and framing in play. Facts come from the
     /// official profiles; any other encoding reads as the strictest.
@@ -427,9 +426,8 @@ impl WireFacts {
                         .or(wire_framing)
                         .unwrap_or(DEFAULT_FRAMING);
                     let framing_profile = official::profile(EncodingKind::Framing, framing);
-                    let jsonrpc = FramingValue::named(framing).is_some_and(|f| f.name == FRAMING_JSONRPC);
-                    let format = wire_format
-                        .unwrap_or(if jsonrpc { FORMAT_JSON } else { DEFAULT_FORMAT });
+                    let encodings = Encodings { declared: config.iter().collect(), ..Default::default() };
+                    let format = wire_format.unwrap_or_else(|| default_format(framing, &encodings));
                     formats.push(official::profile(EncodingKind::Format, format));
                     framings.push(framing_profile);
                     calls.entry(protocol_key(namespace, name)).or_default().push(framing_profile);

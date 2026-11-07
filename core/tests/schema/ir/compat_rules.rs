@@ -92,6 +92,32 @@ fn the_profiles_give_the_facts() {
 }
 
 #[test]
+fn a_declared_framing_with_a_grammar_gets_that_grammars_format() {
+    use comline_core::encodings::EncodingKind;
+    use comline_core::package::config::ir::frozen::FrozenUnit as ConfigUnit;
+
+    let lines = units("@framing = \"com.acme.lines@1\"\nprotocol P {\n    function f();\n}\n");
+    let declared = |grammar: Option<&str>| {
+        [ConfigUnit::Encoding {
+            name: "com.acme.lines@1".to_string(),
+            kind: EncodingKind::Framing,
+            profile_hash: String::new(),
+            map: Default::default(),
+            establishes: vec![],
+            has_vectors: false,
+            grammar: grammar.map(str::to_string),
+            calls: None,
+            directions: None,
+        }]
+    };
+    let facts = |config: &[ConfigUnit]| {
+        WireFacts::of((std::slice::from_ref(&lines), config), (std::slice::from_ref(&lines), config))
+    };
+    assert!(facts(&declared(Some("json"))).fields_by_name, "under json@1");
+    assert!(!facts(&declared(None)).fields_by_name, "under packed@1");
+}
+
+#[test]
 fn fields() {
     let s = |body: &str| format!("struct S {{\n{body}}}\n");
     let json = json();

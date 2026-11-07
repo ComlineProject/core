@@ -9,6 +9,15 @@
         "framing-jsonrpc/request-large-id"
       ]
     },
+    "directions": {
+      "value": "both",
+      "proven_by": [
+        "framing-jsonrpc/request",
+        "framing-jsonrpc/response-ok",
+        "framing-jsonrpc/reject-response-as-request",
+        "framing-jsonrpc/reject-request-as-response"
+      ]
+    },
     "errors": {
       "value": "by_ordinal",
       "proven_by": [

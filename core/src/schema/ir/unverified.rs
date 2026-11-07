@@ -20,7 +20,7 @@
 
 use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{self, DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, HANDSHAKE_NONE};
+use crate::schema::idl::annotations::{self, DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, FORMAT_JSON, HANDSHAKE_NONE};
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 
 /// The annotation key.
@@ -92,6 +92,46 @@ fn grammar(kind: EncodingKind, name: &str, encodings: &Encodings) -> Option<Stri
     }
 }
 
+/// What the framing `name` states as `fact`, or `None` if it isn't known here.
+fn framing_fact(name: &str, fact: &str, encodings: &Encodings) -> Option<String> {
+    if let Some(profile) = official::profile(EncodingKind::Framing, name) {
+        return profile.stated(fact);
+    }
+    match encodings.find(EncodingKind::Framing, name) {
+        Some(ConfigUnit::Encoding { calls, directions, .. }) => match fact {
+            "calls" => calls.clone(),
+            "directions" => directions.clone(),
+            _ => None,
+        },
+        _ => None,
+    }
+}
+
+/// Whether the framing `name` names its calls (`calls = by_name`), which is
+/// what `method_names` chooses how to do. One that isn't known counts only when
+/// these encodings can't say.
+pub fn names_calls(name: &str, encodings: &Encodings) -> bool {
+    match framing_fact(name, "calls", encodings) {
+        Some(calls) => calls == "by_name",
+        None => !encodings.complete,
+    }
+}
+
+/// Whether the framing `name` carries calls one way only (`directions = one`):
+/// its frames don't say whether they're a request or a reply.
+pub fn one_way_only(name: &str, encodings: &Encodings) -> bool {
+    framing_fact(name, "directions", encodings).as_deref() == Some("one")
+}
+
+/// The format a package gets when it sets none, on the framing `name`: the one
+/// writing the grammar the framing writes a payload into, else core's default.
+pub fn default_format(name: &str, encodings: &Encodings) -> &'static str {
+    match grammar(EncodingKind::Framing, name, encodings).as_deref() {
+        Some("json") => FORMAT_JSON,
+        _ => DEFAULT_FORMAT,
+    }
+}
+
 /// The framing, the grammar it writes payloads into and the format of a
 /// protocol that can't work: a framing that writes a payload into a grammar
 /// (JSON-RPC's is JSON), with a format that writes something else. A framing
@@ -123,7 +163,7 @@ pub fn handshake(parameters: &[FrozenUnit]) -> &str {
 
 /// The framing a protocol uses, as written: its own `@framing` (either
 /// form), else the package's.
-fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &'a str {
+pub fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &'a str {
     parameters
         .iter()
         .find_map(|p| match p {

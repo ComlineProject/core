@@ -3,7 +3,7 @@
 //!
 //! A pinned copy of `Profile`, `ProfileKind`, `Fact` and the fact list from
 //! ComlineProject/runtime `runtime/conformance/src/profile.rs`, at rev
-//! `3d749427a80986bb293a5cdf9165be4fa02186f7` (spec 0.9). The runtime corpus
+//! `cf5e06780793d8e71b0ec1133da8fd6c0e42b8e9` (spec 0.10). The runtime corpus
 //! is where the profiles are proven; core only checks that a declared
 //! profile is one. When the runtime's schema moves, this copy moves with it,
 //! and the rev above changes.
@@ -103,6 +103,7 @@ impl ProfileKind {
             ],
             ProfileKind::Framing => &[
                 ("calls", &["by_index", "by_name", "by_id"]),
+                ("directions", &["both", "one"]),
                 ("errors", &["by_ordinal", "by_name"]),
                 ("payload", &["opaque", "json"]),
             ],
@@ -168,6 +169,11 @@ impl Profile {
             ProfileKind::Handshake => return None,
         };
         self.facts.get(fact).map(|f| f.value.clone()).filter(|value| value != none)
+    }
+
+    /// What a framing states as `fact`; `None` for one this kind doesn't state.
+    pub fn stated(&self, fact: &str) -> Option<String> {
+        self.facts.get(fact).map(|f| f.value.clone())
     }
 
     /// The guarantees a handshake's profile states as established (its

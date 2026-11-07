@@ -140,7 +140,7 @@ fn a_framing_dictionary_is_checked_key_by_key() {
         ("{ name = \"jsonrpc\", method_names = loud }", "'method_names' must be"),
         ("{ name = \"jsonrpc\", colour = \"red\" }", "there's no key `colour`"),
         ("{ name = \"carrier-pigeon\" }", "'name' must be one of"),
-        ("{ name = \"datagram@2\", method_names = qualified }", "`method_names` applies to JSON-RPC, not `datagram@2`"),
+        ("{ name = \"datagram@2\", method_names = qualified }", "`method_names` applies to a framing that names its calls (`calls = by_name`), not `datagram@2`"),
     ] {
         let err = compile(&config(ALLOW_FRAMING), &protocol(&format!("@framing = {framing}\n")))
             .unwrap_err()

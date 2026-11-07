@@ -139,7 +139,7 @@ pub fn check_framing(written: &str) -> Result<&'static str, String> {
     })
 }
 
-/// How JSON-RPC names a call on a connection, `@framing`'s `method_names`:
+/// How a framing that names its calls does on a connection, `@framing`'s `method_names`:
 /// the function alone (`send`), or with its protocol (`chat.Chat/send`).
 pub const METHOD_NAMES: &[&str] = &["bare", "qualified"];
 const METHOD_NAME_STRINGS: &[StrVariant] = &[StrVariant::new("bare"), StrVariant::new("qualified")];
@@ -159,7 +159,7 @@ fn framing_value() -> ValueType {
     ValueType::AnyOf(Box::leak(Box::new([framings, ValueType::Dict(keys)])))
 }
 
-/// How JSON-RPC names calls (`@framing`'s `method_names`).
+/// How a framing that names its calls names them (`@framing`'s `method_names`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum MethodNames {
     /// The function's name alone. The default.
@@ -169,12 +169,40 @@ pub enum MethodNames {
     Qualified,
 }
 
+impl MethodNames {
+    /// What `@framing`'s value says: its `method_names`, else the default.
+    /// `None` for a value that isn't one, which validation reports.
+    pub fn of(value: &ConfigValue) -> Option<MethodNames> {
+        match value.entry("method_names") {
+            None => Some(MethodNames::Bare),
+            Some(ConfigValue::Str(m) | ConfigValue::Name(m)) => match m.as_str() {
+                "bare" => Some(MethodNames::Bare),
+                "qualified" => Some(MethodNames::Qualified),
+                _ => None,
+            },
+            Some(_) => None,
+        }
+    }
+
+    /// What a protocol's `@framing` says, of any framing: validation has
+    /// already refused `method_names` on one that doesn't name its calls.
+    pub fn of_protocol(parameters: &[FrozenUnit]) -> MethodNames {
+        parameters
+            .iter()
+            .find_map(|p| match p {
+                FrozenUnit::Property { name, value } if name == "framing" => MethodNames::of(value),
+                _ => None,
+            })
+            .unwrap_or_default()
+    }
+}
+
 /// A protocol's framing, read from either form of `@framing`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct FramingValue {
     /// The canonical name (`jsonrpc`, `datagram`, `datagram@2`).
     pub name: &'static str,
-    /// Meaningful under JSON-RPC only.
+    /// Meaningful under a framing that names its calls only.
     pub method_names: MethodNames,
 }
 
@@ -197,16 +225,7 @@ impl FramingValue {
                     ConfigValue::Str(name) => name,
                     _ => return None,
                 };
-                let method_names = match value.entry("method_names") {
-                    None => MethodNames::Bare,
-                    Some(ConfigValue::Str(m) | ConfigValue::Name(m)) => match m.as_str() {
-                        "bare" => MethodNames::Bare,
-                        "qualified" => MethodNames::Qualified,
-                        _ => return None,
-                    },
-                    Some(_) => return None,
-                };
-                Some(FramingValue { method_names, ..FramingValue::named(name)? })
+                Some(FramingValue { method_names: MethodNames::of(value)?, ..FramingValue::named(name)? })
             }
             _ => None,
         }

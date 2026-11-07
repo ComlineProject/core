@@ -630,7 +630,7 @@ pub fn validate_with(
     check_validator_sizes(units, &symbols, imports, &constants, &mut errors, &mut warnings);
     check_annotation_values(units, imports, &mut errors);
     check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
-    check_provider(units, &mut errors);
+    check_provider(units, &imports.encodings(), &mut errors);
     check_format_fits_framing(units, &imports.encodings(), &mut errors);
     validate_throws(units, &mut errors);
     check_duplicate_members(units, &mut errors);
@@ -1398,7 +1398,7 @@ fn check_unverified(
 /// sides do) need a framing whose frames tell requests from replies.
 /// `datagram` (`@1`) can't: a frame the server starts would be read as a
 /// reply.
-fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+fn check_provider(units: &[FrozenUnit], encodings: &crate::schema::ir::unverified::Encodings, errors: &mut Vec<Diagnostic>) {
     for unit in units {
         let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
             continue;
@@ -1437,27 +1437,24 @@ fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
         if !matches!(provider, Some("Client" | "Multiple")) {
             continue;
         }
-        let framing = parameters.iter().find_map(|p| match p {
-            FrozenUnit::Property { name, value } if name == "framing" => {
-                Some(annotations::FramingValue::of(value).map_or_else(|| value.source_text(), |f| f.name.to_string()))
-            }
-            _ => None,
-        });
-        // No `@framing` (written or the package's) means `datagram@2`,
-        // which carries calls both ways.
-        if framing.as_deref() == Some(annotations::FRAMING_DATAGRAM) {
+        // No `@framing` (written or the package's) means `datagram@2`, which
+        // carries calls both ways, as does any framing not stating otherwise.
+        let framing = crate::schema::ir::unverified::framing(parameters, encodings);
+        if crate::schema::ir::unverified::one_way_only(framing, encodings) {
+            let framing = crate::encodings::official::profile(crate::encodings::EncodingKind::Framing, framing)
+                .map_or(framing, |profile| profile.name.as_str());
             let provider = provider.unwrap_or_default();
             errors.push(
                 Diagnostic::new(
                     REVERSE_CALLS_NEED_FRAMING,
                     format!(
                         "protocol `{name}` is provided by `{provider}`, so the server calls it, \
-                         and the `datagram@1` framing can't tell the server's requests from replies"
+                         and the `{framing}` framing can't tell the server's requests from replies"
                     ),
                 )
                 .with_help(format!(
-                    "drop the `datagram@1` framing for `{}` (the default), or `\"jsonrpc\"`; \
-                     if the package's `wire.framing` set it, give this protocol its own `@framing`",
+                    "use a framing that says which is which, such as `{}` (the default) or `\"jsonrpc\"`; \
+                     if the package's `wire.framing` set `{framing}`, give this protocol its own `@framing`",
                     annotations::FRAMING_DATAGRAM2
                 ))
                 .maybe_span(Some(*span)),
@@ -1551,12 +1548,14 @@ fn check_params(
                 if !imports.encoding_declared(EncodingKind::Framing, written) {
                     problem = Some(undeclared(EncodingKind::Framing, written));
                 } else if let ConfigValue::Dict(entries) = value {
-                    if let Some((key, _)) = entries.iter().find(|(k, _)| k != "name") {
-                        problem = Some(if key == "method_names" {
-                            format!("'@framing': `method_names` applies to JSON-RPC, not `{written}`")
-                        } else {
-                            format!("'@framing': `{key}` isn't allowed: expected `name`")
-                        });
+                    if let Some((key, _)) = entries.iter().find(|(k, _)| k != "name" && k != "method_names") {
+                        problem = Some(format!("'@framing': `{key}` isn't allowed: expected `name` or `method_names`"));
+                    } else if value.entry("method_names").is_some() {
+                        if !crate::schema::ir::unverified::names_calls(written, &imports.encodings()) {
+                            problem = Some(names_no_calls(written));
+                        } else if annotations::MethodNames::of(value).is_none() {
+                            problem = Some("'method_names' must be `bare` or `qualified`".to_string());
+                        }
                     }
                 }
                 if let Some(message) = problem {
@@ -1595,22 +1594,26 @@ fn check_params(
                 continue;
             }
         }
-        // `method_names` says how JSON-RPC names a call; another framing
+        // `method_names` says how a framing names a call; one that doesn't
         // has nothing it could change.
         if name == "framing" && value.entry("method_names").is_some() {
-            if let Some(framing) = annotations::FramingValue::of(value).filter(|f| f.name != annotations::FRAMING_JSONRPC) {
+            if let Some(framing) = annotations::FramingValue::of(value)
+                .filter(|f| !crate::schema::ir::unverified::names_calls(f.name, &imports.encodings()))
+            {
                 errors.push(
-                    Diagnostic::new(
-                        ANNOTATION_VALUE_MISMATCH,
-                        format!("'@framing': `method_names` applies to JSON-RPC, not `{}`", framing.name),
-                    )
-                    .with_context(context.to_string())
-                    .with_help("remove `method_names`, or use `name = \"jsonrpc\"`".to_string())
-                    .maybe_span(span),
+                    Diagnostic::new(ANNOTATION_VALUE_MISMATCH, names_no_calls(framing.name))
+                        .with_context(context.to_string())
+                        .with_help("remove `method_names`, or use a framing that does, such as `\"jsonrpc\"`".to_string())
+                        .maybe_span(span),
                 );
             }
         }
     }
+}
+
+/// The sentence for `method_names` on a framing that doesn't name its calls.
+fn names_no_calls(framing: &str) -> String {
+    format!("'@framing': `method_names` applies to a framing that names its calls (`calls = by_name`), not `{framing}`")
 }
 
 
