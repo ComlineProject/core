@@ -78,6 +78,36 @@ impl<'a> Encodings<'a> {
     }
 }
 
+/// The grammar `name` writes in or into ([`Profile::grammar`]), or `None` if it
+/// has none or isn't known here.
+///
+/// [`Profile::grammar`]: crate::encodings::Profile::grammar
+fn grammar(kind: EncodingKind, name: &str, encodings: &Encodings) -> Option<String> {
+    if let Some(profile) = official::profile(kind, name) {
+        return profile.grammar();
+    }
+    match encodings.find(kind, name) {
+        Some(ConfigUnit::Encoding { grammar, .. }) => grammar.clone(),
+        _ => None,
+    }
+}
+
+/// The framing, the grammar it writes payloads into and the format of a
+/// protocol that can't work: a framing that writes a payload into a grammar
+/// (JSON-RPC's is JSON), with a format that writes something else. A framing
+/// that carries bytes takes any format. This goes by the encodings' facts, so a
+/// third party's are held to the same rule, and a package that sets no format
+/// gets its framing's default, which fits.
+pub fn misfit<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> Option<(&'a str, String, &'a str)> {
+    let format = encodings.format?;
+    let framing = framing(parameters, encodings);
+    let needs = grammar(EncodingKind::Framing, framing, encodings)?;
+    let declared = official::resolve(EncodingKind::Format, format).is_some()
+        || encodings.find(EncodingKind::Format, format).is_some();
+    let writes = grammar(EncodingKind::Format, format, encodings);
+    (declared && writes.as_deref() != Some(needs.as_str())).then_some((framing, needs, format))
+}
+
 /// The handshake a protocol's parameters select, canonical.
 pub fn handshake(parameters: &[FrozenUnit]) -> &str {
     parameters

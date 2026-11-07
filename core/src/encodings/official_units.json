@@ -3,7 +3,7 @@
     "Encoding": {
       "name": "packed@1",
       "kind": "format",
-      "profile_hash": "26f59478b6850d83093d681b35b6439bf2cd5b1a35625ce2a3f7be25683b063b",
+      "profile_hash": "725f495eeafe1fa7f2e089339d6580f9c5675171bc5b156de2da54b98424a8da",
       "map": {
         "rust": {
           "type": "comline_runtime::format::Packed",
@@ -24,7 +24,7 @@
     "Encoding": {
       "name": "json@1",
       "kind": "format",
-      "profile_hash": "d7c426660ec824df3446698cd7c690e9fd7617d3461899992d6ebfdcf88d764e",
+      "profile_hash": "0f8cf0698b0ecd6333172c661a6bee24c0f36a5f7143ce00fd3604b698569af1",
       "map": {
         "rust": {
           "type": "comline_runtime::format::Json",
@@ -38,14 +38,15 @@
         }
       },
       "establishes": [],
-      "has_vectors": true
+      "has_vectors": true,
+      "grammar": "json"
     }
   },
   {
     "Encoding": {
       "name": "msgpack@1",
       "kind": "format",
-      "profile_hash": "c9970f9b0ba5e37be2f84cc3175574c2f657b5c429074966b1434dcb2a6dff23",
+      "profile_hash": "4fb2857beab2f3fba6c69a207dd11af3492ec39b0f15a2f8d838d8483254b2ee",
       "map": {
         "rust": {
           "type": "comline_runtime::format::MsgPack",
@@ -61,7 +62,7 @@
     "Encoding": {
       "name": "jsonrpc@1",
       "kind": "framing",
-      "profile_hash": "932359b98cd251cbdc7069d63816ba61138530402d4e9cae0f1e73cb8c25304c",
+      "profile_hash": "5d6c0654543ac4f94d02bf956c49003c0a1c9995b7bf72617aaaf632b3f61075",
       "map": {
         "rust": {
           "type": "comline_runtime::framing::JsonRpcFraming",
@@ -75,14 +76,15 @@
         }
       },
       "establishes": [],
-      "has_vectors": true
+      "has_vectors": true,
+      "grammar": "json"
     }
   },
   {
     "Encoding": {
       "name": "datagram@1",
       "kind": "framing",
-      "profile_hash": "afd4d8115a7e32b5f8006edbef27d4666707bf096e50f901258018a92d67246a",
+      "profile_hash": "a1f5ca328186a6fa2f09ffce5e5e3774663a9bc5cd65c6e3cd667bb9d6ccf2ee",
       "map": {
         "rust": {
           "type": "comline_runtime::contract::DatagramFraming",
@@ -103,7 +105,7 @@
     "Encoding": {
       "name": "datagram@2",
       "kind": "framing",
-      "profile_hash": "b5bec616814a2d24c3472b26b9974f10a176e508eb950bd97dda99c68cac840a",
+      "profile_hash": "5ef8e5da3793202d036b1feb03f3a3e18ee0e56453e457e066e7e8d7eae4ebcc",
       "map": {
         "rust": {
           "type": "comline_runtime::contract::Datagram2Framing",

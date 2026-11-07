@@ -15,7 +15,7 @@ use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_override
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::schema::idl::annotations::{
-    FramingValue, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, FORMAT_JSON, FRAMING_JSONRPC,
+    DEFAULT_FRAMING, DEFAULT_HANDSHAKE,
 };
 use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::settings::effective::package_settings;
@@ -145,9 +145,6 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
                 namespace_joined,
                 rendered.join("\n\n")
             ));
-        }
-        if let Some(format) = &own_format {
-            schema_errors.extend(jsonrpc_with_a_format(&frozen_units, format, &namespace_joined));
         }
 
         let imports = ProjectImports {
@@ -344,31 +341,6 @@ fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
             });
         }
     }
-}
-
-/// JSON-RPC is JSON by definition, so a package that declares another
-/// `wire.format` can't mean it for a JSON-RPC protocol. One error per such
-/// protocol. Leaving `wire.format` out is fine: the default then applies to
-/// the package's other protocols only.
-fn jsonrpc_with_a_format(units: &[FrozenUnit], format: &str, namespace: &str) -> Vec<String> {
-    if format == FORMAT_JSON {
-        return vec![];
-    }
-    units
-        .iter()
-        .filter_map(|unit| match unit {
-            FrozenUnit::Protocol { name, parameters, .. }
-                if FramingValue::of_protocol(parameters).map(|f| f.name) == Some(FRAMING_JSONRPC) =>
-            {
-                Some(format!(
-                    "Schema '{namespace}': protocol `{name}` uses JSON-RPC, which carries JSON, but \
-                     the package declares `wire.format = \"{format}\"`; declare `\"{FORMAT_JSON}\"`, \
-                     leave `wire.format` out, or give `{name}` another framing"
-                ))
-            }
-            _ => None,
-        })
-        .collect()
 }
 
 /// Freeze the package's default handshake into every protocol that doesn't

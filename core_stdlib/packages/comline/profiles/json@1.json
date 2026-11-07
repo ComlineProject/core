@@ -38,6 +38,16 @@
         "format-json/decode-wider-integer",
         "format-json/decode-wider-integer-overflow"
       ]
+    },
+    "output": {
+      "value": "json",
+      "proven_by": [
+        "format-json/bool-true",
+        "format-json/u8-max",
+        "format-json/string-unicode",
+        "format-json/struct",
+        "format-json/unit"
+      ]
     }
   }
 }

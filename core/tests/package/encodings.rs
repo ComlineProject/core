@@ -13,7 +13,8 @@ const FRAMING_PROFILE: &str = r#"{
   "kind": "framing",
   "facts": {
     "calls": { "value": "by_name", "proven_by": ["lines/request"] },
-    "errors": { "value": "by_name", "proven_by": ["lines/error"] }
+    "errors": { "value": "by_name", "proven_by": ["lines/error"] },
+    "payload": { "value": "opaque", "proven_by": ["lines/request-binary"] }
   }
 }"#;
 
@@ -26,7 +27,8 @@ const FORMAT_PROFILE: &str = r#"{
     "missing_optional": { "value": "absent", "proven_by": [] },
     "enum_variants": { "value": "by_name", "proven_by": [] },
     "unknown_variant": { "value": "rejected", "proven_by": [] },
-    "integer_width": { "value": "by_value", "proven_by": [] }
+    "integer_width": { "value": "by_value", "proven_by": [] },
+    "output": { "value": "bytes", "proven_by": [] }
   }
 }"#;
 
@@ -425,4 +427,116 @@ fn an_encoding_without_vectors_gives_up_encoding_conformance() {
         &[("profiles/cbor.json", FORMAT_PROFILE), ("profiles/cbor.vectors.json", VECTORS)],
     )
     .unwrap();
+}
+
+/// What a framing needs of a format, by their facts. Nothing here names an
+/// encoding but the fixtures: a third party's is held to the same rule.
+mod format_fits_framing {
+    use super::*;
+
+    const JSONRPC: &str = "@framing = \"jsonrpc\"\nprotocol P {\n    function f();\n}\n";
+
+    fn framing_profile(payload: &str) -> String {
+        format!(
+            r#"{{ "name": "com.acme.lines@1", "kind": "framing", "facts": {{
+                "calls": {{ "value": "by_name", "proven_by": [] }},
+                "errors": {{ "value": "by_ordinal", "proven_by": [] }},
+                "payload": {{ "value": "{payload}", "proven_by": [] }}
+            }} }}"#
+        )
+    }
+
+    fn format_profile(output: &str) -> String {
+        format!(
+            r#"{{ "name": "com.acme.fast@1", "kind": "format", "facts": {{
+                "struct_fields": {{ "value": "by_name", "proven_by": [] }},
+                "unknown_field": {{ "value": "ignored", "proven_by": [] }},
+                "missing_optional": {{ "value": "absent", "proven_by": [] }},
+                "enum_variants": {{ "value": "by_name", "proven_by": [] }},
+                "unknown_variant": {{ "value": "rejected", "proven_by": [] }},
+                "integer_width": {{ "value": "by_value", "proven_by": [] }},
+                "output": {{ "value": "{output}", "proven_by": [] }}
+            }} }}"#
+        )
+    }
+
+    /// `com.acme.lines@1`, or `com.acme.fast@1` as `wire.format`.
+    const DECLARES_LINES: &str = r#"encodings = {
+    "com.acme.lines@1" = { kind = "framing" profile = "profiles/lines.json" map = { } }
+}
+"#;
+    const DECLARES_FAST: &str = r#"encodings = {
+    "com.acme.fast@1" = { kind = "format" profile = "profiles/fast.json" map = { } }
+}
+wire = { format = "com.acme.fast@1" }
+"#;
+    const LINES_PROTOCOL: &str = "@framing = \"com.acme.lines@1\"\n@unverified = \"a test\"\nprotocol P {\n    function f();\n}\n";
+
+    const MISFIT: &str = "validation::format-doesnt-fit-framing";
+
+    #[test]
+    fn jsonrpc_takes_json_or_its_default() {
+        compile_one("wire = { format = \"json@1\" }\n", JSONRPC, &[]).unwrap();
+        compile_one("", JSONRPC, &[]).unwrap();
+    }
+
+    #[test]
+    fn jsonrpc_refuses_a_format_that_writes_bytes() {
+        for format in ["packed@1", "msgpack@1"] {
+            let error = error_of(&format!("wire = {{ format = \"{format}\" }}\n"), JSONRPC, &[]);
+            assert!(error.contains(MISFIT), "{format}: {error}");
+            assert!(error.contains(format), "{error}");
+        }
+        // However the framing is spelled or set.
+        for (config, schema) in [
+            ("wire = { format = \"packed@1\" }\n", "@framing = { name = \"jsonrpc@1\" }\nprotocol P {\n    function f();\n}\n"),
+            ("wire = { format = \"packed@1\" framing = \"json-rpc\" }\n", "protocol P {\n    function f();\n}\n"),
+        ] {
+            let error = error_of(config, schema, &[]);
+            assert!(error.contains(MISFIT), "{schema}: {error}");
+        }
+    }
+
+    #[test]
+    fn a_datagram_takes_any_format() {
+        let protocol = "protocol P {\n    function f();\n}\n";
+        for format in ["packed@1", "msgpack@1", "json@1"] {
+            compile_one(&format!("wire = {{ format = \"{format}\" }}\n"), protocol, &[]).unwrap();
+        }
+    }
+
+    #[test]
+    fn a_third_party_format_is_judged_by_what_it_writes() {
+        let schema = "@framing = \"jsonrpc\"\n@unverified = \"a test\"\nprotocol P {\n    function f();\n}\n";
+        let json = format_profile("json");
+        compile_one(DECLARES_FAST, schema, &[("profiles/fast.json", &json)]).unwrap();
+        let bytes = format_profile("bytes");
+        let error = error_of(DECLARES_FAST, schema, &[("profiles/fast.json", &bytes)]);
+        assert!(error.contains(MISFIT), "{error}");
+    }
+
+    #[test]
+    fn a_third_party_framing_is_judged_by_what_it_carries() {
+        let config = format!("{DECLARES_LINES}wire = {{ format = \"packed@1\" }}\n");
+        let opaque = framing_profile("opaque");
+        compile_one(&config, LINES_PROTOCOL, &[("profiles/lines.json", &opaque)]).unwrap();
+        let json = framing_profile("json");
+        let error = error_of(&config, LINES_PROTOCOL, &[("profiles/lines.json", &json)]);
+        assert!(error.contains(MISFIT), "{error}");
+        let config = format!("{DECLARES_LINES}wire = {{ format = \"json@1\" }}\n");
+        compile_one(&config, LINES_PROTOCOL, &[("profiles/lines.json", &json)]).unwrap();
+    }
+
+    #[test]
+    fn a_profile_has_to_state_them() {
+        let missing = r#"{ "name": "com.acme.lines@1", "kind": "framing", "facts": {
+            "calls": { "value": "by_name", "proven_by": [] },
+            "errors": { "value": "by_ordinal", "proven_by": [] }
+        } }"#;
+        let error = error_of(DECLARES_LINES, PLAIN, &[("profiles/lines.json", missing)]);
+        assert!(error.contains("doesn't state `payload`"), "{error}");
+        let wrong = framing_profile("cbor");
+        let error = error_of(DECLARES_LINES, PLAIN, &[("profiles/lines.json", &wrong)]);
+        assert!(error.contains("its `payload` is `cbor`"), "{error}");
+    }
 }
