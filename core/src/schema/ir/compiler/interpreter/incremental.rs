@@ -549,7 +549,7 @@ fn frozen_error(
 /// `FrozenUnit::Deprecated`, which carries its *semantics* (is-deprecated
 /// plus an optional message) rather than its syntax - see
 /// `deprecated_value`.
-fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
+pub(crate) fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
     let mut units = Vec::new();
     for a in annotations {
         if a.key() == "deprecated" {

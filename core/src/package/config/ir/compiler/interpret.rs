@@ -15,7 +15,7 @@ use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_override
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::schema::idl::annotations::{
-    canonical_value, default_handshake, DEFAULT_FRAMING, IMPLICIT_FRAMING, IMPLICIT_HANDSHAKE,
+    package_default_handshake, DEFAULT_FRAMING, IMPLICIT_FRAMING, IMPLICIT_HANDSHAKE,
 };
 use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::settings::effective::package_settings;
@@ -36,7 +36,27 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     let (own_format, stated_framing) = crate::package::config::ir::frozen::wire(own_config);
     let own_format = own_format.map(str::to_string);
     let own_framing = stated_framing.unwrap_or(DEFAULT_FRAMING).to_string();
-    let own_handshake = stated_handshake.unwrap_or_else(|| default_handshake(&own_framing)).to_string();
+    // With no package handshake, one for all the package's protocols, as
+    // they share a connection: `comline@2` where they all can run it.
+    let own_protocols: Vec<Vec<FrozenUnit>> = project_context
+        .schema_contexts
+        .iter()
+        .filter(|s| !s.borrow().compile_state.borrow().complete)
+        .flat_map(|s| {
+            s.borrow()
+                .declarations
+                .iter()
+                .filter_map(|d| match &d.value {
+                    Declaration::Protocol(p) => Some(
+                        crate::schema::ir::compiler::interpreter::incremental::annotation_units(&p.annotations()),
+                    ),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let default_handshake = package_default_handshake(own_protocols.iter().map(Vec::as_slice), &own_framing);
+    let own_handshake = stated_handshake.unwrap_or(default_handshake).to_string();
     check_package_encodings(project_context, own_format.as_deref(), &own_framing, &own_handshake)?;
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
@@ -119,9 +139,8 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
         apply_package_handshake(
             &mut frozen_units,
-            stated_handshake,
+            stated_handshake.unwrap_or(default_handshake),
             &own_handshake_params,
-            &own_framing,
         );
         crate::schema::ir::unverified::freeze(
             &mut frozen_units,
@@ -347,62 +366,40 @@ fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
 /// Freeze the package's handshake, or core's default, into every protocol
 /// that doesn't name its own, so the choice is part of each protocol's
 /// frozen IR (and its hash): changing it then shows up as a change to the
-/// protocols it reaches. Without a package handshake, a protocol gets
-/// [`default_handshake`] for its framing (its own `@framing`, else the
-/// package's): `comline@2` on `datagram@3`, else `comline@1`. `comline@1` without parameters is what an absent
+/// protocols it reaches. Without a package handshake, the protocols get
+/// [`package_default_handshake`]: `comline@2` where all of them are on
+/// `datagram@3`, else `comline@1`. `comline@1` without parameters is what an absent
 /// `@handshake` has always meant, so it's left implicit and the IR of a
 /// package that states it doesn't move. Parameters freeze in
 /// `@handshake`'s dictionary form, as if the protocol had written it;
 /// without any it's the plain name.
 fn apply_package_handshake(
     units: &mut [FrozenUnit],
-    package_handshake: Option<&str>,
+    package_handshake: &str,
     params: &std::collections::BTreeMap<String, String>,
-    package_framing: &str,
 ) {
+    if package_handshake == IMPLICIT_HANDSHAKE && params.is_empty() {
+        return;
+    }
+    let value = if params.is_empty() {
+        ConfigValue::Str(package_handshake.to_string())
+    } else {
+        let name = ("name".to_string(), ConfigValue::Str(package_handshake.to_string()));
+        let params = params.iter().map(|(k, v)| (k.clone(), ConfigValue::Str(v.clone())));
+        ConfigValue::Dict(std::iter::once(name).chain(params).collect())
+    };
     for unit in units {
         let FrozenUnit::Protocol { parameters, .. } = unit else {
             continue;
         };
-        let has = |key: &str| {
-            parameters
-                .iter()
-                .any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == key))
-        };
-        if has("handshake") {
-            continue;
+        let declared = parameters
+            .iter()
+            .any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == "handshake"));
+        if !declared {
+            parameters.push(FrozenUnit::Property {
+                name: "handshake".to_string(),
+                value: value.clone(),
+            });
         }
-        let (name, params) = match package_handshake {
-            Some(name) => (name, params.clone()),
-            None => {
-                let framing = parameters.iter().find_map(|p| match p {
-                    FrozenUnit::Property { name, value } if name == "framing" => match value {
-                        ConfigValue::Dict(_) => match value.entry("name") {
-                            Some(ConfigValue::Str(v)) => Some(v.as_str()),
-                            _ => None,
-                        },
-                        ConfigValue::Str(v) => Some(v.as_str()),
-                        _ => None,
-                    },
-                    _ => None,
-                });
-                let framing = match framing {
-                    Some(written) => canonical_value("framing", written).unwrap_or(written),
-                    None => package_framing,
-                };
-                (default_handshake(framing), Default::default())
-            }
-        };
-        if name == IMPLICIT_HANDSHAKE && params.is_empty() {
-            continue;
-        }
-        let value = if params.is_empty() {
-            ConfigValue::Str(name.to_string())
-        } else {
-            let name = ("name".to_string(), ConfigValue::Str(name.to_string()));
-            let params = params.iter().map(|(k, v)| (k.clone(), ConfigValue::Str(v.clone())));
-            ConfigValue::Dict(std::iter::once(name).chain(params).collect())
-        };
-        parameters.push(FrozenUnit::Property { name: "handshake".to_string(), value });
     }
 }

@@ -420,9 +420,10 @@ impl HandshakeValue {
 pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 
 /// The handshake a protocol runs when neither it nor its package names one,
-/// and its framing is [`DEFAULT_FRAMING`]: `comline@2` needs a connection
-/// and the wire numbers `datagram@3` carries. A protocol on any other
-/// framing gets [`IMPLICIT_HANDSHAKE`] instead: see [`default_handshake`].
+/// and the package's protocols are all on [`DEFAULT_FRAMING`]: `comline@2`
+/// needs a connection and the wire numbers `datagram@3` carries. Any other
+/// package gets [`IMPLICIT_HANDSHAKE`] instead: see
+/// [`package_default_handshake`].
 pub const DEFAULT_HANDSHAKE: &str = "comline@2";
 
 /// What a protocol's frozen IR means when it carries no `@handshake`: core's
@@ -437,6 +438,36 @@ pub const IMPLICIT_HANDSHAKE: &str = "comline@1";
 /// a lockstep framing never gets a handshake that needs a connection.
 pub fn default_handshake(framing: &str) -> &'static str {
     if framing == DEFAULT_FRAMING { DEFAULT_HANDSHAKE } else { IMPLICIT_HANDSHAKE }
+}
+
+/// The handshake a package's protocols get when neither they nor the
+/// package name one, given each protocol's written annotations and the
+/// package's framing (its `wire.framing`, else [`DEFAULT_FRAMING`]).
+/// [`DEFAULT_HANDSHAKE`] only when every protocol is on `datagram@3` and
+/// names no other handshake: `comline@2` runs one handshake per connection,
+/// so a package whose protocols can't share one keeps
+/// [`IMPLICIT_HANDSHAKE`] for all of them, as before the defaults moved, and
+/// is never refused for taking the defaults.
+pub fn package_default_handshake<'a>(
+    protocols: impl IntoIterator<Item = &'a [FrozenUnit]>,
+    package_framing: &str,
+) -> &'static str {
+    let property = |parameters: &'a [FrozenUnit], key: &str| {
+        parameters.iter().find_map(|p| match p {
+            FrozenUnit::Property { name, value } if name == key => Some(value),
+            _ => None,
+        })
+    };
+    let all = protocols.into_iter().all(|parameters| {
+        let framing = match property(parameters, "framing") {
+            Some(value) => FramingValue::of(value).map(|f| f.name),
+            None => canonical_value("framing", package_framing),
+        };
+        let handshake = property(parameters, "handshake").map(HandshakeValue::of);
+        framing == Some(DEFAULT_FRAMING)
+            && handshake.is_none_or(|h| h == Some(HandshakeValue::named(DEFAULT_HANDSHAKE)))
+    });
+    if all { DEFAULT_HANDSHAKE } else { IMPLICIT_HANDSHAKE }
 }
 /// The official "no handshake": nothing sent, nothing checked.
 pub const HANDSHAKE_NONE: &str = "none";
@@ -619,8 +650,8 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        `{ name = \"comline@2\", scope = package }` (`scope`, `newer_consumer`, \
                        `same_version_differs`, `exchange`); `none` sends and checks nothing. \
                        Overrides the package's `handshake` in `config.idp`. No effect on a struct.",
-        default: "the package's `handshake`, else `comline@2` on `datagram@3` and `comline@1` \
-                  on any other framing",
+        default: "the package's `handshake`, else `comline@2` when all the package's protocols \
+                  are on `datagram@3`, and `comline@1` otherwise",
         value: handshake_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
