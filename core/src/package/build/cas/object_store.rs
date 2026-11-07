@@ -69,6 +69,8 @@ pub fn ensure_compatible_store(project_root: &Path) -> Result<()> {
 /// Object store manages content-addressable storage
 pub struct ObjectStore {
     objects_dir: PathBuf,  // .comline/objects/
+    /// Where a [`scratch`](ObjectStore::scratch) store keeps what it writes.
+    scratch: Option<std::sync::Mutex<std::collections::HashMap<Hash, Vec<u8>>>>,
 }
 
 impl ObjectStore {
@@ -76,12 +78,22 @@ impl ObjectStore {
     pub fn new(project_root: &Path) -> Self {
         Self {
             objects_dir: project_root.join(".comline/objects"),
+            scratch: None,
         }
+    }
+
+    /// A store that reads the project's objects but keeps what it writes in
+    /// memory: for working out what a build would store without storing it.
+    pub fn scratch(project_root: &Path) -> Self {
+        Self { scratch: Some(Default::default()), ..Self::new(project_root) }
     }
 
     /// Initialize the store (create directories), stamping it with
     /// [`CURRENT_IR_FORMAT_VERSION`] if this is the first time.
     pub fn init(&self) -> Result<()> {
+        if self.scratch.is_some() {
+            return Ok(());
+        }
         fs::create_dir_all(&self.objects_dir)?;
         let Some(comline_dir) = self.objects_dir.parent() else {
             return Ok(());
@@ -96,7 +108,14 @@ impl ObjectStore {
     /// Write content to store, returns hash
     pub fn write(&self, content: &[u8]) -> Result<Hash> {
         let hash = Hash::from_bytes(content);
-        
+
+        if let Some(scratch) = &self.scratch {
+            if !self.exists(&hash) {
+                scratch.lock().expect("scratch store").insert(hash, content.to_vec());
+            }
+            return Ok(hash);
+        }
+
         // Check if already exists (deduplication)
         if self.exists(&hash) {
             tracing::debug!("Object {} already exists, skipping write", hash);
@@ -119,6 +138,9 @@ impl ObjectStore {
 
     /// Read content from store by hash
     pub fn read(&self, hash: &Hash) -> Result<Vec<u8>> {
+        if let Some(content) = self.scratch.as_ref().and_then(|s| s.lock().expect("scratch store").get(hash).cloned()) {
+            return Ok(content);
+        }
         let path = self.objects_dir.join(hash.to_path());
         
         if !path.exists() {
@@ -143,7 +165,8 @@ impl ObjectStore {
 
     /// Check if object exists
     pub fn exists(&self, hash: &Hash) -> bool {
-        self.objects_dir.join(hash.to_path()).exists()
+        self.scratch.as_ref().is_some_and(|s| s.lock().expect("scratch store").contains_key(hash))
+            || self.objects_dir.join(hash.to_path()).exists()
     }
 
     /// Get the path to an object (for debugging)

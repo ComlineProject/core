@@ -34,7 +34,9 @@ use std::collections::BTreeMap;
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE};
+use crate::schema::idl::annotations::{DEFAULT_FORMAT, IMPLICIT_FRAMING};
+#[cfg(test)]
+use crate::schema::idl::annotations::{DEFAULT_FRAMING, DEFAULT_HANDSHAKE};
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 use crate::schema::ir::unverified::{self, Encodings};
@@ -84,7 +86,9 @@ pub enum Source {
     Annotation,
     /// The package's `wire` or `handshake` in its `config.idp`.
     PackageDefault,
-    /// Core's default (`packed@1`, `datagram@2`, `comline@1`).
+    /// Core's default (`packed@1`, `datagram@3`, `comline@2`; `comline@1`
+    /// with a stated framing; `datagram@2` and `comline@1` for a version
+    /// built before they moved).
     CoreDefault,
     /// The format JSON-RPC implies: JSON, when the package names no
     /// format.
@@ -257,16 +261,22 @@ fn summarize(p: Protocol) -> ProtocolSummary {
             let name = crate::schema::idl::annotations::canonical_value("framing", &name)
                 .map(str::to_string)
                 .unwrap_or(name);
+            // Core freezes the package's framing, or its own default, into
+            // every protocol that doesn't write one.
             let source = if p.written.iter().any(|k| k == "framing") {
                 Source::Annotation
-            } else {
+            } else if wire_framing.is_some() {
                 Source::PackageDefault
+            } else {
+                Source::CoreDefault
             };
             Choice { value: name, params, source }
         }
+        // Absent only where it's the implicit one, `datagram@2`: the
+        // package's, or a version built before core's default moved.
         None => match wire_framing {
             Some(framing) => Choice { value: framing.to_string(), params: BTreeMap::new(), source: Source::PackageDefault },
-            None => Choice { value: DEFAULT_FRAMING.to_string(), params: BTreeMap::new(), source: Source::CoreDefault },
+            None => Choice { value: IMPLICIT_FRAMING.to_string(), params: BTreeMap::new(), source: Source::CoreDefault },
         },
     };
 
@@ -285,7 +295,6 @@ fn summarize(p: Protocol) -> ProtocolSummary {
         } else if package_handshake {
             Source::PackageDefault
         } else {
-            debug_assert_eq!(value, DEFAULT_HANDSHAKE);
             Source::CoreDefault
         };
         let params = property("handshake").map(|v| split(v).1).unwrap_or_default();

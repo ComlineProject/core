@@ -1,6 +1,7 @@
 //! The handshake a protocol runs: its own `@handshake`, else the package's
-//! `handshake = "..."`, else `comline@1`. The package default is frozen into
-//! each protocol it reaches.
+//! `handshake = "..."`, else core's default: `comline@2` where every
+//! protocol in the package is on `datagram@3`, else `comline@1`. Any but
+//! `comline@1` is frozen into each protocol it reaches.
 
 use comline_core::package::build::PackageSources;
 use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
@@ -53,10 +54,15 @@ fn the_package_default_is_frozen_into_protocols_without_their_own() {
 
 #[test]
 fn comline_at_1_stays_implicit_so_ir_is_unchanged() {
-    let absent = compile(None, SCHEMA).unwrap();
+    // What an absent `@handshake` has always meant: stating it keeps the IR
+    // a package taking the old default had.
     let explicit = compile(Some("comline@1"), SCHEMA).unwrap();
-    assert_eq!(handshake_of(&absent, "Plain"), None);
-    assert_eq!(absent, explicit);
+    assert_eq!(handshake_of(&explicit, "Plain"), None);
+    // Core's default now is `comline@2`, frozen in like a package's.
+    let plain = "protocol Plain {\n    function f();\n}\n";
+    let absent = compile(None, plain).unwrap();
+    assert_eq!(handshake_of(&absent, "Plain").as_deref(), Some("comline@2"));
+    assert_eq!(handshake_of(&compile(Some("comline@1"), plain).unwrap(), "Plain"), None);
 }
 
 #[test]
@@ -159,7 +165,7 @@ fn a_name_alone_freezes_as_the_plain_form_does() {
         assert_eq!(plain, dict, "{name}");
     }
     let absent = compile(None, ONE).unwrap();
-    assert_eq!(value_of(&absent, "P"), None);
+    assert_eq!(value_of(&absent, "P"), Some(ConfigValue::Str("comline@2".into())));
 }
 
 #[test]
@@ -216,4 +222,34 @@ fn warning_on_a_same_version_difference_gives_up_version_honesty() {
 
     // The other policies give up nothing.
     compile_written("{ name = \"comline@2\" same_version_differs = \"refuse\" newer_consumer = \"refuse\" scope = \"package\" }", ONE).unwrap();
+}
+
+/// `comline@2` runs one handshake per connection: a package whose protocols
+/// can't all run it keeps `comline@1` for every one that takes the default,
+/// and is never refused for taking the defaults.
+#[test]
+fn the_default_handshake_is_comline2_only_where_every_protocol_can_run_it() {
+    let one = "protocol A {\n    function f();\n}\n\nprotocol B {\n    function f();\n}\n";
+    let units = compile(None, one).unwrap();
+    assert_eq!(handshake_of(&units, "A").as_deref(), Some("comline@2"));
+    assert_eq!(handshake_of(&units, "B").as_deref(), Some("comline@2"));
+
+    // Writing the default out changes nothing.
+    let written = "@framing = \"datagram@3\"\n@handshake = \"comline@2\"\nprotocol A {\n    function f();\n}\n\nprotocol B {\n    function f();\n}\n";
+    assert_eq!(handshake_of(&compile_framing(written), "B").as_deref(), Some("comline@2"));
+
+    // One on another framing, or naming another handshake: comline@1 for the rest.
+    for other in ["@framing = \"jsonrpc\"\n", "@framing = \"datagram@2\"\n", "@unverified = \"legacy\"\n@handshake = \"none\"\n"] {
+        let mixed = format!("protocol A {{\n    function f();\n}}\n\n{other}protocol B {{\n    function f();\n}}\n");
+        let units = compile_framing(&mixed);
+        assert_eq!(handshake_of(&units, "A"), None, "{other}");
+    }
+}
+
+fn compile_framing(schema: &str) -> Vec<FrozenUnit> {
+    let config = config(None).replace("unverified = { allowed = true }", "unverified = { allowed = true } framing = { allowed = true }");
+    let ctx = PackageSources::new().config(config).schema(["app"], schema).compile().unwrap();
+    let schema = ctx.schema_contexts[0].borrow();
+    let units = schema.frozen_schema.borrow().clone().unwrap();
+    units
 }

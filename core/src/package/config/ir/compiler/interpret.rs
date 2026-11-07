@@ -15,7 +15,7 @@ use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_override
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::schema::idl::annotations::{
-    DEFAULT_FRAMING, DEFAULT_HANDSHAKE,
+    package_default_handshake, DEFAULT_FRAMING, IMPLICIT_FRAMING, IMPLICIT_HANDSHAKE,
 };
 use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::settings::effective::package_settings;
@@ -30,24 +30,33 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
     let mut schema_errors: Vec<String> = vec![];
     let own_settings = package_settings(project_context);
-    let own_handshake = project_context
-        .config_frozen
-        .as_deref()
-        .map(crate::package::config::ir::frozen::handshake)
-        .unwrap_or(DEFAULT_HANDSHAKE)
-        .to_string();
-    let own_handshake_params = project_context
-        .config_frozen
-        .as_deref()
-        .map(crate::package::config::ir::frozen::handshake_params)
-        .unwrap_or_default();
-    let (own_format, own_framing) = project_context
-        .config_frozen
-        .as_deref()
-        .map(crate::package::config::ir::frozen::wire)
-        .unwrap_or((None, None));
+    let own_config = project_context.config_frozen.as_deref().unwrap_or(&[]);
+    let stated_handshake = crate::package::config::ir::frozen::stated_handshake(own_config);
+    let own_handshake_params = crate::package::config::ir::frozen::handshake_params(own_config);
+    let (own_format, stated_framing) = crate::package::config::ir::frozen::wire(own_config);
     let own_format = own_format.map(str::to_string);
-    let own_framing = own_framing.unwrap_or(DEFAULT_FRAMING).to_string();
+    let own_framing = stated_framing.unwrap_or(DEFAULT_FRAMING).to_string();
+    // With no package handshake, one for all the package's protocols, as
+    // they share a connection: `comline@2` where they all can run it.
+    let own_protocols: Vec<Vec<FrozenUnit>> = project_context
+        .schema_contexts
+        .iter()
+        .filter(|s| !s.borrow().compile_state.borrow().complete)
+        .flat_map(|s| {
+            s.borrow()
+                .declarations
+                .iter()
+                .filter_map(|d| match &d.value {
+                    Declaration::Protocol(p) => Some(
+                        crate::schema::ir::compiler::interpreter::incremental::annotation_units(&p.annotations()),
+                    ),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+        })
+        .collect();
+    let default_handshake = package_default_handshake(own_protocols.iter().map(Vec::as_slice), &own_framing);
+    let own_handshake = stated_handshake.unwrap_or(default_handshake).to_string();
     check_package_encodings(project_context, own_format.as_deref(), &own_framing, &own_handshake)?;
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
@@ -128,7 +137,11 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
-        apply_package_handshake(&mut frozen_units, &own_handshake, &own_handshake_params);
+        apply_package_handshake(
+            &mut frozen_units,
+            stated_handshake.unwrap_or(default_handshake),
+            &own_handshake_params,
+        );
         crate::schema::ir::unverified::freeze(
             &mut frozen_units,
             &crate::schema::ir::unverified::Encodings::of(project_context),
@@ -323,13 +336,15 @@ fn visit_for_cycle(
     None
 }
 
-/// Freeze the package's `wire.framing` into every protocol without its own
-/// `@framing`, as [`apply_package_handshake`] does the handshake: the choice
-/// is then part of each protocol's IR and hash, and every consumer reads it
-/// from the one place. The built-in default stays implicit, so protocols
-/// that take it keep their IR.
+/// Freeze the package's `wire.framing`, or core's default, into every
+/// protocol without its own `@framing`, as [`apply_package_handshake`] does
+/// the handshake: the choice is then part of each protocol's IR and hash,
+/// and every consumer reads it from the one place. Only
+/// [`IMPLICIT_FRAMING`], what an absent `@framing` has always meant, stays
+/// implicit: a package that states it keeps its IR, and one that takes
+/// today's default shows the change.
 fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
-    if package_framing == DEFAULT_FRAMING {
+    if package_framing == IMPLICIT_FRAMING {
         return;
     }
     for unit in units {
@@ -348,19 +363,22 @@ fn apply_package_framing(units: &mut [FrozenUnit], package_framing: &str) {
     }
 }
 
-/// Freeze the package's default handshake into every protocol that doesn't
-/// name its own, so the choice is part of each protocol's frozen IR (and its
-/// hash): changing the package default then shows up as a change to the
-/// protocols it reaches. `comline@1` is what an absent `@handshake` already
-/// means, so it's left implicit and existing IR hashes don't move. Parameters
-/// freeze in `@handshake`'s dictionary form, as if the protocol had written it;
+/// Freeze the package's handshake, or core's default, into every protocol
+/// that doesn't name its own, so the choice is part of each protocol's
+/// frozen IR (and its hash): changing it then shows up as a change to the
+/// protocols it reaches. Without a package handshake, the protocols get
+/// [`package_default_handshake`]: `comline@2` where all of them are on
+/// `datagram@3`, else `comline@1`. `comline@1` without parameters is what an absent
+/// `@handshake` has always meant, so it's left implicit and the IR of a
+/// package that states it doesn't move. Parameters freeze in
+/// `@handshake`'s dictionary form, as if the protocol had written it;
 /// without any it's the plain name.
 fn apply_package_handshake(
     units: &mut [FrozenUnit],
     package_handshake: &str,
     params: &std::collections::BTreeMap<String, String>,
 ) {
-    if package_handshake == DEFAULT_HANDSHAKE && params.is_empty() {
+    if package_handshake == IMPLICIT_HANDSHAKE && params.is_empty() {
         return;
     }
     let value = if params.is_empty() {

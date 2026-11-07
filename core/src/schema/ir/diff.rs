@@ -7,7 +7,7 @@ use crate::schema::ir::frozen::unit::{
 use crate::schema::ir::unverified;
 use crate::encodings::{official, EncodingKind, Profile};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING};
+use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, IMPLICIT_FRAMING};
 use crate::schema::ir::unverified::{default_format, Encodings};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
@@ -422,9 +422,11 @@ impl WireFacts {
                 for unit in units {
                     let FrozenUnit::Protocol { name, parameters, .. } = unit else { continue };
                     any = true;
+                    // Absent from a compiled protocol only where it's the
+                    // implicit one: read as built, whatever today's default.
                     let framing = written_framing(parameters)
                         .or(wire_framing)
-                        .unwrap_or(DEFAULT_FRAMING);
+                        .unwrap_or(IMPLICIT_FRAMING);
                     let framing_profile = official::profile(EncodingKind::Framing, framing);
                     let encodings = Encodings { declared: config.iter().collect(), ..Default::default() };
                     let format = wire_format.unwrap_or_else(|| default_format(framing, &encodings));
@@ -1806,16 +1808,16 @@ fn compare_parameters_with(
         if old_value == new_value {
             continue;
         }
-        // An absent `@handshake` means `comline@1`, and a parameter left out
-        // its default; spelling either out changes nothing a peer sees. Only
+        // An absent `@handshake` means `comline@1` (core freezes any other
+        // default in), and a parameter left out its default; spelling either out changes nothing a peer sees. Only
         // the name and the wire parameters are the wire: a policy is each
         // end's own, so changing one is a patch, whatever the guarantee it
         // gives up says below.
         if key == "handshake" {
-            use crate::schema::idl::annotations::{HandshakeValue, DEFAULT_HANDSHAKE};
+            use crate::schema::idl::annotations::{HandshakeValue, IMPLICIT_HANDSHAKE};
             let meaning = |props: &BTreeMap<&str, &ConfigValue>| match props.get(key) {
                 Some(value) => HandshakeValue::of(value),
-                None => Some(HandshakeValue::named(DEFAULT_HANDSHAKE)),
+                None => Some(HandshakeValue::named(IMPLICIT_HANDSHAKE)),
             };
             if let (Some(old), Some(new)) = (meaning(&old_props), meaning(&new_props)) {
                 if old == new {
@@ -1833,10 +1835,13 @@ fn compare_parameters_with(
             }
         }
         // `"jsonrpc"` is shorthand for `{ name = "jsonrpc" }`, and an alias
-        // spells the same framing: compared by what they mean.
+        // spells the same framing: compared by what they mean. An absent
+        // `@framing` means `datagram@2` (core freezes any other default in).
         if key == "framing" {
-            let meaning = |props: &BTreeMap<&str, &ConfigValue>| {
-                props.get(key).and_then(|v| crate::schema::idl::annotations::FramingValue::of(v))
+            use crate::schema::idl::annotations::{FramingValue, IMPLICIT_FRAMING};
+            let meaning = |props: &BTreeMap<&str, &ConfigValue>| match props.get(key) {
+                Some(value) => FramingValue::of(value),
+                None => FramingValue::named(IMPLICIT_FRAMING),
             };
             if let (Some(old), Some(new)) = (meaning(&old_props), meaning(&new_props)) {
                 if old == new {

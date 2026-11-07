@@ -45,16 +45,26 @@ fn framing_of(units: &[FrozenUnit], protocol: &str) -> Option<String> {
 }
 
 #[test]
-fn nothing_declared_means_packed_on_datagram2_left_implicit() {
+fn nothing_declared_means_packed_on_datagram3_frozen_in() {
     let (units, config) = compile(None, SCHEMA).unwrap();
-    assert_eq!(framing_of(&units, "Plain"), None);
+    assert_eq!(framing_of(&units, "Plain").as_deref(), Some("datagram@3"));
     assert_eq!(config_ir::wire_format(&config), "packed@1");
-    assert_eq!(config_ir::wire_framing(&config), "datagram@2");
+    assert_eq!(config_ir::wire_framing(&config), "datagram@3");
 
-    // Writing the defaults out changes no schema IR.
+    // Writing the default out changes no schema IR.
     let (explicit, config) =
+        compile(Some("{ format = \"packed@1\" framing = \"datagram@3\" }"), SCHEMA).unwrap();
+    assert_eq!(framing_of(&explicit, "Plain").as_deref(), Some("datagram@3"));
+    assert_eq!(config_ir::wire(&config), (Some("packed@1"), Some("datagram@3")));
+}
+
+/// `datagram@2`, the default before `datagram@3`, is what an absent
+/// `@framing` means: a package that states it keeps the IR it had.
+#[test]
+fn datagram2_stated_stays_implicit() {
+    let (units, config) =
         compile(Some("{ format = \"packed@1\" framing = \"datagram@2\" }"), SCHEMA).unwrap();
-    assert_eq!(explicit, units);
+    assert_eq!(framing_of(&units, "Plain"), None);
     assert_eq!(config_ir::wire(&config), (Some("packed@1"), Some("datagram@2")));
 }
 

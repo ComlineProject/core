@@ -1670,7 +1670,7 @@
         },
         {
           "const": "core_default",
-          "description": "Core's default (`packed@1`, `datagram@2`, `comline@1`).",
+          "description": "Core's default (`packed@1`, `datagram@3`, `comline@2`; `comline@1`\nwith a stated framing; `datagram@2` and `comline@1` for a version\nbuilt before they moved).",
           "type": "string"
         },
         {

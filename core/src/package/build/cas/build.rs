@@ -245,6 +245,103 @@ pub fn last_release(store: &ObjectStore, from: Hash) -> Result<(Option<(Hash, Co
     }
 }
 
+/// The root tree a build of `latest_project` freezes, its facts aside: each
+/// schema, every dependency vendored, the congregation and the `//!`
+/// headers. Written to `store`, which may be a
+/// [`scratch`](ObjectStore::scratch) one.
+#[cfg_attr(not(feature = "deps"), allow(unused_variables))]
+pub fn working_tree(project_path: &Path, latest_project: &ProjectContext, store: &ObjectStore) -> Result<Tree> {
+    let mut root_tree = Tree::new();
+
+    for (idx, schema_ctx) in latest_project.schema_contexts.iter().enumerate() {
+        let schema_ref = schema_ctx.borrow();
+        let frozen_ref = schema_ref.frozen_schema.borrow();
+
+        if let Some(frozen_schema) = frozen_ref.as_ref() {
+            let schema_tree = build_tree_from_schema(frozen_schema, store)?;
+            let tree_hash = store.write(&schema_tree.to_bytes()?)?;
+            // Index as name: stable across builds for the same file set.
+            root_tree.add_entry(EntryMode::Tree, format!("schema_{}", idx), tree_hash);
+        }
+    }
+
+    // Vendor every declared dependency's own frozen schema (feature = "deps")
+    // so the commit is reproducible on its own, without re-resolving them;
+    // `compare` diffs the vendored content.
+    #[cfg(feature = "deps")]
+    vendor_dependencies(project_path, latest_project, store, &mut root_tree)?;
+
+    // The frozen congregation, so a version is reproducible from the commit
+    // alone. A config change alters the root tree, so a rebuild that only
+    // touches config still produces a new commit.
+    if let Some(config) = latest_project.config_frozen.as_ref() {
+        let config_hash = config_blob::write_config(config, store)?;
+        root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
+    }
+
+    // The `//!` headers, so documenting this version has them (core#145).
+    // Only stored when there are any, so a package without headers keeps
+    // the tree it had.
+    let docs = crate::doc::frozen_docs(latest_project);
+    if !docs.is_empty() {
+        let docs_hash = crate::doc::write_docs(&docs, store)?;
+        root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
+    }
+    Ok(root_tree)
+}
+
+/// What a build of `root_tree` after the build `parent_hash` records.
+pub struct NextBuild {
+    /// The last release, if there is one.
+    pub release: Option<(Hash, Commit)>,
+    /// What everything since the last release calls for.
+    pub release_bump: VersionBump,
+    /// The build's version.
+    pub version: semver::Version,
+    /// Each protocol's line, "since" versions and wire numbers.
+    pub history: crate::compat::History,
+}
+
+/// The version and facts a build of `root_tree` after `parent_hash` gets.
+/// Its version is the release it leads to - the last release bumped by
+/// everything since - plus a count of builds since that release. A build
+/// whose changes call for no bump is still a patch ahead, so it never sorts
+/// before the release it follows. Its history is against the last release
+/// (see `crate::compat`).
+pub fn next_build(store: &ObjectStore, parent_hash: Hash, root_tree: &Tree) -> Result<NextBuild> {
+    let (release, builds_since) = last_release(store, parent_hash)?;
+    let (release_bump, last_release_version) = match &release {
+        Some((_, commit)) => {
+            let release_tree = Tree::from_bytes(&store.read(&commit.tree)?)?;
+            let bump = compare(store, &release_tree, root_tree)?.bump;
+            (bump, Some(semver::Version::parse(&commit.version)?))
+        }
+        None => (VersionBump::None, None),
+    };
+    let target = next_release(last_release_version.as_ref(), release_bump.max(VersionBump::Patch));
+    let version = dev_version(&target, builds_since + 1);
+
+    let previous = match &release {
+        Some((hash, commit)) => Some((
+            crate::compat::history_of_commit(store, hash)?,
+            Tree::from_bytes(&store.read(&commit.tree)?)?,
+        )),
+        None => None,
+    };
+    let history = crate::compat::history(
+        store,
+        previous.as_ref().map(|(h, t)| (h, t)),
+        root_tree,
+        &target.to_string(),
+    )?;
+    Ok(NextBuild { release, release_bump, version, history })
+}
+
+/// The version a package's first build gets.
+pub fn first_version() -> semver::Version {
+    dev_version(&next_release(None, VersionBump::None), 1)
+}
+
 /// Process initial freezing using CAS (first build)
 pub fn process_initial_freezing(
     project_path: &Path,
@@ -255,49 +352,10 @@ pub fn process_initial_freezing(
     let store = ObjectStore::new(project_path);
     store.init()?;
 
-    // Build tree from schemas
-    let mut root_tree = Tree::new();
-
-    for (idx, schema_ctx) in latest_project.schema_contexts.iter().enumerate() {
-        let schema_ref = schema_ctx.borrow();
-        let frozen_ref = schema_ref.frozen_schema.borrow();
-
-        if let Some(frozen_schema) = frozen_ref.as_ref() {
-            // Build subtree for this schema
-            let schema_tree = build_tree_from_schema(frozen_schema, &store)?;
-            let tree_bytes = schema_tree.to_bytes()?;
-            let tree_hash = store.write(&tree_bytes)?;
-
-            // Use index as name since path field doesn't exist
-            let name = format!("schema_{}", idx);
-
-            root_tree.add_entry(EntryMode::Tree, name, tree_hash);
-        }
-    }
-
-    // Vendor every declared dependency's own frozen schema (feature = "deps")
-    // so this commit is reproducible on its own, without re-resolving them.
-    #[cfg(feature = "deps")]
-    vendor_dependencies(project_path, latest_project, &store, &mut root_tree)?;
-
-    // Record the frozen congregation alongside the schemas so a version is
-    // reproducible from the commit alone.
-    if let Some(config) = latest_project.config_frozen.as_ref() {
-        let config_hash = config_blob::write_config(config, &store)?;
-        root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
-    }
-
-    // The `//!` headers, so documenting this version has them (core#145).
-    // Only stored when there are any, so a package without headers keeps
-    // the tree it had.
-    let docs = crate::doc::frozen_docs(latest_project);
-    if !docs.is_empty() {
-        let docs_hash = crate::doc::write_docs(&docs, &store)?;
-        root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
-    }
+    let root_tree = working_tree(project_path, latest_project, &store)?;
 
     // Create initial commit: a build leading to the first release, 0.1.0.
-    let initial_version = dev_version(&next_release(None, VersionBump::None), 1).to_string();
+    let initial_version = first_version().to_string();
 
     // What `comline@2` needs from history: every protocol's line and its
     // functions' "since", all the first release's.
@@ -363,47 +421,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     let prev_tree_bytes = store.read(&parent_commit.tree)?;
     let prev_tree = Tree::from_bytes(&prev_tree_bytes)?;
 
-    // Build new tree from current schemas
-    let mut root_tree = Tree::new();
-
-    for (idx, schema_ctx) in latest_project.schema_contexts.iter().enumerate() {
-        let schema_ref = schema_ctx.borrow();
-        let frozen_ref = schema_ref.frozen_schema.borrow();
-
-        if let Some(frozen_schema) = frozen_ref.as_ref() {
-            // Build subtree for this schema
-            let schema_tree = build_tree_from_schema(frozen_schema, &store)?;
-            let tree_bytes = schema_tree.to_bytes()?;
-            let tree_hash = store.write(&tree_bytes)?;
-
-            // Use index as name (stable across builds for same file set)
-            let name = format!("schema_{}", idx);
-            root_tree.add_entry(EntryMode::Tree, name, tree_hash);
-        }
-    }
-
-    // Vendor every declared dependency's own frozen schema (feature = "deps"),
-    // same as process_initial_freezing; `compare` diffs the vendored content.
-    #[cfg(feature = "deps")]
-    vendor_dependencies(project_path, latest_project, &store, &mut root_tree)?;
-
-    // Record the frozen congregation (see process_initial_freezing). A config
-    // change alters the root tree, so a rebuild that only touches config still
-    // produces a new commit; version-bump semantics for config changes are a
-    // follow-up (see the codegen output-config planning doc).
-    if let Some(config) = latest_project.config_frozen.as_ref() {
-        let config_hash = config_blob::write_config(config, &store)?;
-        root_tree.add_entry(EntryMode::Blob, "config".to_string(), config_hash);
-    }
-
-    // The `//!` headers, so documenting this version has them (core#145).
-    // Only stored when there are any, so a package without headers keeps
-    // the tree it had.
-    let docs = crate::doc::frozen_docs(latest_project);
-    if !docs.is_empty() {
-        let docs_hash = crate::doc::write_docs(&docs, &store)?;
-        root_tree.add_entry(EntryMode::Blob, crate::doc::DOCS_ENTRY.to_string(), docs_hash);
-    }
+    let root_tree = working_tree(project_path, latest_project, &store)?;
 
     // Check if tree changed. The facts are left out: they follow from the
     // rest, and a version built before they were stored has none.
@@ -435,37 +453,8 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         compare(&store, &prev_tree, &root_tree)?;
     let version_bump = bump;
 
-    // Its version: the release it leads to - the last release bumped by
-    // everything since - plus a count of builds since that release. A build
-    // whose changes call for no bump is still a patch ahead, so it never
-    // sorts before the release it follows.
-    let (release, builds_since) = last_release(&store, parent_hash)?;
-    let (release_bump, last_release_version) = match &release {
-        Some((_, commit)) => {
-            let release_tree = Tree::from_bytes(&store.read(&commit.tree)?)?;
-            let bump = compare(&store, &release_tree, &root_tree)?.bump;
-            (bump, Some(semver::Version::parse(&commit.version)?))
-        }
-        None => (VersionBump::None, None),
-    };
-    let target = next_release(last_release_version.as_ref(), release_bump.max(VersionBump::Patch));
-    let new_version = dev_version(&target, builds_since + 1);
-
-    // Each protocol's line and its functions' "since", against the last
-    // release (see `crate::compat`).
-    let previous = match &release {
-        Some((hash, commit)) => Some((
-            crate::compat::history_of_commit(&store, hash)?,
-            Tree::from_bytes(&store.read(&commit.tree)?)?,
-        )),
-        None => None,
-    };
-    let history = crate::compat::history(
-        &store,
-        previous.as_ref().map(|(h, t)| (h, t)),
-        &root_tree,
-        &target.to_string(),
-    )?;
+    let NextBuild { release, release_bump, version: new_version, history } =
+        next_build(&store, parent_hash, &root_tree)?;
     let root_tree = crate::compat::with_facts(&store, &root_tree, &history)?;
     let root_tree_hash = store.write(&root_tree.to_bytes()?)?;
 

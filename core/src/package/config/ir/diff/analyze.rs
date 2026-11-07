@@ -2,7 +2,8 @@
 
 // Crate Uses
 use crate::package::build::VersionBump;
-use crate::package::config::ir::frozen::{package_id, wire_format, wire_framing, Dependency, FrozenUnit};
+use crate::package::config::ir::frozen::{package_id, wire, wire_format, wire_framing, Dependency, FrozenUnit};
+use crate::schema::idl::annotations::{DEFAULT_FRAMING, IMPLICIT_FRAMING};
 
 // External Uses
 
@@ -106,7 +107,18 @@ pub fn analyze_config_changes(prev: &[FrozenUnit], cur: &[FrozenUnit]) -> Config
             new: wire_format(cur).to_string(),
         });
     }
-    if wire_framing(prev) != wire_framing(cur) {
+    // A framing left out meant `datagram@2` before core's default moved to
+    // `datagram@3`, and the config alone can't say which a version was built
+    // under: only a change that holds either way is reported here. Each
+    // protocol's IR carries the framing it was built with, so its own diff
+    // judges the rest.
+    fn framings(units: &[FrozenUnit]) -> Vec<&str> {
+        match wire(units).1 {
+            Some(stated) => vec![stated],
+            None => vec![IMPLICIT_FRAMING, DEFAULT_FRAMING],
+        }
+    }
+    if !framings(prev).iter().any(|f| framings(cur).contains(f)) {
         changes.push(ConfigChange::WireFramingChanged {
             old: wire_framing(prev).to_string(),
             new: wire_framing(cur).to_string(),
@@ -220,8 +232,14 @@ mod tests {
         let base = FrozenUnit::SpecificationVersion(1);
         let plain = vec![base.clone()];
 
-        let explicit = vec![base.clone(), wire(Some("packed@1"), Some("datagram@2"))];
-        assert!(analyze_config_changes(&plain, &explicit).is_empty());
+        // A framing left out is `datagram@3` now and was `datagram@2` before:
+        // stating either is no change the config can show (each protocol's
+        // IR, which carries its framing, shows the one there is).
+        for framing in ["datagram@2", "datagram@3"] {
+            let explicit = vec![base.clone(), wire(Some("packed@1"), Some(framing))];
+            assert!(analyze_config_changes(&plain, &explicit).is_empty(), "{framing}");
+            assert!(analyze_config_changes(&explicit, &plain).is_empty(), "{framing}");
+        }
 
         let msgpack = vec![base.clone(), wire(Some("msgpack@1"), None)];
         let changes = analyze_config_changes(&plain, &msgpack);
@@ -234,7 +252,7 @@ mod tests {
         let datagram1 = vec![base, wire(None, Some("datagram"))];
         assert_eq!(
             analyze_config_changes(&plain, &datagram1).0,
-            vec![ConfigChange::WireFramingChanged { old: "datagram@2".into(), new: "datagram".into() }]
+            vec![ConfigChange::WireFramingChanged { old: "datagram@3".into(), new: "datagram".into() }]
         );
     }
 
