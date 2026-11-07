@@ -11,8 +11,8 @@
 //!   `handshake`'s name and wire parameters) moves every protocol's. A
 //!   handshake's policies are each end's own, so changing one moves no line,
 //!   even where giving up version honesty makes it major. Before 1.0 a
-//!   breaking change makes
-//!   a `0.x` minor release, so the line is that release.
+//!   breaking change makes a `0.x` minor release, so the line is that
+//!   release.
 //! - **Since:** the release in which a function first appeared in its
 //!   protocol. One removed and later added again starts again.
 //!
