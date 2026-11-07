@@ -95,7 +95,7 @@ fn a_declared_format_other_than_json_is_refused_next_to_jsonrpc() {
 fn wire_entries_are_checked() {
     for (wire, expected) in [
         ("{ format = \"packed\" }", "wire format `packed` isn't known"),
-        ("{ framing = \"datagram@3\" }", "framing `datagram@3` isn't known"),
+        ("{ framing = \"datagram@4\" }", "framing `datagram@4` isn't known"),
         ("{ codec = \"json@1\" }", "'codec' is not allowed in 'wire'"),
         ("{ format = \"json@1\" format = \"packed@1\" }", "'wire.format' is set twice"),
         ("\"packed@1\"", "'wire' should be a dictionary"),

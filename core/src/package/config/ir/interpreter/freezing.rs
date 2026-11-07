@@ -137,12 +137,19 @@ pub fn interpret_assignment(
             vec![FrozenUnit::PackageId(id.to_string())]
         }
         "handshake" => {
-            let Value::String(name) = &node.value else {
-                return Err("'handshake' should be a string, like \"comline@1\"".into())
-            };
-            let written = crate::package::config::dependency::strip_quotes(&name.value);
-            let name = crate::schema::idl::annotations::check_handshake_or_namespaced(&written)?;
-            vec![FrozenUnit::Handshake(name)]
+            match &node.value {
+                Value::String(name) => {
+                    let written = crate::package::config::dependency::strip_quotes(&name.value);
+                    let name = crate::schema::idl::annotations::check_handshake_or_namespaced(&written)?;
+                    vec![FrozenUnit::Handshake(name)]
+                }
+                Value::Dictionary(items) => interpret_assignment_handshake(&items.assignments)?,
+                _ => {
+                    return Err("'handshake' should be a string, like \"comline@1\", or a dictionary, \
+                                like { name = \"comline@2\" scope = \"package\" }"
+                        .into())
+                }
+            }
         }
         "wire" => {
             let Value::Dictionary(items) = &node.value else {
@@ -164,6 +171,46 @@ pub fn interpret_assignment(
     };
 
     Ok(result)
+}
+
+/// `handshake = { name = "...", k = v }`: the name as the plain form takes it,
+/// and the parameters that handshake takes, each a string or a bare word as in
+/// `@handshake`. With none written it freezes as the plain form does.
+fn interpret_assignment_handshake(
+    items: &[rust_sitter::Spanned<Assignment>],
+) -> Result<Vec<FrozenUnit>, Box<dyn snafu::Error>> {
+    use crate::package::config::dependency::strip_quotes;
+    use crate::schema::idl::annotations::{check_handshake_or_namespaced, check_handshake_params};
+
+    let mut name = None;
+    let mut written: Vec<(String, String)> = vec![];
+    for assignment in items {
+        let assignment = &assignment.value;
+        let key = assignment.key.text();
+        let value = match &assignment.value {
+            Value::String(value) => strip_quotes(&value.value),
+            Value::Identifier(value) => value.value.clone(),
+            _ => return Err(format!("'handshake.{key}' should be a string, like \"comline@2\"").into()),
+        };
+        if key == "name" {
+            if name.replace(value).is_some() {
+                return Err("'handshake.name' is set twice".into());
+            }
+        } else {
+            written.push((key, value));
+        }
+    }
+    let Some(name) = name else {
+        return Err("'handshake' needs a `name`, like { name = \"comline@2\" scope = \"package\" }".into());
+    };
+    let name = check_handshake_or_namespaced(&name)?;
+    check_handshake_params(&name, written.iter().map(|(k, v)| (k.as_str(), v.as_str())))?;
+
+    let mut units = vec![FrozenUnit::Handshake(name)];
+    if !written.is_empty() {
+        units.push(FrozenUnit::HandshakeParams(written.into_iter().collect()));
+    }
+    Ok(units)
 }
 
 /// `wire = { format = "...", framing = "..." }`: both entries optional,

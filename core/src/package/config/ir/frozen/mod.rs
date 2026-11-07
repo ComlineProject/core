@@ -4,6 +4,7 @@ pub mod cas;
 pub mod loader;
 
 // Standard Uses
+use std::collections::BTreeMap;
 use std::slice::Iter;
 use std::iter::FilterMap;
 
@@ -42,6 +43,10 @@ pub enum FrozenUnit {
     /// `handshake = "..."`: the handshake a protocol without its own
     /// `@handshake` runs, canonical. Absent means `comline@1`.
     Handshake(String),
+    /// `handshake = { name = "...", k = v }`: the parameters written beside
+    /// [`FrozenUnit::Handshake`]'s name, as written. Absent when none are, so
+    /// a package using the plain form keeps its IR.
+    HandshakeParams(BTreeMap<String, String>),
     /// `wire = { format = "...", framing = "..." }`: what the package speaks
     /// when a protocol doesn't say, each canonical. An entry left out is
     /// `None`, and means the built-in default.
@@ -204,6 +209,18 @@ pub fn handshake(units: &[FrozenUnit]) -> &str {
             _ => None,
         })
         .unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
+}
+
+/// The parameters written with the package's default handshake. Empty for
+/// the plain form.
+pub fn handshake_params(units: &[FrozenUnit]) -> BTreeMap<String, String> {
+    units
+        .iter()
+        .find_map(|unit| match unit {
+            FrozenUnit::HandshakeParams(params) => Some(params.clone()),
+            _ => None,
+        })
+        .unwrap_or_default()
 }
 
 /// The package's declared `wire` entries, `(format, framing)`, as written

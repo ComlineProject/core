@@ -1531,6 +1531,40 @@ fn check_params(
             }
             continue;
         }
+        // The dictionary form: its name as above, and the parameters that
+        // handshake takes, the same check as `config.idp`'s.
+        if let (true, ConfigValue::Dict(entries)) = (name == "handshake", value) {
+            let message = match value.entry("name") {
+                Some(ConfigValue::Str(written)) => {
+                    let known = annotations::check_handshake(written).is_ok();
+                    if !known && is_namespaced(written) && !imports.encoding_declared(EncodingKind::Handshake, written) {
+                        Some(undeclared(EncodingKind::Handshake, written))
+                    } else if !known && !is_namespaced(written) {
+                        annotations::check_handshake(written).err()
+                    } else {
+                        let canonical = annotations::canonical_value("handshake", written).unwrap_or(written);
+                        let mut parameters = vec![];
+                        let mut malformed = None;
+                        for (key, parameter) in entries.iter().filter(|(k, _)| k != "name") {
+                            match parameter {
+                                ConfigValue::Str(v) | ConfigValue::Name(v) => parameters.push((key.as_str(), v.as_str())),
+                                _ => malformed = Some(format!("'@handshake': `{key}` should be a string or a bare word")),
+                            }
+                        }
+                        malformed.or_else(|| annotations::check_handshake_params(canonical, parameters).err())
+                    }
+                }
+                _ => Some("'@handshake': the dictionary form needs a `name`, like { name = \"comline@2\", scope = package }".to_string()),
+            };
+            if let Some(message) = message {
+                errors.push(
+                    Diagnostic::new(ANNOTATION_VALUE_MISMATCH, message)
+                        .with_context(context.to_string())
+                        .maybe_span(span),
+                );
+            }
+            continue;
+        }
         // A namespaced framing, `"com.acme.x@1"` or `{ name = "com.acme.x@1" }`:
         // fine when declared, and otherwise an error saying so, never a
         // silent default (cli#81).

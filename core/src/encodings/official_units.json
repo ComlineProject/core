@@ -130,6 +130,29 @@
   },
   {
     "Encoding": {
+      "name": "datagram@3",
+      "kind": "framing",
+      "profile_hash": "6414ef0d6aa33c9a9b3169f2debbaf6354e001a65ca7e8bf66b9cdc168c66278",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::contract::Datagram3Framing",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "Datagram3Framing",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      },
+      "establishes": [],
+      "has_vectors": true,
+      "calls": "by_id",
+      "directions": "both"
+    }
+  },
+  {
+    "Encoding": {
       "name": "comline@1",
       "kind": "handshake",
       "profile_hash": "4a4eef3c568d4f81e12bb1ff76dc2d4f53e0cc30ff666fe9deeb841e629e76b5",
@@ -141,6 +164,30 @@
         },
         "typescript": {
           "type": "ComlineHandshake",
+          "package": "@comline/runtime",
+          "version": "^0.1.0"
+        }
+      },
+      "establishes": [
+        "SchemaAgreement",
+        "EncodingAgreement"
+      ],
+      "has_vectors": true
+    }
+  },
+  {
+    "Encoding": {
+      "name": "comline@2",
+      "kind": "handshake",
+      "profile_hash": "7946ded8ba5e006a0e44391038088399e91df4bbbdcddd200b187353518efb63",
+      "map": {
+        "rust": {
+          "type": "comline_runtime::comline2::Comline2Handshake",
+          "package": "comline-runtime",
+          "version": null
+        },
+        "typescript": {
+          "type": "Comline2Handshake",
           "package": "@comline/runtime",
           "version": "^0.1.0"
         }

@@ -820,7 +820,7 @@
           "additionalProperties": {
             "type": "string"
           },
-          "description": "Its parameters (`@framing`'s dictionary form, less `name`), each\nvalue as written.",
+          "description": "Its parameters (`@framing`'s or `@handshake`'s dictionary form, less\n`name`), each\nvalue as written.",
           "type": "object"
         },
         "source": {

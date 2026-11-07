@@ -1,0 +1,36 @@
+{
+  "name": "datagram@3",
+  "kind": "framing",
+  "facts": {
+    "calls": {
+      "value": "by_id",
+      "proven_by": [
+        "framing-datagram3/request",
+        "framing-datagram3/request-two-byte-numbers",
+        "framing-datagram3/request-large-ids"
+      ]
+    },
+    "directions": {
+      "value": "both",
+      "proven_by": [
+        "framing-datagram3/request",
+        "framing-datagram3/response-ok",
+        "framing-datagram3/reject-response-as-request",
+        "framing-datagram3/reject-request-as-response"
+      ]
+    },
+    "errors": {
+      "value": "by_ordinal",
+      "proven_by": [
+        "framing-datagram3/response-err"
+      ]
+    },
+    "payload": {
+      "value": "opaque",
+      "proven_by": [
+        "framing-datagram3/request-params-msgpack",
+        "framing-datagram3/request-params-packed"
+      ]
+    }
+  }
+}

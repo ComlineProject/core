@@ -13,6 +13,11 @@
 //!   ship conformance vectors (`has_vectors` on the declaration). Official
 //!   encodings always do.
 //!
+//! - **`comline@2`'s `same_version_differs = warn`** connects to a peer of the
+//!   same version with another shape, so it gives up version honesty. Its other
+//!   policies only choose what happens to a difference both ends can see, and
+//!   give up nothing.
+//!
 //! (A lowered version bump joins when releases do.)
 //!
 //! The set is frozen beside the reason ([`freeze`]), so a consumer's
@@ -153,7 +158,13 @@ pub fn handshake(parameters: &[FrozenUnit]) -> &str {
     parameters
         .iter()
         .find_map(|p| match p {
-            FrozenUnit::Property { name, value: ConfigValue::Str(v) } if name == "handshake" => {
+            FrozenUnit::Property { name, value } if name == "handshake" => {
+                let ConfigValue::Str(v) = (match value {
+                    ConfigValue::Dict(_) => value.entry("name")?,
+                    other => other,
+                }) else {
+                    return None;
+                };
                 Some(annotations::canonical_value("handshake", v).unwrap_or(v.as_str()))
             }
             _ => None,
@@ -207,6 +218,10 @@ pub fn causes(parameters: &[FrozenUnit], encodings: &Encodings) -> Vec<(Guarante
             };
             causes.push((guarantee, why));
         }
+    }
+
+    if annotations::HandshakeValue::of_protocol(parameters).param("same_version_differs") == Some("warn") {
+        causes.push((Guarantee::VersionHonesty, format!("handshake `{handshake}` with `same_version_differs = warn`")));
     }
 
     let format = encodings.format.unwrap_or(DEFAULT_FORMAT);

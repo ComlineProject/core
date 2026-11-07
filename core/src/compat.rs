@@ -8,7 +8,10 @@
 //!   those of the declarations it reaches (dependencies' included, by
 //!   reach). A break elsewhere in the package doesn't move it; a change to
 //!   the package's wire defaults (`wire.format`, `wire.framing`,
-//!   `handshake`) moves every protocol's. Before 1.0 a breaking change makes
+//!   `handshake`'s name and wire parameters) moves every protocol's. A
+//!   handshake's policies are each end's own, so changing one moves no line,
+//!   even where giving up version honesty makes it major. Before 1.0 a
+//!   breaking change makes
 //!   a `0.x` minor release, so the line is that release.
 //! - **Since:** the release in which a function first appeared in its
 //!   protocol. One removed and later added again starts again.
@@ -91,6 +94,12 @@ pub struct ProtocolHistory {
     /// Function numbers it has had and no function holds now.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub retired: Vec<Retired>,
+    /// The format, framing and handshake it used, resolved when this version
+    /// was built, so a later change to core's defaults can't change what this
+    /// version is read as. Empty in a history stored before they were
+    /// recorded: they're then resolved when read.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub encodings: Vec<EncodingFacts>,
 }
 
 /// A function and the release it first appeared in.
@@ -147,7 +156,9 @@ pub struct EncodingFacts {
     pub name: String,
     /// Its parameters as written (a framing's `{ name = ..., k = v }`
     /// entries other than `name`), plus `profile`: a declared encoding's
-    /// profile hash.
+    /// profile hash. A handshake's are its wire parameters only, and only
+    /// those not at their default: its policies are each end's own, so two
+    /// ends differing in them still agree.
     pub params: BTreeMap<String, String>,
     /// blake3, hex, of the CBOR of `(kind, name, params)`.
     pub param_hash: String,
@@ -205,6 +216,7 @@ pub fn history_of_commit(store: &ObjectStore, hash: &Hash) -> Result<History> {
                 let Some(c) = computed.protocols.iter().find(|c| c.path == p.path) else { continue };
                 p.number = c.number;
                 p.retired = c.retired.clone();
+                p.encodings = c.encodings.clone();
                 for f in &mut p.functions {
                     if let Some(cf) = c.functions.iter().find(|cf| cf.name == f.name) {
                         f.number = cf.number;
@@ -255,7 +267,8 @@ pub fn history(
         comparison.dependency_changes.iter().flat_map(|d| &d.changes.breaking_changes).collect();
     let package_wire_moved = comparison.config_changes.0.iter().any(|c| {
         matches!(c, ConfigChange::WireFormatChanged { .. } | ConfigChange::WireFramingChanged { .. })
-    }) || package_handshake(&old.config) != package_handshake(&new.config);
+    }) || package_handshake(&old.config) != package_handshake(&new.config)
+        || package_handshake_wire(&old.config) != package_handshake_wire(&new.config);
 
     let every: Vec<&[Vec<FrozenUnit>]> = old.all().chain(new.all()).collect();
     // Renames keep a protocol's history: a namespace or a protocol renamed
@@ -285,7 +298,7 @@ pub fn history(
 
     let mut protocols = vec![];
     let mut earliers = vec![];
-    for ProtocolDecl { namespace, name, functions, .. } in new.protocols() {
+    for ProtocolDecl { namespace, name, parameters, functions } in new.protocols() {
         // Where it was at the last release.
         let was_namespace = namespace_renames
             .iter()
@@ -334,6 +347,7 @@ pub fn history(
             number: 0,
             functions,
             retired: vec![],
+            encodings: encodings_in_play(parameters, &new.config),
         });
         earliers.push(earlier);
     }
@@ -348,7 +362,7 @@ fn first_history(new: &Loaded, target: &str) -> Result<History> {
     let protocols: Vec<ProtocolHistory> = new
         .protocols()
         .into_iter()
-        .map(|ProtocolDecl { namespace, name, functions, .. }| ProtocolHistory {
+        .map(|ProtocolDecl { namespace, name, parameters, functions }| ProtocolHistory {
             path: protocol_path(namespace, name),
             line: target.to_string(),
             number: 0,
@@ -357,6 +371,7 @@ fn first_history(new: &Loaded, target: &str) -> Result<History> {
                 .map(|(f, _)| FunctionFacts { name: f.to_string(), since: target.to_string(), number: 0 })
                 .collect(),
             retired: vec![],
+            encodings: encodings_in_play(parameters, &new.config),
         })
         .collect();
     let earliers = vec![None; protocols.len()];
@@ -566,6 +581,7 @@ pub fn renamed(history: &History, from: &str, to: &str) -> History {
                     .map(|f| FunctionFacts { name: f.name.clone(), since: rename(&f.since), number: f.number })
                     .collect(),
                 retired: p.retired.clone(),
+                encodings: p.encodings.clone(),
             })
             .collect(),
         retired: history.retired.clone(),
@@ -605,6 +621,15 @@ fn package_handshake(config: &[ConfigUnit]) -> Option<&str> {
         ConfigUnit::Handshake(h) => Some(h.as_str()),
         _ => None,
     })
+}
+
+/// The wire parameters of the package's default handshake: a change to its
+/// policies moves no line.
+fn package_handshake_wire(config: &[ConfigUnit]) -> BTreeMap<String, String> {
+    use crate::package::config::ir::frozen::{handshake, handshake_params};
+    use crate::schema::idl::annotations::HandshakeValue;
+    let params = handshake_params(config);
+    HandshakeValue::with(handshake(config), params.iter().map(|(k, v)| (k.as_str(), v.as_str()))).wire_params()
 }
 
 /// A protocol as declared: where, its annotations, and its functions with
@@ -758,7 +783,7 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
         protocols: loaded
             .protocols()
             .into_iter()
-            .map(|ProtocolDecl { namespace, name, functions, .. }| ProtocolHistory {
+            .map(|ProtocolDecl { namespace, name, parameters, functions }| ProtocolHistory {
                 path: protocol_path(namespace, name),
                 line: version.to_string(),
                 number: 0,
@@ -767,6 +792,7 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
                     .map(|(f, _)| FunctionFacts { name: f.to_string(), since: version.to_string(), number: 0 })
                     .collect(),
                 retired: vec![],
+                encodings: encodings_in_play(parameters, &loaded.config),
             })
             .collect(),
         retired: vec![],
@@ -785,13 +811,18 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
             continue;
         }
         for unit in units {
-            let FrozenUnit::Protocol { name, .. } = unit else { continue };
-            let in_play = encodings_in_play(unit, &loaded.config);
+            let FrozenUnit::Protocol { name, parameters, .. } = unit else { continue };
+            let path = protocol_path(namespace, name);
+            let h = history.protocols.iter().find(|p| p.path == path);
+            // As this version recorded them, where it did.
+            let in_play = match h {
+                Some(h) if !h.encodings.is_empty() => h.encodings.clone(),
+                _ => encodings_in_play(parameters, &loaded.config),
+            };
             for e in &in_play {
                 encodings.insert((e.kind.clone(), e.name.clone(), e.param_hash.clone()), e.clone());
             }
-            let path = protocol_path(namespace, name);
-            let Some(h) = history.protocols.iter().find(|p| p.path == path) else { continue };
+            let Some(h) = h else { continue };
             protocols.push(ProtocolFacts {
                 path,
                 namespace: namespace.to_string(),
@@ -815,10 +846,9 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
 
 /// The format, framing and handshake a protocol uses, resolved as
 /// `comline_core::inspect` resolves them.
-fn encodings_in_play(protocol: &FrozenUnit, config: &[ConfigUnit]) -> Vec<EncodingFacts> {
-    use crate::schema::idl::annotations::{canonical_value, DEFAULT_FRAMING};
+fn encodings_in_play(parameters: &[FrozenUnit], config: &[ConfigUnit]) -> Vec<EncodingFacts> {
+    use crate::schema::idl::annotations::{canonical_value, HandshakeValue, DEFAULT_FRAMING};
     use crate::schema::ir::unverified::{default_format, Encodings};
-    let FrozenUnit::Protocol { parameters, .. } = protocol else { return vec![] };
     let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
     let property = |key: &str| {
         parameters.iter().find_map(|u| match u {
@@ -840,14 +870,15 @@ fn encodings_in_play(protocol: &FrozenUnit, config: &[ConfigUnit]) -> Vec<Encodi
             default_format(&framing, &encodings).to_string()
         }
     };
-    let handshake = crate::schema::ir::unverified::handshake(parameters).to_string();
+    let handshake = HandshakeValue::of_protocol(parameters);
+    let (handshake, handshake_params) = (handshake.name.clone(), handshake.wire_params());
     let declared = |name: &str| {
         config.iter().find_map(|u| match u {
             ConfigUnit::Encoding { name: n, profile_hash, .. } if n == name => Some(profile_hash.clone()),
             _ => None,
         })
     };
-    [("format", format, BTreeMap::new()), ("framing", framing, framing_params), ("handshake", handshake, BTreeMap::new())]
+    [("format", format, BTreeMap::new()), ("framing", framing, framing_params), ("handshake", handshake, handshake_params)]
         .into_iter()
         .map(|(kind, name, mut params)| {
             if let Some(profile) = declared(&name) {
@@ -1231,6 +1262,7 @@ mod tests {
                 .map(|(name, number)| FunctionFacts { name: name.to_string(), since: "0.1.0".to_string(), number: *number })
                 .collect(),
             retired: vec![],
+            encodings: vec![],
         }
     }
 
@@ -1240,7 +1272,8 @@ mod tests {
         let loaded = loaded(code);
         let index = Index::of(&loaded);
         let protocol = loaded.own[0].iter().find(|u| matches!(u, FrozenUnit::Protocol { .. })).unwrap();
-        let encodings = encodings_in_play(protocol, &[]);
+        let FrozenUnit::Protocol { parameters, .. } = protocol else { unreachable!() };
+        let encodings = encodings_in_play(parameters, &[]);
         match by_id {
             None => shape_hash(protocol, "pkg::api", &index, &encodings, history),
             Some(by_id) => {

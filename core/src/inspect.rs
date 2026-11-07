@@ -69,7 +69,8 @@ pub struct ProtocolSummary {
 pub struct Choice {
     /// The name, canonical (`datagram@2`, `jsonrpc`, `comline@1`).
     pub value: String,
-    /// Its parameters (`@framing`'s dictionary form, less `name`), each
+    /// Its parameters (`@framing`'s or `@handshake`'s dictionary form, less
+    /// `name`), each
     /// value as written.
     pub params: BTreeMap<String, String>,
     pub source: Source,
@@ -287,7 +288,8 @@ fn summarize(p: Protocol) -> ProtocolSummary {
             debug_assert_eq!(value, DEFAULT_HANDSHAKE);
             Source::CoreDefault
         };
-        Choice { value, params: BTreeMap::new(), source }
+        let params = property("handshake").map(|v| split(v).1).unwrap_or_default();
+        Choice { value, params, source }
     };
 
     let causes = unverified::causes(p.parameters, p.encodings);
@@ -332,7 +334,8 @@ fn summarize(p: Protocol) -> ProtocolSummary {
     }
 }
 
-/// A `@framing` value's name and its other entries, each as written.
+/// A `@framing` or `@handshake` value's name and its other entries, each as
+/// written.
 pub(crate) fn split(value: &ConfigValue) -> (String, BTreeMap<String, String>) {
     match value {
         ConfigValue::Dict(entries) => {
@@ -407,6 +410,27 @@ mod tests {
 
     fn row(summary: &ProtocolSummary, guarantee: Guarantee) -> &GuaranteeRow {
         summary.guarantees.iter().find(|r| r.guarantee == guarantee).unwrap()
+    }
+
+    #[test]
+    fn a_handshakes_parameters_show_as_a_framings_do() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("app");
+        package(
+            &app,
+            "handshake = { name = \"comline@2\" scope = \"package\" }\n",
+            "@handshake = { name = \"comline@2\", exchange = symmetric }\nprotocol Own {\n    function f();\n}\n\n\
+             protocol Inherits {\n    function f();\n}\n",
+        );
+        let context = crate::package::build::compile_package(&app).unwrap();
+        let protocols = protocols(&context);
+        let own = protocols.iter().find(|p| p.name == "Own").unwrap();
+        assert_eq!(own.handshake.value, "comline@2");
+        assert_eq!(own.handshake.source, Source::Annotation);
+        assert_eq!(own.handshake.params.get("exchange").map(String::as_str), Some("symmetric"));
+        let inherits = protocols.iter().find(|p| p.name == "Inherits").unwrap();
+        assert_eq!(inherits.handshake.source, Source::PackageDefault);
+        assert_eq!(inherits.handshake.params.get("scope").map(String::as_str), Some("package"));
     }
 
     #[test]
