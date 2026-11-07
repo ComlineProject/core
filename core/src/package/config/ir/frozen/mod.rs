@@ -199,16 +199,20 @@ pub fn settings(units: &[FrozenUnit]) -> Option<&crate::settings::SettingsDict> 
     })
 }
 
+/// The package's `handshake = "..."`, if it states one.
+pub fn stated_handshake(units: &[FrozenUnit]) -> Option<&str> {
+    units.iter().find_map(|unit| match unit {
+        FrozenUnit::Handshake(name) => Some(name.as_str()),
+        _ => None,
+    })
+}
+
 /// The package's default handshake: its `handshake = "..."`, else
-/// [`DEFAULT_HANDSHAKE`](crate::schema::idl::annotations::DEFAULT_HANDSHAKE).
+/// [`default_handshake`](crate::schema::idl::annotations::default_handshake)
+/// for its `wire.framing`.
 pub fn handshake(units: &[FrozenUnit]) -> &str {
-    units
-        .iter()
-        .find_map(|unit| match unit {
-            FrozenUnit::Handshake(name) => Some(name.as_str()),
-            _ => None,
-        })
-        .unwrap_or(crate::schema::idl::annotations::DEFAULT_HANDSHAKE)
+    stated_handshake(units)
+        .unwrap_or_else(|| crate::schema::idl::annotations::default_handshake(wire(units).1.is_some()))
 }
 
 /// The parameters written with the package's default handshake. Empty for

@@ -53,10 +53,14 @@ fn the_package_default_is_frozen_into_protocols_without_their_own() {
 
 #[test]
 fn comline_at_1_stays_implicit_so_ir_is_unchanged() {
-    let absent = compile(None, SCHEMA).unwrap();
+    // What an absent `@handshake` has always meant: stating it keeps the IR
+    // a package taking the old default had.
     let explicit = compile(Some("comline@1"), SCHEMA).unwrap();
-    assert_eq!(handshake_of(&absent, "Plain"), None);
-    assert_eq!(absent, explicit);
+    assert_eq!(handshake_of(&explicit, "Plain"), None);
+    // Core's default now is `comline@2`, frozen in like a package's.
+    let absent = compile(None, SCHEMA).unwrap();
+    assert_eq!(handshake_of(&absent, "Plain").as_deref(), Some("comline@2"));
+    assert_ne!(absent, explicit);
 }
 
 #[test]
@@ -159,7 +163,7 @@ fn a_name_alone_freezes_as_the_plain_form_does() {
         assert_eq!(plain, dict, "{name}");
     }
     let absent = compile(None, ONE).unwrap();
-    assert_eq!(value_of(&absent, "P"), None);
+    assert_eq!(value_of(&absent, "P"), Some(ConfigValue::Str("comline@2".into())));
 }
 
 #[test]

@@ -92,13 +92,23 @@ pub const FRAMING_DATAGRAM: &str = "datagram";
 /// both directions need.
 pub const FRAMING_DATAGRAM2: &str = "datagram@2";
 
+/// `datagram@3`: `datagram@2`'s frames, with calls addressed by wire
+/// number rather than position.
+pub const FRAMING_DATAGRAM3: &str = "datagram@3";
+
 /// JSON-RPC's canonical name.
 pub const FRAMING_JSONRPC: &str = "jsonrpc";
 
 /// The framing a protocol gets when neither it (`@framing`) nor its package
 /// (`wire.framing`) names one: a connection, so several protocols share a
-/// transport and calls go both ways.
-pub const DEFAULT_FRAMING: &str = FRAMING_DATAGRAM2;
+/// transport and calls go both ways, addressed by wire number.
+pub const DEFAULT_FRAMING: &str = FRAMING_DATAGRAM3;
+
+/// What a protocol's frozen IR means when it carries no `@framing`: core's
+/// default before `datagram@3`. A protocol that takes today's default has it
+/// frozen in, so a version built before the flip reads as it was built, and
+/// a package that states `datagram@2` keeps the IR it had.
+pub const IMPLICIT_FRAMING: &str = FRAMING_DATAGRAM2;
 
 /// `packed@1`: fixed-width fields back to back, varint lengths, no tags.
 pub const FORMAT_PACKED: &str = "packed@1";
@@ -368,7 +378,8 @@ impl HandshakeValue {
     }
 
     /// The handshake a protocol's parameters select: its `@handshake`, which
-    /// holds the package's where the package set one, else the default.
+    /// holds the package's or core's default where that isn't
+    /// [`IMPLICIT_HANDSHAKE`], else that.
     pub fn of_protocol(parameters: &[FrozenUnit]) -> HandshakeValue {
         parameters
             .iter()
@@ -376,7 +387,7 @@ impl HandshakeValue {
                 FrozenUnit::Property { name, value } if name == "handshake" => HandshakeValue::of(value),
                 _ => None,
             })
-            .unwrap_or_else(|| HandshakeValue::named(DEFAULT_HANDSHAKE))
+            .unwrap_or_else(|| HandshakeValue::named(IMPLICIT_HANDSHAKE))
     }
 
     /// The value of `key`, its default if left out. `None` if this handshake
@@ -408,8 +419,26 @@ impl HandshakeValue {
 /// (`Server`), or both (`Multiple`).
 pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 
-/// The handshake a protocol runs when neither it nor its package names one.
-pub const DEFAULT_HANDSHAKE: &str = "comline@1";
+/// The handshake a protocol runs when neither it nor its package names one,
+/// and it takes the default framing too: `comline@2` needs a connection
+/// and the wire numbers `datagram@3` carries. A protocol whose framing is
+/// stated (its `@framing` or the package's `wire.framing`) gets
+/// [`IMPLICIT_HANDSHAKE`] instead: see [`default_handshake`].
+pub const DEFAULT_HANDSHAKE: &str = "comline@2";
+
+/// What a protocol's frozen IR means when it carries no `@handshake`: core's
+/// default before `comline@2`, and still the default for a protocol whose
+/// framing is stated, which may not run on a connection.
+pub const IMPLICIT_HANDSHAKE: &str = "comline@1";
+
+/// The handshake a protocol gets when neither it nor its package names one:
+/// [`DEFAULT_HANDSHAKE`] when its framing is core's default too, else
+/// [`IMPLICIT_HANDSHAKE`]. Stating a framing therefore keeps the handshake
+/// it had before the defaults moved, and a lockstep framing never gets a
+/// handshake that needs a connection.
+pub fn default_handshake(framing_stated: bool) -> &'static str {
+    if framing_stated { IMPLICIT_HANDSHAKE } else { DEFAULT_HANDSHAKE }
+}
 /// The official "no handshake": nothing sent, nothing checked.
 pub const HANDSHAKE_NONE: &str = "none";
 
@@ -552,8 +581,9 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        how JSON-RPC names calls (`bare`, the default: `send`; `qualified`: \
                        `chat.Chat/send`, which several protocols on one connection may need). \
                        No effect on a struct.",
-        default: "the package's `wire.framing`, else `datagram@2` — Comline's compact binary \
-                  framing on a connection (`datagram@1`: one protocol per transport)",
+        default: "the package's `wire.framing`, else `datagram@3` — Comline's compact binary \
+                  framing on a connection, calls addressed by wire number (`datagram@2`: by \
+                  position, the default before; `datagram@1`: one protocol per transport)",
         value: framing_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
@@ -565,7 +595,7 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        connection), `Client` (the side that dialled; the server calls it) or \
                        `Multiple` (both, so calls go either way). Calls to a `Client` or \
                        `Multiple` protocol need a framing that tells requests from replies \
-                       (`@framing = \"datagram@2\"` or `\"jsonrpc\"`). No effect on a struct.",
+                       (`@framing = \"datagram@3\"`, the default, or `\"jsonrpc\"`). No effect on a struct.",
         default: "Server",
         value: ValueType::Keyword(SIDES),
         consumed_by: &["core's validation pass", "comline-rust's generator", "comline-typescript's generator"],
@@ -590,7 +620,8 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        `{ name = \"comline@2\", scope = package }` (`scope`, `newer_consumer`, \
                        `same_version_differs`, `exchange`); `none` sends and checks nothing. \
                        Overrides the package's `handshake` in `config.idp`. No effect on a struct.",
-        default: "the package's `handshake`, else comline@1",
+        default: "the package's `handshake`, else `comline@2` with the default framing and \
+                  `comline@1` with a stated one",
         value: handshake_value(),
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
@@ -750,7 +781,8 @@ mod tests {
         assert_eq!(check_framing("json-rpc"), Ok("jsonrpc"));
         assert_eq!(check_framing("datagram@3"), Ok("datagram@3"));
         assert!(check_framing("datagram@4").unwrap_err().contains("`datagram@2`, `datagram@3`"));
-        assert_eq!(DEFAULT_FRAMING, FRAMING_DATAGRAM2);
+        assert_eq!(DEFAULT_FRAMING, FRAMING_DATAGRAM3);
+        assert_eq!(IMPLICIT_FRAMING, FRAMING_DATAGRAM2);
         assert_eq!(DEFAULT_FORMAT, FORMAT_PACKED);
     }
 

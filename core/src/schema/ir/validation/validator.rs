@@ -1437,8 +1437,8 @@ fn check_provider(units: &[FrozenUnit], encodings: &crate::schema::ir::unverifie
         if !matches!(provider, Some("Client" | "Multiple")) {
             continue;
         }
-        // No `@framing` (written or the package's) means `datagram@2`, which
-        // carries calls both ways, as does any framing not stating otherwise.
+        // A protocol's framing (written, the package's or core's default,
+        // `datagram@3`) carries calls both ways unless it states otherwise.
         let framing = crate::schema::ir::unverified::framing(parameters, encodings);
         if crate::schema::ir::unverified::one_way_only(framing, encodings) {
             let framing = crate::encodings::official::profile(crate::encodings::EncodingKind::Framing, framing)
@@ -1455,7 +1455,7 @@ fn check_provider(units: &[FrozenUnit], encodings: &crate::schema::ir::unverifie
                 .with_help(format!(
                     "use a framing that says which is which, such as `{}` (the default) or `\"jsonrpc\"`; \
                      if the package's `wire.framing` set `{framing}`, give this protocol its own `@framing`",
-                    annotations::FRAMING_DATAGRAM2
+                    annotations::DEFAULT_FRAMING
                 ))
                 .maybe_span(Some(*span)),
             );

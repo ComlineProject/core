@@ -25,7 +25,7 @@
 
 use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{self, DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, FORMAT_JSON, HANDSHAKE_NONE};
+use crate::schema::idl::annotations::{self, DEFAULT_FORMAT, DEFAULT_FRAMING, FORMAT_JSON, HANDSHAKE_NONE, IMPLICIT_FRAMING, IMPLICIT_HANDSHAKE};
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 
 /// The annotation key.
@@ -64,7 +64,8 @@ impl<'a> Encodings<'a> {
         Encodings {
             declared: own.iter().chain(dependencies).collect(),
             format,
-            framing,
+            // What the package compiles to: core's default where it states none.
+            framing: Some(framing.unwrap_or(DEFAULT_FRAMING)),
             complete: true,
         }
     }
@@ -169,11 +170,12 @@ pub fn handshake(parameters: &[FrozenUnit]) -> &str {
             }
             _ => None,
         })
-        .unwrap_or(DEFAULT_HANDSHAKE)
+        .unwrap_or(IMPLICIT_HANDSHAKE)
 }
 
 /// The framing a protocol uses, as written: its own `@framing` (either
-/// form), else the package's.
+/// form), else the package's. A compiled protocol carries it unless it's
+/// [`annotations::IMPLICIT_FRAMING`], what an absent one has always meant.
 pub fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &'a str {
     parameters
         .iter()
@@ -189,7 +191,7 @@ pub fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &
             _ => None,
         })
         .or(encodings.framing)
-        .unwrap_or(DEFAULT_FRAMING)
+        .unwrap_or(IMPLICIT_FRAMING)
 }
 
 /// The guarantees a protocol with these parameters gives up, whether or not

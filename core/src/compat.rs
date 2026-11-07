@@ -265,10 +265,12 @@ pub fn history(
     let comparison = compare(store, old_tree, tree)?;
     let dependency_breaking: Vec<_> =
         comparison.dependency_changes.iter().flat_map(|d| &d.changes.breaking_changes).collect();
+    // The package's handshake isn't compared here: core freezes it into
+    // every protocol it reaches (where it isn't `comline@1`, what an absent
+    // one means), so each protocol's own diff sees it, read as it was built.
     let package_wire_moved = comparison.config_changes.0.iter().any(|c| {
         matches!(c, ConfigChange::WireFormatChanged { .. } | ConfigChange::WireFramingChanged { .. })
-    }) || package_handshake(&old.config) != package_handshake(&new.config)
-        || package_handshake_wire(&old.config) != package_handshake_wire(&new.config);
+    });
 
     let every: Vec<&[Vec<FrozenUnit>]> = old.all().chain(new.all()).collect();
     // Renames keep a protocol's history: a namespace or a protocol renamed
@@ -616,22 +618,6 @@ fn only_protocol(schemas: &Schemas, namespace: &str, name: &str) -> Schemas {
         .collect()
 }
 
-fn package_handshake(config: &[ConfigUnit]) -> Option<&str> {
-    config.iter().find_map(|u| match u {
-        ConfigUnit::Handshake(h) => Some(h.as_str()),
-        _ => None,
-    })
-}
-
-/// The wire parameters of the package's default handshake: a change to its
-/// policies moves no line.
-fn package_handshake_wire(config: &[ConfigUnit]) -> BTreeMap<String, String> {
-    use crate::package::config::ir::frozen::{handshake, handshake_params};
-    use crate::schema::idl::annotations::HandshakeValue;
-    let params = handshake_params(config);
-    HandshakeValue::with(handshake(config), params.iter().map(|(k, v)| (k.as_str(), v.as_str()))).wire_params()
-}
-
 /// A protocol as declared: where, its annotations, and its functions with
 /// theirs, in order.
 struct ProtocolDecl<'a> {
@@ -753,6 +739,38 @@ pub fn facts_of_commit(store: &ObjectStore, hash: &Hash) -> Result<PackageFacts>
     Ok(assemble(&loaded, &history, &commit.version))
 }
 
+/// The facts of the compiled project `context` at `project_path`, as its
+/// next `comline build` would record them: lines and "since" versions
+/// against the last release, wire numbers against it and every number the
+/// package retired. Nothing is written. The numbers stay provisional until
+/// a release, as a build's are. Where the working tree is what the head
+/// build froze, they're that build's stored facts; with no build at all,
+/// they're a first build's.
+pub fn facts_of_working_tree(project_path: &Path, context: &ProjectContext) -> Result<PackageFacts> {
+    use crate::package::build::cas::build::{first_version, next_build, working_tree, NextBuild};
+    use crate::package::build::cas::reconcile::{plan, read_heads, Heads};
+
+    let store = ObjectStore::scratch(project_path);
+    let tree = working_tree(project_path, context, &store)?;
+    if !ref_exists(project_path, main_ref()) {
+        let version = first_version().to_string();
+        let history = history(&store, None, &tree, &release_of(&version))?;
+        return Ok(assemble(&Loaded::of(&store, &tree)?, &history, &version));
+    }
+    // After a Git merge, from the head the reconciling build would continue.
+    let parent = match read_heads(project_path)? {
+        Heads::One(head) => head,
+        Heads::Two(ours, theirs) => plan(&store, ours, theirs)?.onto,
+    };
+    let parent_commit = Commit::from_bytes(&store.read(&parent)?)?;
+    let parent_tree = Tree::from_bytes(&store.read(&parent_commit.tree)?)?;
+    if tree.hash()? == without_facts(&parent_tree).hash()? {
+        return facts_of_commit(&store, &parent);
+    }
+    let NextBuild { version, history, .. } = next_build(&store, parent, &tree)?;
+    Ok(assemble(&Loaded::of(&store, &tree)?, &history, &version.to_string()))
+}
+
 /// The facts of a compiled project, as its next build would record them,
 /// when the history isn't at hand: every line and since is `version`.
 pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts {
@@ -845,9 +863,13 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
 // ---------- encodings ----------
 
 /// The format, framing and handshake a protocol uses, resolved as
-/// `comline_core::inspect` resolves them.
+/// `comline_core::inspect` resolves them. A compiled protocol carries its
+/// framing and handshake unless they're the implicit ones
+/// ([`IMPLICIT_FRAMING`](crate::schema::idl::annotations::IMPLICIT_FRAMING),
+/// `comline@1`), so a version built before core's defaults moved reads as
+/// it was built.
 fn encodings_in_play(parameters: &[FrozenUnit], config: &[ConfigUnit]) -> Vec<EncodingFacts> {
-    use crate::schema::idl::annotations::{canonical_value, HandshakeValue, DEFAULT_FRAMING};
+    use crate::schema::idl::annotations::{canonical_value, HandshakeValue, IMPLICIT_FRAMING};
     use crate::schema::ir::unverified::{default_format, Encodings};
     let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
     let property = |key: &str| {
@@ -861,7 +883,7 @@ fn encodings_in_play(parameters: &[FrozenUnit], config: &[ConfigUnit]) -> Vec<En
             let (name, params) = crate::inspect::split(value);
             (canonical_value("framing", &name).map(str::to_string).unwrap_or(name), params)
         }
-        None => (wire_framing.unwrap_or(DEFAULT_FRAMING).to_string(), BTreeMap::new()),
+        None => (wire_framing.unwrap_or(IMPLICIT_FRAMING).to_string(), BTreeMap::new()),
     };
     let format = match wire_format {
         Some(f) => f.to_string(),

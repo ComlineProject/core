@@ -764,11 +764,12 @@ fn the_stored_history_records_the_effective_encodings() {
     assert_eq!(stored(dir.path(), "Own"), named("json@1", "jsonrpc", "comline@1"));
     assert_eq!(stored(dir.path(), "P"), named("json@1", "jsonrpc", "comline@2"));
 
-    // `datagram@3` calls by number; nothing else differs here.
+    // A stated framing keeps `comline@1`, the handshake it had before
+    // core's defaults moved, even when it's the default framing.
     let dir = package(V1);
     config(dir.path(), "wire = { framing = \"datagram@3\" }\n");
     build(dir.path()).unwrap();
-    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@3", DEFAULT_HANDSHAKE));
+    assert_eq!(stored(dir.path(), "Users"), named(DEFAULT_FORMAT, "datagram@3", "comline@1"));
 }
 
 /// What's read back is what's recorded, not what today's defaults would say.
@@ -801,4 +802,210 @@ fn the_facts_read_the_recorded_encodings() {
 
     let read = facts(dir.path());
     assert!(read.encodings.iter().any(|e| e.kind == "handshake" && e.name == "an-older-default"), "{:?}", read.encodings);
+}
+
+// ---------- core's defaults moving to `datagram@3` and `comline@2` ----------
+
+const OLD_DEFAULTS: &str = "wire = { framing = \"datagram@2\" }\nhandshake = \"comline@1\"\n";
+
+/// A package built and released before core's defaults moved, taking them:
+/// built here stating them, then its head rewritten as an older core stored
+/// it, with no `wire` or `handshake` in its config and no encodings in its
+/// facts. Its schema IR is the same either way, since neither is frozen in.
+fn released_before_the_flip() -> TempDir {
+    use comline_core::package::build::cas::objects::{Blob, EntryMode};
+    use comline_core::package::build::cas::storage::to_cbor;
+    use comline_core::package::build::cas::update_ref;
+    use comline_core::package::config::ir::frozen::cas::blob::{read_config, write_config};
+    use comline_core::package::config::ir::frozen::FrozenUnit as ConfigUnit;
+
+    let dir = package(V1);
+    config(dir.path(), OLD_DEFAULTS);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+
+    let store = ObjectStore::new(dir.path());
+    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
+    let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
+    let mut history = compat::read_history(&store, &tree).unwrap().unwrap();
+    for p in &mut history.protocols {
+        p.encodings.clear();
+    }
+    let config_entry = tree.entries.iter().find(|e| e.name == "config").unwrap();
+    let stored_config: Vec<ConfigUnit> = read_config(&store, &config_entry.hash)
+        .unwrap()
+        .into_iter()
+        .filter(|u| !matches!(u, ConfigUnit::Wire { .. } | ConfigUnit::Handshake(_)))
+        .collect();
+    let mut old = compat::without_facts(&tree);
+    old.entries.retain(|e| e.name != "config");
+    old.add_entry(EntryMode::Blob, "config".to_string(), write_config(&stored_config, &store).unwrap());
+    let facts_blob = store.write(&Blob::new(to_cbor(&history).unwrap()).to_bytes().unwrap()).unwrap();
+    old.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), facts_blob);
+    commit.tree = store.write(&old.to_bytes().unwrap()).unwrap();
+    update_ref(dir.path(), main_ref(), &store.write(&commit.to_bytes().unwrap()).unwrap()).unwrap();
+    // And its config.idp as it was: stating neither.
+    config(dir.path(), "");
+    dir
+}
+
+fn encodings_of(facts: &PackageFacts) -> Vec<(String, String)> {
+    facts.encodings.iter().map(|e| (e.kind.clone(), e.name.clone())).collect()
+}
+
+/// A version that recorded no encodings reads under the defaults it was
+/// built with, and the package's next release takes a breaking bump (a
+/// minor one in 0.x), the wire change reported per protocol.
+#[test]
+fn a_release_before_the_flip_reads_as_built_and_the_next_one_breaks() {
+    use comline_core::schema::ir::diff::BreakingChange;
+
+    let dir = released_before_the_flip();
+    let old = facts(dir.path());
+    assert_eq!(old.version, "0.1.0");
+    assert_eq!(
+        encodings_of(&old),
+        [("format", "packed@1"), ("framing", "datagram@2"), ("handshake", "comline@1")]
+            .map(|(k, n)| (k.to_string(), n.to_string()))
+    );
+
+    // Rebuilt under today's defaults, as written.
+    let built = build(dir.path()).unwrap();
+    assert_eq!(built.release_bump, VersionBump::Major);
+    let changes = built.schema_changes.expect("the wire changed");
+    for (protocol, key) in [("Users", "framing"), ("Users", "handshake"), ("Health", "framing"), ("Health", "handshake")] {
+        assert!(
+            changes.breaking_changes.iter().any(|c| matches!(c,
+                BreakingChange::ChangedWireAnnotation { target, key: k, .. } if target.contains(protocol) && k == key)),
+            "{protocol} {key}: {changes:?}"
+        );
+    }
+    let new = facts(dir.path());
+    assert_eq!(new.version, "0.2.0-dev.1");
+    assert_eq!(
+        encodings_of(&new),
+        [("format", "packed@1"), ("framing", "datagram@3"), ("handshake", "comline@2")]
+            .map(|(k, n)| (k.to_string(), n.to_string()))
+    );
+    for protocol in ["Users", "Health"] {
+        assert_eq!(line(&new, protocol), "0.2.0");
+        assert_ne!(shape(&old, protocol), shape(&new, protocol));
+        // Numbers were assigned before; they don't move.
+        assert_eq!(number(&old, protocol), number(&new, protocol));
+    }
+    let released = release(dir.path(), &ReleaseRequest::default()).unwrap();
+    assert_eq!(released.version, "0.2.0");
+}
+
+/// Stating the old defaults keeps the old wire: no wire change, no line
+/// moves, the same shape.
+#[test]
+fn stating_the_old_defaults_keeps_the_wire() {
+    let dir = released_before_the_flip();
+    let old = facts(dir.path());
+    config(dir.path(), OLD_DEFAULTS);
+    let built = build(dir.path()).unwrap();
+    assert!(built.release_bump <= VersionBump::Patch, "{:?}", built.release_bump);
+    assert!(built.schema_changes.is_none(), "{:?}", built.schema_changes);
+    let new = facts(dir.path());
+    assert_eq!(encodings_of(&new), encodings_of(&old));
+    for protocol in ["Users", "Health"] {
+        assert_eq!(line(&new, protocol), "0.1.0");
+        assert_eq!(shape(&old, protocol), shape(&new, protocol));
+    }
+}
+
+/// A package stating its encodings sees nothing of the flip: its IR and
+/// its facts are what they were.
+#[test]
+fn a_package_stating_its_encodings_sees_no_change() {
+    let dir = package(V1);
+    config(dir.path(), OLD_DEFAULTS);
+    build(dir.path()).unwrap();
+    let f = facts(dir.path());
+    assert_eq!(
+        encodings_of(&f),
+        [("format", "packed@1"), ("framing", "datagram@2"), ("handshake", "comline@1")]
+            .map(|(k, n)| (k.to_string(), n.to_string()))
+    );
+    // Its schema IR has neither frozen in: what a package taking the old
+    // defaults had.
+    let context = comline_core::package::build::compile_package(dir.path()).unwrap();
+    for schema in &context.schema_contexts {
+        let schema = schema.borrow();
+        let frozen = schema.frozen_schema.borrow();
+        for unit in frozen.as_ref().unwrap() {
+            if let comline_core::schema::ir::frozen::unit::FrozenUnit::Protocol { parameters, .. } = unit {
+                assert!(parameters.is_empty(), "{parameters:?}");
+            }
+        }
+    }
+}
+
+// ---------- the working tree's facts, for `comline generate` ----------
+
+fn working(dir: &Path) -> PackageFacts {
+    let context = comline_core::package::build::compile_package(dir).unwrap();
+    compat::facts_of_working_tree(dir, &context).unwrap()
+}
+
+/// What files the store holds, to see nothing was written.
+fn stored_files(dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut found = vec![];
+    let mut stack = vec![dir.join(".comline")];
+    while let Some(d) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&d) else { continue };
+        for e in entries.flatten() {
+            if e.path().is_dir() {
+                stack.push(e.path());
+            } else {
+                found.push(e.path());
+            }
+        }
+    }
+    found.sort();
+    found
+}
+
+#[test]
+fn a_package_never_built_has_a_first_builds_facts() {
+    let dir = package(V1);
+    let f = working(dir.path());
+    assert!(!dir.path().join(".comline").exists(), "nothing written");
+    build(dir.path()).unwrap();
+    assert_eq!(f, facts(dir.path()));
+}
+
+#[test]
+fn an_unchanged_tree_has_its_builds_facts() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    assert_eq!(working(dir.path()), facts(dir.path()));
+}
+
+/// Numbered as the next build would number it: against the last release
+/// and every number retired, without writing anything.
+#[test]
+fn a_changed_tree_is_numbered_as_its_next_build_would_be() {
+    let dir = package(V1);
+    build(dir.path()).unwrap();
+    release(dir.path(), &ReleaseRequest::default()).unwrap();
+    // Health retired (number 1), then Admin added: it can't get 1.
+    schema(dir.path(), "struct User {\n    id: u64\n}\n\nprotocol Users {\n    function get(id: u64) -> User;\n}\n");
+    build(dir.path()).unwrap();
+    schema(dir.path(), "struct User {\n    id: u64\n}\n\nprotocol Users {\n    function get(id: u64) -> User;\n    function list() -> u32;\n}\n\nprotocol Admin {\n    function reset();\n}\n");
+
+    let head = read_ref(dir.path(), main_ref()).unwrap();
+    let before = stored_files(dir.path());
+    let f = working(dir.path());
+    assert_eq!(stored_files(dir.path()), before, "nothing written");
+    assert_eq!(read_ref(dir.path(), main_ref()).unwrap(), head);
+
+    build(dir.path()).unwrap();
+    let built = facts(dir.path());
+    assert_eq!(f, built);
+    assert_eq!(number(&f, "Admin"), 2);
+    assert_eq!(fnumber(&f, "Users", "list"), 1);
 }
