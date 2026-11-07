@@ -76,6 +76,8 @@ const MESSAGE_NOT_INTERPOLATED: DiagnosticCode =
     DiagnosticCode::warning("validation::message-not-interpolated");
 const PROVIDER_CONSUMER_MISMATCH: DiagnosticCode =
     DiagnosticCode::error("validation::provider-consumer-mismatch");
+const FORMAT_DOESNT_FIT_FRAMING: DiagnosticCode =
+    DiagnosticCode::error("validation::format-doesnt-fit-framing");
 const REVERSE_CALLS_NEED_FRAMING: DiagnosticCode =
     DiagnosticCode::error("validation::reverse-calls-need-framing");
 const UNVERIFIED_MISSING_MARKER: DiagnosticCode =
@@ -629,6 +631,7 @@ pub fn validate_with(
     check_annotation_values(units, imports, &mut errors);
     check_unverified(units, &imports.encodings(), &mut errors, &mut warnings);
     check_provider(units, &mut errors);
+    check_format_fits_framing(units, &imports.encodings(), &mut errors);
     validate_throws(units, &mut errors);
     check_duplicate_members(units, &mut errors);
     super::data::check_dataless_arrays(units, imports, &mut errors);
@@ -1456,6 +1459,32 @@ fn check_provider(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
                     "drop the `datagram@1` framing for `{}` (the default), or `\"jsonrpc\"`; \
                      if the package's `wire.framing` set it, give this protocol its own `@framing`",
                     annotations::FRAMING_DATAGRAM2
+                ))
+                .maybe_span(Some(*span)),
+            );
+        }
+    }
+}
+
+/// A protocol's framing has to be able to carry what its format writes
+/// ([`unverified::misfit`]): caught here, as no runtime checks it on the wire.
+fn check_format_fits_framing(units: &[FrozenUnit], encodings: &crate::schema::ir::unverified::Encodings, errors: &mut Vec<Diagnostic>) {
+    for unit in units {
+        let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
+            continue;
+        };
+        if let Some((framing, grammar, format)) = crate::schema::ir::unverified::misfit(parameters, encodings) {
+            errors.push(
+                Diagnostic::new(
+                    FORMAT_DOESNT_FIT_FRAMING,
+                    format!(
+                        "protocol `{name}` uses the framing `{framing}`, which carries {grammar}, but the \
+                         package declares `wire.format = \"{format}\"`, which doesn't write that"
+                    ),
+                )
+                .with_help(format!(
+                    "declare a format that writes {grammar}, leave `wire.format` out for `{framing}`'s \
+                     default, or give `{name}` another framing"
                 ))
                 .maybe_span(Some(*span)),
             );

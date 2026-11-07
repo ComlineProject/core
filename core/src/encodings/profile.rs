@@ -2,8 +2,8 @@
 //! encodes, as facts the version comparison turns into bumps.
 //!
 //! A pinned copy of `Profile`, `ProfileKind`, `Fact` and the fact list from
-//! ComlineProject/runtime `runtime/conformance/src/lib.rs`, at rev
-//! `64505b40b39c93c5db40e981ba3eef14ecc0fc90` (spec 0.2). The runtime corpus
+//! ComlineProject/runtime `runtime/conformance/src/profile.rs`, at rev
+//! `3d749427a80986bb293a5cdf9165be4fa02186f7` (spec 0.9). The runtime corpus
 //! is where the profiles are proven; core only checks that a declared
 //! profile is one. When the runtime's schema moves, this copy moves with it,
 //! and the rev above changes.
@@ -28,6 +28,9 @@ use serde_derive::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Profile {
+    /// Where the file finds its schema, which a reader ignores.
+    #[serde(rename = "$schema", default, skip_serializing_if = "Option::is_none")]
+    pub schema: Option<String>,
     pub name: String,
     pub kind: ProfileKind,
     pub facts: BTreeMap<String, Fact>,
@@ -96,10 +99,12 @@ impl ProfileKind {
                 ("enum_variants", &["by_name", "by_index"]),
                 ("unknown_variant", &["rejected", "tolerated"]),
                 ("integer_width", &["by_value", "exact"]),
+                ("output", &["bytes", "json"]),
             ],
             ProfileKind::Framing => &[
                 ("calls", &["by_index", "by_name", "by_id"]),
                 ("errors", &["by_ordinal", "by_name"]),
+                ("payload", &["opaque", "json"]),
             ],
             ProfileKind::Handshake => &[
                 ("schema_agreement", &["true", "false"]),
@@ -151,6 +156,18 @@ impl Profile {
             }
         }
         Ok(profile)
+    }
+
+    /// The grammar a framing writes a payload into (`payload`) or a format
+    /// writes in (`output`), if any: `None` for a framing that carries a
+    /// payload as bytes, and for a format that writes bytes.
+    pub fn grammar(&self) -> Option<String> {
+        let (fact, none) = match self.kind {
+            ProfileKind::Format => ("output", "bytes"),
+            ProfileKind::Framing => ("payload", "opaque"),
+            ProfileKind::Handshake => return None,
+        };
+        self.facts.get(fact).map(|f| f.value.clone()).filter(|value| value != none)
     }
 
     /// The guarantees a handshake's profile states as established (its

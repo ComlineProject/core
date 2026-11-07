@@ -83,7 +83,7 @@ fn a_declared_format_other_than_json_is_refused_next_to_jsonrpc() {
     let err = compile(Some("{ format = \"packed@1\" framing = \"jsonrpc\" }"), SCHEMA)
         .unwrap_err()
         .to_string();
-    assert!(err.contains("protocol `Plain` uses JSON-RPC"), "{err}");
+    assert!(err.contains("protocol `Plain` uses the framing `jsonrpc`, which carries json"), "{err}");
     assert!(err.contains("`wire.format = \"packed@1\"`"), "{err}");
 
     compile(Some("{ format = \"json@1\" framing = \"jsonrpc\" }"), SCHEMA).unwrap();

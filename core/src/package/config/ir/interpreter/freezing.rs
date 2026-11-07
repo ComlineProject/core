@@ -354,6 +354,7 @@ fn interpret_assignment_encodings(
             map,
             establishes: parsed.establishes(),
             has_vectors,
+            grammar: parsed.grammar(),
         });
     }
     Ok(units)

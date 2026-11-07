@@ -485,7 +485,8 @@ mod tests {
         std::fs::write(
             app.join("profiles/f.json"),
             r#"{ "name": "com.acme.f@1", "kind": "framing",
-                 "facts": { "calls": { "value": "by_name" }, "errors": { "value": "by_name" } } }"#,
+                 "facts": { "calls": { "value": "by_name" }, "errors": { "value": "by_name" },
+                            "payload": { "value": "opaque" } } }"#,
         )
         .unwrap();
         package(
