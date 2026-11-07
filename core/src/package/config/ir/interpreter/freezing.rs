@@ -355,6 +355,8 @@ fn interpret_assignment_encodings(
             establishes: parsed.establishes(),
             has_vectors,
             grammar: parsed.grammar(),
+            calls: parsed.stated("calls"),
+            directions: parsed.stated("directions"),
         });
     }
     Ok(units)

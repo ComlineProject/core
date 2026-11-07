@@ -816,7 +816,8 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
 /// The format, framing and handshake a protocol uses, resolved as
 /// `comline_core::inspect` resolves them.
 fn encodings_in_play(protocol: &FrozenUnit, config: &[ConfigUnit]) -> Vec<EncodingFacts> {
-    use crate::schema::idl::annotations::{canonical_value, DEFAULT_FORMAT, DEFAULT_FRAMING, FORMAT_JSON, FRAMING_JSONRPC};
+    use crate::schema::idl::annotations::{canonical_value, DEFAULT_FRAMING};
+    use crate::schema::ir::unverified::{default_format, Encodings};
     let FrozenUnit::Protocol { parameters, .. } = protocol else { return vec![] };
     let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
     let property = |key: &str| {
@@ -834,8 +835,10 @@ fn encodings_in_play(protocol: &FrozenUnit, config: &[ConfigUnit]) -> Vec<Encodi
     };
     let format = match wire_format {
         Some(f) => f.to_string(),
-        None if framing == FRAMING_JSONRPC => FORMAT_JSON.to_string(),
-        None => DEFAULT_FORMAT.to_string(),
+        None => {
+            let encodings = Encodings { declared: config.iter().collect(), ..Default::default() };
+            default_format(&framing, &encodings).to_string()
+        }
     };
     let handshake = crate::schema::ir::unverified::handshake(parameters).to_string();
     let declared = |name: &str| {

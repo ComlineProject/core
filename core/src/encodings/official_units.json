@@ -62,7 +62,7 @@
     "Encoding": {
       "name": "jsonrpc@1",
       "kind": "framing",
-      "profile_hash": "5d6c0654543ac4f94d02bf956c49003c0a1c9995b7bf72617aaaf632b3f61075",
+      "profile_hash": "29f9fcc7de82c7681d105e60f1ac232fa0e543cffb971190d9623b71199bcf6d",
       "map": {
         "rust": {
           "type": "comline_runtime::framing::JsonRpcFraming",
@@ -77,14 +77,16 @@
       },
       "establishes": [],
       "has_vectors": true,
-      "grammar": "json"
+      "grammar": "json",
+      "calls": "by_name",
+      "directions": "both"
     }
   },
   {
     "Encoding": {
       "name": "datagram@1",
       "kind": "framing",
-      "profile_hash": "a1f5ca328186a6fa2f09ffce5e5e3774663a9bc5cd65c6e3cd667bb9d6ccf2ee",
+      "profile_hash": "5ea6f68be2ea6f4f300bcc67d1867f9c5d32b773d831c7694281351c1b3d8d4d",
       "map": {
         "rust": {
           "type": "comline_runtime::contract::DatagramFraming",
@@ -98,14 +100,16 @@
         }
       },
       "establishes": [],
-      "has_vectors": true
+      "has_vectors": true,
+      "calls": "by_index",
+      "directions": "one"
     }
   },
   {
     "Encoding": {
       "name": "datagram@2",
       "kind": "framing",
-      "profile_hash": "5ef8e5da3793202d036b1feb03f3a3e18ee0e56453e457e066e7e8d7eae4ebcc",
+      "profile_hash": "539252f1ec32967c99a9d27dc0ae9051c598a24f468aad0a0445908dc4b571fd",
       "map": {
         "rust": {
           "type": "comline_runtime::contract::Datagram2Framing",
@@ -119,7 +123,9 @@
         }
       },
       "establishes": [],
-      "has_vectors": true
+      "has_vectors": true,
+      "calls": "by_index",
+      "directions": "both"
     }
   },
   {

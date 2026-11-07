@@ -34,7 +34,7 @@ use std::collections::BTreeMap;
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
-use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE, FORMAT_JSON, FRAMING_JSONRPC};
+use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, DEFAULT_HANDSHAKE};
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 use crate::schema::ir::unverified::{self, Encodings};
@@ -271,10 +271,10 @@ fn summarize(p: Protocol) -> ProtocolSummary {
 
     let format = match wire_format {
         Some(format) => Choice { value: format.to_string(), params: BTreeMap::new(), source: Source::PackageDefault },
-        None if framing.value == FRAMING_JSONRPC => {
-            Choice { value: FORMAT_JSON.to_string(), params: BTreeMap::new(), source: Source::Framing }
-        }
-        None => Choice { value: DEFAULT_FORMAT.to_string(), params: BTreeMap::new(), source: Source::CoreDefault },
+        None => match unverified::default_format(&framing.value, p.encodings) {
+            DEFAULT_FORMAT => Choice { value: DEFAULT_FORMAT.to_string(), params: BTreeMap::new(), source: Source::CoreDefault },
+            format => Choice { value: format.to_string(), params: BTreeMap::new(), source: Source::Framing },
+        },
     };
 
     let handshake = {
@@ -454,7 +454,7 @@ mod tests {
         assert_eq!((own.framing.value.as_str(), own.framing.source), ("jsonrpc", Source::Annotation));
         assert_eq!(own.framing.params, BTreeMap::from([("method_names".to_string(), "qualified".to_string())]));
         assert_eq!((own.handshake.value.as_str(), own.handshake.source), ("none", Source::Annotation));
-        assert_eq!((own.format.value.as_str(), own.format.source), (FORMAT_JSON, Source::Framing));
+        assert_eq!((own.format.value.as_str(), own.format.source), (crate::schema::idl::annotations::FORMAT_JSON, Source::Framing));
         assert!(own.unverified);
         for guarantee in [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement] {
             let row = row(&own, guarantee);
@@ -478,6 +478,36 @@ mod tests {
     }
 
     #[test]
+    fn a_framing_with_a_grammar_gets_the_format_that_writes_it() {
+        for (payload, format, source) in [
+            ("json", "json@1", Source::Framing),
+            ("opaque", "packed@1", Source::CoreDefault),
+        ] {
+            let tmp = tempfile::tempdir().unwrap();
+            let app = tmp.path().join("app");
+            std::fs::create_dir_all(app.join("profiles")).unwrap();
+            std::fs::write(
+                app.join("profiles/f.json"),
+                format!(
+                    r#"{{ "name": "com.acme.f@1", "kind": "framing",
+                         "facts": {{ "calls": {{ "value": "by_name" }}, "directions": {{ "value": "both" }},
+                                    "errors": {{ "value": "by_name" }}, "payload": {{ "value": "{payload}" }} }} }}"#
+                ),
+            )
+            .unwrap();
+            package(
+                &app,
+                "encodings = {\n    \"com.acme.f@1\" = { kind = \"framing\" profile = \"profiles/f.json\" }\n}\n\
+                 settings = { annotations = { unverified = { allowed = true } framing = { allowed = true } } }\n",
+                "@framing = \"com.acme.f@1\"\n@unverified = \"no vectors yet\"\nprotocol P {\n    function ping();\n}\n",
+            );
+            let context = crate::package::build::compile_package(&app).unwrap();
+            let [p] = protocols(&context).try_into().unwrap();
+            assert_eq!((p.format.value.as_str(), p.format.source), (format, source), "{payload}");
+        }
+    }
+
+    #[test]
     fn a_custom_encoding_without_vectors_gives_up_conformance() {
         let tmp = tempfile::tempdir().unwrap();
         let app = tmp.path().join("app");
@@ -485,7 +515,7 @@ mod tests {
         std::fs::write(
             app.join("profiles/f.json"),
             r#"{ "name": "com.acme.f@1", "kind": "framing",
-                 "facts": { "calls": { "value": "by_name" }, "errors": { "value": "by_name" },
+                 "facts": { "calls": { "value": "by_name" }, "directions": { "value": "both" }, "errors": { "value": "by_name" },
                             "payload": { "value": "opaque" } } }"#,
         )
         .unwrap();

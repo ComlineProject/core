@@ -13,6 +13,7 @@ const FRAMING_PROFILE: &str = r#"{
   "kind": "framing",
   "facts": {
     "calls": { "value": "by_name", "proven_by": ["lines/request"] },
+    "directions": { "value": "both", "proven_by": ["lines/request"] },
     "errors": { "value": "by_name", "proven_by": ["lines/error"] },
     "payload": { "value": "opaque", "proven_by": ["lines/request-binary"] }
   }
@@ -440,6 +441,7 @@ mod format_fits_framing {
         format!(
             r#"{{ "name": "com.acme.lines@1", "kind": "framing", "facts": {{
                 "calls": {{ "value": "by_name", "proven_by": [] }},
+                "directions": {{ "value": "both", "proven_by": [] }},
                 "errors": {{ "value": "by_ordinal", "proven_by": [] }},
                 "payload": {{ "value": "{payload}", "proven_by": [] }}
             }} }}"#
@@ -531,6 +533,7 @@ wire = { format = "com.acme.fast@1" }
     fn a_profile_has_to_state_them() {
         let missing = r#"{ "name": "com.acme.lines@1", "kind": "framing", "facts": {
             "calls": { "value": "by_name", "proven_by": [] },
+            "directions": { "value": "both", "proven_by": [] },
             "errors": { "value": "by_ordinal", "proven_by": [] }
         } }"#;
         let error = error_of(DECLARES_LINES, PLAIN, &[("profiles/lines.json", missing)]);
@@ -538,5 +541,66 @@ wire = { format = "com.acme.fast@1" }
         let wrong = framing_profile("cbor");
         let error = error_of(DECLARES_LINES, PLAIN, &[("profiles/lines.json", &wrong)]);
         assert!(error.contains("its `payload` is `cbor`"), "{error}");
+    }
+}
+
+/// What a schema may ask of a framing, by its facts: a third party's is held
+/// to the same rules as the official ones.
+mod framing_facts {
+    use super::*;
+
+    const DECLARES_LINES: &str = r#"encodings = {
+    "com.acme.lines@1" = { kind = "framing" profile = "profiles/lines.json" map = { } }
+}
+"#;
+
+    fn profile(calls: &str, directions: &str) -> String {
+        format!(
+            r#"{{ "name": "com.acme.lines@1", "kind": "framing", "facts": {{
+                "calls": {{ "value": "{calls}", "proven_by": [] }},
+                "directions": {{ "value": "{directions}", "proven_by": [] }},
+                "errors": {{ "value": "by_ordinal", "proven_by": [] }},
+                "payload": {{ "value": "opaque", "proven_by": [] }}
+            }} }}"#
+        )
+    }
+
+    fn schema(framing: &str, more: &str) -> String {
+        format!("@framing = {framing}\n{more}@unverified = \"a test\"\nprotocol P {{\n    function f();\n}}\n")
+    }
+
+    const LINES: &str = "\"com.acme.lines@1\"";
+    const REVERSE: &str = "validation::reverse-calls-need-framing";
+
+    #[test]
+    fn calls_the_server_starts_go_by_directions() {
+        let client = "@provider = Client\n";
+        let both = profile("by_name", "both");
+        compile_one(DECLARES_LINES, &schema(LINES, client), &[("profiles/lines.json", &both)]).unwrap();
+        let one = profile("by_name", "one");
+        let error = error_of(DECLARES_LINES, &schema(LINES, client), &[("profiles/lines.json", &one)]);
+        assert!(error.contains(REVERSE), "{error}");
+        assert!(error.contains("com.acme.lines@1"), "{error}");
+        // Calls the client starts ask nothing of it.
+        compile_one(DECLARES_LINES, &schema(LINES, ""), &[("profiles/lines.json", &one)]).unwrap();
+    }
+
+    #[test]
+    fn method_names_goes_by_calls() {
+        let named = "{ name = \"com.acme.lines@1\", method_names = qualified }";
+        let by_name = profile("by_name", "both");
+        compile_one(DECLARES_LINES, &schema(named, ""), &[("profiles/lines.json", &by_name)]).unwrap();
+
+        let by_index = profile("by_index", "both");
+        let error = error_of(DECLARES_LINES, &schema(named, ""), &[("profiles/lines.json", &by_index)]);
+        assert!(error.contains("`method_names` applies to a framing that names its calls"), "{error}");
+        assert!(error.contains("com.acme.lines@1"), "{error}");
+
+        let loud = "{ name = \"com.acme.lines@1\", method_names = loud }";
+        let error = error_of(DECLARES_LINES, &schema(loud, ""), &[("profiles/lines.json", &by_name)]);
+        assert!(error.contains("'method_names' must be"), "{error}");
+        let other = "{ name = \"com.acme.lines@1\", colour = \"red\" }";
+        let error = error_of(DECLARES_LINES, &schema(other, ""), &[("profiles/lines.json", &by_name)]);
+        assert!(error.contains("`colour` isn't allowed"), "{error}");
     }
 }

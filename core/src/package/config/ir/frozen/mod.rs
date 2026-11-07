@@ -57,6 +57,8 @@ pub enum FrozenUnit {
     /// `grammar` is what [`Profile::grammar`](crate::encodings::Profile::grammar)
     /// says, so that the framing and format check needs no profile file. It's
     /// left out when there's none, as for a declaration frozen before it existed.
+    /// `calls` and `directions` are a framing's facts of those names, frozen for
+    /// the same reason, and left out the same way.
     ///
     /// The two facts the guarantee check (`schema::ir::unverified`) needs
     /// are frozen beside the hash, so a consumer reads them from the
@@ -82,6 +84,10 @@ pub enum FrozenUnit {
         has_vectors: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         grammar: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        calls: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        directions: Option<String>,
     },
 }
 
