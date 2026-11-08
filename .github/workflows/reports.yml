@@ -1,0 +1,76 @@
+name: Reports
+
+# Observatory reports: coverage and compile time of core.
+# Each job writes one JSON report and uploads it; the `publish` job commits
+# them all to the `reports` branch, only from `master` or a manual run. On a
+# pull request everything runs except the publish, so the workflow is proven
+# before it merges.
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: reports-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: Swatinem/rust-cache@v2
+      - uses: ComlineProject/observatory/.github/actions/report-rust-coverage@v1
+        with:
+          output: reports/core.coverage.json
+          args: --workspace
+      - uses: actions/upload-artifact@v7
+        with:
+          name: report-coverage
+          path: reports/core.coverage.json
+          if-no-files-found: error
+
+  compile:
+    name: compile time
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: ComlineProject/observatory/.github/actions/report-rust-compile@v1
+        with:
+          output: reports/core.compile.json
+          args: --workspace --release
+      - uses: actions/upload-artifact@v7
+        with:
+          name: report-compile
+          path: reports/core.compile.json
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [coverage, compile]
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: report-*
+          path: reports
+          merge-multiple: true
+      - uses: ComlineProject/observatory/.github/actions/publish-report@v1
+        with:
+          reports: reports/core.coverage.json reports/core.compile.json
+          readme: .github/reports-branch.md
