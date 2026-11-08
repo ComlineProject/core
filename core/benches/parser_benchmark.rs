@@ -1,51 +1,19 @@
-// Criterion-based benchmark for rust-sitter parser
+//! Wall-time benchmarks of the parser, by Criterion: `cargo bench -p
+//! comline-core --bench parser_benchmark`. HTML reports land under
+//! `target/criterion/`. CI runs it for the published report's `wall_ns` (not
+//! gated: wall time on shared runners is noise); the instruction counts,
+//! which are gated, are `parser_instructions.rs`, over the same inputs.
+//!
+//! Criterion's names map to the report's ids: `parse_simple_idl` is
+//! `parse/simple`, `parse_complex_idl` is `parse/complex`, and
+//! `parse_large_idl/<n>` is `parse/large/<n>`.
 
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use comline_core::schema::idl::grammar;
 
-const SIMPLE_IDL: &str = r#"
-struct User {
-    id: u64
-    name: string
-}
-"#;
+mod inputs;
 
-const COMPLEX_IDL: &str = r#"
-import std
-
-const MAX_USERS: u32 = 1000
-const API_VERSION: string = "v1.0"
-
-enum Status { Active, Inactive, Pending }
-enum UserRole { Admin, User, Guest }
-
-struct User {
-    id: u64
-    username: string
-    email: string
-    role: UserRole
-    status: Status
-    tags: string[]
-}
-
-protocol UserService {
-    function getUser(u64) returns User
-    function createUser(string, string, UserRole) returns u64
-    function listUsers(u32, u32) returns User[]
-    function deleteUser(u64) returns bool
-}
-"#;
-
-fn generate_large_idl(num_structs: usize) -> String {
-    let mut idl = String::from("import std\n\n");
-    for i in 0..num_structs {
-        idl.push_str(&format!(
-            "struct Entity{} {{\n    id: u64\n    name: string\n    data: string[]\n}}\n\n",
-            i
-        ));
-    }
-    idl
-}
+use inputs::*;
 
 fn parse_simple(c: &mut Criterion) {
     c.bench_function("parse_simple_idl", |b| {
@@ -61,28 +29,14 @@ fn parse_complex(c: &mut Criterion) {
 
 fn parse_large(c: &mut Criterion) {
     let mut group = c.benchmark_group("parse_large_idl");
-    
-    for size in [10, 50, 100].iter() {
-        let idl = generate_large_idl(*size);
+    for size in LARGE_SIZES {
+        let idl = generate_large_idl(size);
         group.bench_with_input(BenchmarkId::from_parameter(size), &idl, |b, idl| {
             b.iter(|| grammar::parse(black_box(idl)))
         });
     }
-    
     group.finish();
 }
 
 criterion_group!(benches, parse_simple, parse_complex, parse_large);
-
-fn main() {
-    benches();
-    
-    // Print report locations
-    println!("\n🎯 Benchmark HTML Reports:");
-    println!("📊 Main: target/criterion/report/index.html");
-    println!("\nIndividual:");
-    println!("  • Simple:  target/criterion/parse_simple_idl/report/index.html");
-    println!("  • Complex: target/criterion/parse_complex_idl/report/index.html");
-    println!("  • Large:   target/criterion/parse_large_idl/report/index.html");
-    println!("\n💡 Open these files in your browser to view detailed charts\n");
-}
+criterion_main!(benches);

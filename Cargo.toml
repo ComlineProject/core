@@ -7,3 +7,8 @@ members = [
 
 [profile.release]
 opt-level = 2
+
+# The benches: one codegen unit, so a change to one function leaves the
+# others' instruction counts alone (the gate in .github/workflows/bench.yml).
+[profile.bench]
+codegen-units = 1

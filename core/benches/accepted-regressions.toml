@@ -1,0 +1,43 @@
+# Accepted instruction-count regressions: the ledger.
+#
+# CI's gate (.github/workflows/bench.yml) fails a pull request when any
+# parser benchmark's instruction count (core/benches/parser_instructions.rs)
+# grows by more than 1% over its base. Benchmarks are named by their ids
+# (`parse/simple`, `parse/complex`, `parse/large/<n>`); the job summary names
+# each one. No standard is lowered to let a change through; but a fix can
+# cost instructions, and when that cost is the price of being right, a pull
+# request accepts it here, in the diff, where it's reviewed:
+#
+#   [[accepted]]
+#   pr = 123                                  # the pull request that pays it
+#   bench = "parse/complex"                   # one benchmark id, exactly
+#   max_percent = 2.37                        # the most it may grow, in %
+#   reason = "keep each struct's doc comments in the tree (#120)"
+#
+# - An entry counts only in the pull request that adds it, and `pr` must be
+#   that pull request's number. Once merged it's history: later pull requests
+#   compare against a base that already includes the cost, and the entry
+#   loosens nothing for them.
+# - It covers one benchmark, up to `max_percent`. Any other benchmark, or a
+#   bigger growth, still fails. The gate's job summary prints the entry to
+#   paste, with the measured growth rounded up.
+# - An entry for a benchmark that didn't grow beyond the limit fails the gate:
+#   the ledger records only costs that were paid.
+# - Append only. Changing or removing an existing entry fails the gate.
+#
+# A benchmark the base had and the head doesn't run fails too, so a slowed
+# benchmark can't slip through by being renamed or dropped. A pull request
+# that means it says so, with the same rules (its own `pr`, used, append
+# only):
+#
+#   [[removed]]
+#   pr = 123
+#   bench = "parse/large/10"                  # the id the base had
+#   renamed_to = "parse/large/20"             # optional: its new id
+#   reason = "the smallest large schema is 20 structs now (#121)"
+#
+# A renamed benchmark is compared under its new id against its old count, so
+# it's held to the limit, or to an `[[accepted]]` entry for the new id. A new
+# benchmark, not a rename, has nothing to regress from: it's recorded only.
+#
+# Wall time (Criterion, `wall_ns` in the report) is never gated.

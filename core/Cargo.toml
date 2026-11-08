@@ -84,7 +84,18 @@ rust-sitter-tool = { version = "0.4.5", optional = true } # Build-time grammar c
 pretty_assertions = "1.4.0"
 criterion = { version = "0.5", features = ["html_reports"] }
 tempfile = "3.8"
+# Instruction-count benches (`benches/parser_instructions.rs`). The
+# `iai-callgrind-runner` binary that runs them must be this exact version too
+# (`IAI_CALLGRIND_RUNNER_VERSION` in .github/workflows/bench.yml):
+#   cargo install iai-callgrind-runner --version 0.16.1 --locked
+iai-callgrind = "=0.16.1"
 
 [[bench]]
 name = "parser_benchmark"
 harness = false
+required-features = ["compiler"]
+
+[[bench]]
+name = "parser_instructions"
+harness = false
+required-features = ["compiler"]
