@@ -1,2 +1,4 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Auto detect text files and perform LF normalization. Check them out with
+# LF on every platform too (Windows included): fixtures and golden files are
+# compared byte for byte.
+* text=auto eol=lf

@@ -25,7 +25,8 @@ fn test_hash_to_path() {
     let hash = Hash::from_hex("abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890").unwrap();
     let path = hash.to_path();
     
-    assert_eq!(path.to_str().unwrap(), "ab/cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890");
+    // A filesystem path: compared as one, so it holds with `\\` on Windows.
+    assert_eq!(path, std::path::Path::new("ab").join("cdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890"));
 }
 
 #[test]
