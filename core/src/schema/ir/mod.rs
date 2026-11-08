@@ -11,5 +11,6 @@ pub mod snippet;
 #[cfg(feature = "compiler")]
 pub mod validation;
 pub mod unverified;
+pub mod package_wire;
 
 // Standard Uses
