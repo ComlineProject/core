@@ -3,13 +3,16 @@ name: Reports
 # Observatory reports: coverage and compile time of core.
 # Each job writes one JSON report and uploads it; the `publish` job commits
 # them all to the `reports` branch, only from `master` or a manual run. On a
-# pull request everything runs except the publish, so the workflow is proven
-# before it merges.
+# pull request it runs only when this workflow changes (everything but the
+# publish, so the change is proven before it merges); a push to the default
+# branch measures every change.
 
 on:
   push:
     branches: [master]
   pull_request:
+    paths:
+      - '.github/workflows/reports.yml'
   workflow_dispatch:
 
 permissions:
