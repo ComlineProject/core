@@ -44,3 +44,24 @@ jobs:
       - run: cargo test --verbose -p comline-core --no-default-features --lib
       - run: cargo build --verbose -p comline-core --no-default-features --target wasm32-wasip1
       - run: cargo build --verbose -p comline-core --no-default-features --target wasm32-unknown-unknown
+
+  # The same build and tests on the other platforms (core#9): paths and line
+  # endings are where they're expected to differ. Stable only; the toolchain
+  # matrix above stays Linux x64.
+  cross_platform:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - windows-latest
+          - macos-latest
+          - ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup update stable && rustup default stable
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo build --verbose
+      - run: cargo test --verbose
+      - run: cargo test --verbose -p comline-core --features deps
