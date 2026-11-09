@@ -182,7 +182,7 @@
       "profile_hash": "7946ded8ba5e006a0e44391038088399e91df4bbbdcddd200b187353518efb63",
       "map": {
         "rust": {
-          "type": "comline_runtime::comline2::Comline2Handshake",
+          "type": "comline_runtime::handshake::comline2::Comline2Handshake",
           "package": "comline-runtime",
           "version": null
         },
