@@ -1623,7 +1623,7 @@
           "type": "string"
         },
         "unverified": {
-          "description": "Whether it's marked `@unverified`.",
+          "description": "Whether it gives something up: some guarantee isn't held, whether the\nprotocol's own `@unverified` or the package's `unverified` says why.",
           "type": "boolean"
         }
       },
