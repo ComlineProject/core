@@ -90,7 +90,7 @@ encodings = {
         kind = "handshake"
         profile = "profiles/comline@2.json"
         map = {
-            rust = { type = "comline_runtime::comline2::Comline2Handshake" package = "comline-runtime" }
+            rust = { type = "comline_runtime::handshake::comline2::Comline2Handshake" package = "comline-runtime" }
             typescript = { type = "Comline2Handshake" package = "@comline/runtime" version = "^0.1.0" }
         }
     }
