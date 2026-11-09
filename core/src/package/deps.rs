@@ -929,6 +929,61 @@ mod tests {
         assert!(err.contains("'schema' in accept_unverified.Billing isn't a guarantee"), "{err}");
     }
 
+    /// `a`'s `Blob` holds a string without a maximum that only `a`'s own
+    /// marked `Upload` reaches; `b` uses it in `Orders`.
+    fn write_unbounded_chain(root: &Path, orders: &str) {
+        let write = |dir: &str, config: &str, schema: &str| {
+            std::fs::create_dir_all(root.join(dir).join("src")).unwrap();
+            std::fs::write(root.join(dir).join("config.idp"), config).unwrap();
+            std::fs::write(root.join(dir).join("src/api.ids"), schema).unwrap();
+        };
+        let allow = "settings = { annotations = { unverified = { allowed = true } } }\n";
+        write(
+            "a",
+            &format!("congregation a\nspecification_version = 1\n{allow}"),
+            "struct Blob {\n    data: string\n}\n\n\
+             @unverified = \"the uploader streams whatever it's given\"\n\
+             protocol Upload {\n    function put(b: Blob);\n}\n",
+        );
+        write(
+            "b",
+            &format!(
+                "congregation b\nspecification_version = 1\n{allow}\
+                 dependencies = {{\n    a = {{\n        path = \"../a\"\n        \
+                 accept_unverified = {{ Upload = [\"bounded_size\"] }}\n    }}\n}}\n"
+            ),
+            &format!("use a::api::Blob\n\n{orders}protocol Orders {{\n    function send(b: Blob);\n}}\n"),
+        );
+    }
+
+    #[test]
+    fn a_dependency_type_without_a_maximum_is_unbounded_where_used() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_unbounded_chain(tmp.path(), "");
+        let err = crate::package::build::compile_package(&tmp.path().join("b")).unwrap_err().to_string();
+        assert!(
+            err.contains("protocol `Orders`, function `send`, argument `b`: `Blob` holds a value without a maximum"),
+            "{err}"
+        );
+    }
+
+    #[test]
+    fn giving_up_bounded_size_for_a_dependency_type_is_for_consumers_to_accept() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_unbounded_chain(tmp.path(), "@unverified = \"orders carry the upload\"\n");
+        crate::package::build::compile_package(&tmp.path().join("b")).expect("b gives up bounded size");
+
+        let cache = tmp.path().join("cache");
+        let resolve = |dep: &DependencyConfig| resolve(dep, tmp.path(), &cache).map(|_| ());
+        let err = resolve(&path_dep("b", "b", None)).unwrap_err().to_string();
+        assert!(err.contains("protocol `Orders` is unverified, giving up bounded size"), "{err}");
+
+        let mut accepting = path_dep("b", "b", None);
+        accepting.accept_unverified.insert("Orders".to_string(), vec![Guarantee::BoundedSize]);
+        accepting.accept_unverified.insert("Upload".to_string(), vec![Guarantee::BoundedSize]);
+        resolve(&accepting).expect("accepted for exactly its set");
+    }
+
     fn write_minimal_package(dir: &Path, congregation_name: &str) {
         std::fs::create_dir_all(dir.join("src")).unwrap();
         std::fs::write(
