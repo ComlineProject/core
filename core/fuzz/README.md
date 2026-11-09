@@ -46,6 +46,11 @@ fixtures, the examples) into `corpus/<target>/`. The corpus isn't committed.
   crash and opens an issue titled after the target, unless one with that
   title is already open. It doesn't block anyone's pull request.
 
+Every run writes `core.fuzz.json` (seconds, executions, corpus and findings
+per target) with the Observatory's `report-fuzz` action, and a run on
+`master` publishes it to the `reports` branch, where the
+[Observatory](https://comlineproject.github.io/observatory/) charts it.
+
 Inputs stop at 1 KiB (`-max_len=1024`). Under the address sanitizer the
 parser costs about a millisecond per kilobyte, and what it gets wrong shows
 up in short inputs.
