@@ -22,6 +22,12 @@
 //!
 //! The set is frozen beside the reason ([`freeze`]), so a consumer's
 //! acceptance and the version comparison see exactly what was given up.
+//!
+//! The reason is one string for everything given up (`@unverified = "..."`),
+//! or, keyed, one per guarantee (`@unverified = { bounded_size = "..." }`),
+//! which has to say every guarantee the protocol gives up. Either way the
+//! frozen set is the one core works out; a keyed form's reasons stay in the
+//! frozen annotation.
 
 use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
@@ -299,6 +305,33 @@ pub fn reason(parameters: &[FrozenUnit]) -> Option<&str> {
     }
 }
 
+/// Why `guarantee` is given up, as the author wrote it: the plain form's
+/// reason, or the keyed form's entry for it.
+pub fn reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&str> {
+    match marker(parameters)? {
+        ConfigValue::Str(reason) => Some(reason),
+        ConfigValue::Dict(entries) => entries.iter().find_map(|(key, value)| match value {
+            ConfigValue::Str(reason) if key == guarantee.name() => Some(reason.as_str()),
+            _ => None,
+        }),
+        _ => None,
+    }
+}
+
+/// The reason for a diagnostic or an acceptance prompt about `set`: the plain
+/// form's, quoted, or the keyed form's, each guarantee with its own
+/// (`schema agreement "a", encoding agreement "b"`).
+pub fn reason_text(parameters: &[FrozenUnit], set: &[Guarantee]) -> Option<String> {
+    if let Some(reason) = reason(parameters) {
+        return Some(format!("\"{reason}\""));
+    }
+    let each: Vec<String> = set
+        .iter()
+        .filter_map(|g| reason_for(parameters, *g).map(|reason| format!("{} \"{reason}\"", g.describe())))
+        .collect();
+    (!each.is_empty()).then(|| each.join(", "))
+}
+
 /// The frozen given-up set ([`FrozenUnit::Unverified`]); empty when the
 /// protocol isn't marked.
 pub fn frozen_set(parameters: &[FrozenUnit]) -> &[Guarantee] {
@@ -331,14 +364,15 @@ pub fn freeze(units: &mut [FrozenUnit], encodings: &Encodings) {
     }
 }
 
-/// Every protocol in `units` that's frozen as unverified: name, set, reason.
-pub fn protocols(units: &[FrozenUnit]) -> Vec<(&str, &[Guarantee], Option<&str>)> {
+/// Every protocol in `units` that's frozen as unverified: name, set, reason
+/// ([`reason_text`]).
+pub fn protocols(units: &[FrozenUnit]) -> Vec<(&str, &[Guarantee], Option<String>)> {
     units
         .iter()
         .filter_map(|u| match u {
             FrozenUnit::Protocol { name, parameters, .. } => {
                 let set = frozen_set(parameters);
-                (!set.is_empty()).then(|| (name.as_str(), set, reason(parameters)))
+                (!set.is_empty()).then(|| (name.as_str(), set, reason_text(parameters, set)))
             }
             _ => None,
         })

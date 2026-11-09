@@ -118,7 +118,7 @@ pub struct GuaranteeRow {
     /// Empty when held.
     pub causes: Vec<String>,
     /// The `@unverified` reason, when it's given up and the marker carries
-    /// one.
+    /// one: the plain form's, or the keyed form's for this guarantee.
     pub reason: Option<String>,
     pub acceptance: Acceptance,
 }
@@ -302,7 +302,6 @@ fn summarize(p: Protocol) -> ProtocolSummary {
     };
 
     let causes = unverified::causes(p.parameters, p.encodings);
-    let reason = unverified::reason(p.parameters).map(str::to_string);
     let guarantees = Guarantee::ALL
         .into_iter()
         .map(|guarantee| {
@@ -324,7 +323,7 @@ fn summarize(p: Protocol) -> ProtocolSummary {
                 guarantee,
                 held,
                 causes: why,
-                reason: if held { None } else { reason.clone() },
+                reason: if held { None } else { unverified::reason_for(p.parameters, guarantee).map(str::to_string) },
                 acceptance,
             }
         })

@@ -333,6 +333,19 @@ fn handshake_value() -> ValueType {
     ValueType::AnyOf(Box::leak(Box::new([handshakes, ValueType::Dict(keys)])))
 }
 
+/// `@unverified`'s value: one reason, or a dictionary with a reason for each
+/// guarantee given up, keyed by its catalog id. Which keys a protocol has to
+/// write is [`crate::schema::ir::unverified`]'s to say, with its own
+/// diagnostics, so the dictionary's entries aren't checked here.
+fn unverified_value() -> ValueType {
+    let keys: Vec<DictKey> = comline_catalog::sets::GUARANTEES
+        .iter()
+        .map(|id| DictKey { key: *id, value: ValueType::Str, required: false })
+        .collect();
+    let keys: &'static [DictKey] = Box::leak(keys.into_boxed_slice());
+    ValueType::AnyOf(Box::leak(Box::new([ValueType::Str, ValueType::Dict(keys)])))
+}
+
 /// A protocol's handshake, read from either form of `@handshake`. A parameter
 /// written as its default is the same as one left out, so **the two forms, and
 /// a default written out, can't be told apart anywhere they mean the same.**
@@ -666,9 +679,11 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        the reason why. Core works out which (a `none` handshake gives up schema \
                        and encoding agreement), and every consumer has to accept them. Required \
                        where something is given up; off by default \
-                       (`annotations.unverified.allowed`).",
+                       (`annotations.unverified.allowed`). One reason for all of it, or a \
+                       dictionary with a reason for each guarantee given up, by its id: \
+                       `{ bounded_size = \"the uploader streams whatever it's given\" }`.",
         default: "nothing given up",
-        value: ValueType::Str,
+        value: unverified_value(),
         consumed_by: &["core's validation pass", "the consumer's `accept_unverified`"],
     },
     AnnotationInfo {
