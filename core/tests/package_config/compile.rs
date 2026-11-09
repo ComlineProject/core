@@ -297,7 +297,6 @@ fn a_bad_manifest_is_an_error_rather_than_a_panic() {
         // The one that actually bit: `std` is embedded, so it cannot be
         // declared as a dependency.
         ("dependencies = {\n    std = {}\n}\n", "reserved"),
-        ("specification_version = \"one\"\n", "specification_version"),
         ("dependencies = 3\n", "dependencies"),
         ("code_generation = 3\n", "code_generation"),
         ("code_generation = {\n    languages = 3\n}\n", "languages"),
@@ -306,7 +305,7 @@ fn a_bad_manifest_is_an_error_rather_than_a_panic() {
     ];
 
     for (fragment, expected) in cases {
-        let source = format!("congregation bad\n{fragment}");
+        let source = format!("congregation bad\nspecification_version = 1\n{fragment}");
         let context = ProjectInterpreter::from_config_source(&source)
             .unwrap_or_else(|e| panic!("{fragment:?} should still parse: {e}"));
 
@@ -321,6 +320,17 @@ fn a_bad_manifest_is_an_error_rather_than_a_panic() {
             text.contains(expected),
             "{fragment:?}: expected {expected:?} in {text:?}"
         );
+    }
+}
+
+#[test]
+fn a_config_without_a_known_edition_is_refused_where_its_read() {
+    for fragment in ["", "specification_version = \"one\"\n", "specification_version = 0\n"] {
+        let source = format!("congregation bad\n{fragment}");
+        let err = ProjectInterpreter::from_config_source(&source)
+            .err()
+            .unwrap_or_else(|| panic!("{fragment:?} should be refused"));
+        assert!(err.to_string().contains("specification_version"), "{fragment:?}: {err}");
     }
 }
 

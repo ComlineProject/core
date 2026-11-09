@@ -170,3 +170,30 @@ pub fn primitive_name_of(ty: &Type) -> Option<&'static str> {
 pub fn all_word_tokens() -> impl Iterator<Item = &'static str> {
     KEYWORDS.iter().map(|k| k.text).chain(PRIMITIVES.iter().map(|p| p.name))
 }
+
+/// A word of the language that an edition deprecates, and maybe a later one
+/// removes (core#102): a keyword or a primitive type. A schema on an edition
+/// at or past `since` gets `code`'s warning for each use, with a fix when
+/// there's a `replacement`; on `removed` or later, an `edition::removed`
+/// error. The editor marks the word deprecated in completions too.
+#[derive(Debug, Clone, Copy)]
+pub struct Deprecation {
+    pub word: &'static str,
+    pub since: crate::edition::Edition,
+    pub removed: Option<crate::edition::Edition>,
+    pub replacement: Option<&'static str>,
+    /// `deprecation::<word>`, a warning.
+    pub code: crate::diagnostics::DiagnosticCode,
+    /// Why, or what to write instead when there's no one-word replacement.
+    pub note: &'static str,
+}
+
+/// What the editions deprecate. Edition 1 is the language at 1.0, so
+/// nothing yet: a word joins this list when a new edition changes it, and
+/// stays, so a package on any edition gets the right diagnostics.
+pub const DEPRECATIONS: &[Deprecation] = &[];
+
+/// The deprecation of a keyword or primitive type, if an edition has one.
+pub fn deprecation(word: &str) -> Option<&'static Deprecation> {
+    DEPRECATIONS.iter().find(|d| d.word == word)
+}

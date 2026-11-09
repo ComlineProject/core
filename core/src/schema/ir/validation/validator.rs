@@ -392,7 +392,7 @@ pub fn validate_with(
                         .with_help("write a literal (`5`, `\"text\"`, `true`) or another constant's name")
                         .with_span(*span),
                     ),
-                    (None, _) => errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(&ty.to_string()), secondary: None, severity_override: None,
+                    (None, _) => errors.push(Diagnostic { code: INVALID_CONSTANT_TYPE, help: text_type_hint(&ty.to_string()), secondary: None, severity_override: None, fix: None,
                         message: format!("Constant '{}' cannot be a named type '{}' - only primitives allowed", name, ty),
                         context,
                         span: Some(*span),
@@ -466,7 +466,7 @@ pub fn validate_with(
                                         &format!(" - did you mean 'params.{}'?", s),
                                     );
                                 }
-                                errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_PROPERTY, help: None, secondary: None, severity_override: None,
+                                errors.push(Diagnostic { code: UNKNOWN_VALIDATOR_PROPERTY, help: None, secondary: None, severity_override: None, fix: None,
                                     message,
                                     context: vctx.clone(),
                                     span: Some(*vspan),
@@ -474,7 +474,7 @@ pub fn validate_with(
                             }
                         }
                     }
-                    other => errors.push(Diagnostic { code: INVALID_VALIDATOR_REFERENCE, help: None, secondary: None, severity_override: None,
+                    other => errors.push(Diagnostic { code: INVALID_VALIDATOR_REFERENCE, help: None, secondary: None, severity_override: None, fix: None,
                         message: format!(
                             "validator '{}': `{}` is not a valid reference in `validate` \
                              (use `value.*` or `params.*`)",
@@ -590,7 +590,7 @@ pub fn validate_with(
                     }
                 }
                 Some(other) if other != SymbolType::Import => {
-                    errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None, severity_override: None,
+                    errors.push(Diagnostic { code: NOT_A_VALIDATOR, help: None, secondary: None, severity_override: None, fix: None,
                         message: format!("'{}' is not a validator", vname),
                         context: field_ctx.clone(),
                         span: Some(*span),
@@ -609,7 +609,7 @@ pub fn validate_with(
                     if let Some(s) = suggest_similar_name(vname, &symbols) {
                         message.push_str(&format!(" - did you mean '{}'?", s));
                     }
-                    errors.push(Diagnostic { code: UNKNOWN_VALIDATOR, help: None, secondary: None, severity_override: None,
+                    errors.push(Diagnostic { code: UNKNOWN_VALIDATOR, help: None, secondary: None, severity_override: None, fix: None,
                         message,
                         context: field_ctx.clone(),
                         span: Some(*span),
@@ -2131,7 +2131,7 @@ fn validate_type(
                         message.push_str(&format!(" - did you mean '{}'?", suggestion));
                     }
                 }
-                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: hint, secondary: None, severity_override: None,
+                errors.push(Diagnostic { code: UNKNOWN_TYPE, help: hint, secondary: None, severity_override: None, fix: None,
                     message,
                     context: context.to_string(),
                     span: Some(span),
@@ -2205,7 +2205,7 @@ fn check_validator_arguments(
 ) {
     let props = prop_names(fields);
     let mut error = |code, message, span| {
-        errors.push(Diagnostic { code, help: None, secondary: None, severity_override: None,
+        errors.push(Diagnostic { code, help: None, secondary: None, severity_override: None, fix: None,
             message,
             context: context.to_string(),
             span: Some(span),

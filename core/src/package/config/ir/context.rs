@@ -157,6 +157,30 @@ impl ProjectContext {
         None
     }
 
+    /// The edition the package's schemas are written in (core#102): its
+    /// `specification_version`. A context built without one (a test's, or
+    /// a config [`check_config`](crate::edition::check_config) hasn't seen)
+    /// gets the newest; the CLI and the editor refuse such a config first.
+    pub fn edition(&self) -> crate::edition::Edition {
+        use crate::package::config::idl::grammar::{Key, Value};
+        let frozen = self.config_frozen.iter().flatten().find_map(|unit| match unit {
+            FrozenUnit::SpecificationVersion(n) => Some(*n),
+            _ => None,
+        });
+        let written = || {
+            self.config.assignments.iter().find_map(|a| match (&a.value.key, &a.value.value) {
+                (Key::Identifier(k), Value::Number(n)) if k.value == "specification_version" => {
+                    n.value.parse::<u8>().ok()
+                }
+                _ => None,
+            })
+        };
+        frozen
+            .or_else(written)
+            .and_then(crate::edition::Edition::from_number)
+            .unwrap_or(crate::edition::Edition::LATEST)
+    }
+
     /// Every non-fatal diagnostic accumulated across this project's own
     /// schemas (e.g. a reference to a `@deprecated` struct/error), raw and
     /// structured - for a consumer that wants to inspect code/severity/span

@@ -74,6 +74,14 @@ impl ProjectInterpreter {
             )
         })?;
 
+        // Every package names an edition this core knows (core#102).
+        if let Err(diagnostic) = crate::edition::check_config(source, &congregation) {
+            eyre::bail!(
+                "config.idp names no edition this Comline can build:\n\n{}",
+                crate::diagnostics::render(&diagnostic, "config.idp", source)
+            );
+        }
+
         Ok(ProjectContext::with_config(congregation))
     }
 

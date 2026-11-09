@@ -34,10 +34,22 @@ pub fn interpret_assignment(
                 return Err("'specification_version' should be a number".into());
             };
 
-            let version_num: u8 = version.value.parse().map_err(|_| {
-                format!("'specification_version' is not a valid version number: {}", version.value)
-            })?;
-            vec![FrozenUnit::SpecificationVersion(version_num)]
+            // Only an edition this core knows (core#102); `check_config`
+            // reports the same with a span and a fix where the source is at
+            // hand.
+            let edition = version
+                .value
+                .parse::<u8>()
+                .ok()
+                .and_then(crate::edition::Edition::from_number)
+                .ok_or_else(|| {
+                    format!(
+                        "'specification_version = {}' isn't an edition this Comline knows (it knows {})",
+                        version.value,
+                        crate::edition::Edition::known()
+                    )
+                })?;
+            vec![FrozenUnit::SpecificationVersion(edition.number())]
         }
         /*
         "schema_paths" => {

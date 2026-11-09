@@ -59,10 +59,41 @@ impl DiagnosticCode {
     }
 }
 
+/// A change to the source that resolves a diagnostic: a short title for a
+/// menu (`"Replace `str` with `string`"`) and the edits that make it, each a
+/// byte range of the diagnostic's source and its replacement text (an empty
+/// range inserts). The CLI applies these (`comline fix`), and the editor
+/// offers them as quick fixes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Fix {
+    pub title: String,
+    pub edits: Vec<((usize, usize), String)>,
+}
+
+impl Fix {
+    /// One edit: replace `span` with `text`.
+    pub fn replace(title: impl Into<String>, span: (usize, usize), text: impl Into<String>) -> Self {
+        Self { title: title.into(), edits: vec![(span, text.into())] }
+    }
+
+    /// `source` with the edits applied. Edits mustn't overlap; they apply
+    /// from the last to the first so earlier offsets stay valid.
+    pub fn apply(&self, source: &str) -> String {
+        let mut edits: Vec<_> = self.edits.iter().collect();
+        edits.sort_by_key(|((start, end), _)| std::cmp::Reverse((*start, *end)));
+        let mut out = source.to_string();
+        for ((start, end), text) in edits {
+            out.replace_range(*start..*end, text);
+        }
+        out
+    }
+}
+
 /// A human-facing problem with a schema or package config: a stable code,
 /// a message, an optional short label for its span (`"unexpected here"`,
-/// `"Struct 'User'"`), an optional byte range into the source, and an
-/// optional suggestion (`"use `f32` or `f64`"`).
+/// `"Struct 'User'"`), an optional byte range into the source, an optional
+/// suggestion (`"use `f32` or `f64`"`), and an optional [`Fix`] that makes
+/// the change itself.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Diagnostic {
     pub code: DiagnosticCode,
@@ -83,13 +114,16 @@ pub struct Diagnostic {
     /// explicit policy choice layered on top. `None` (the default) means
     /// "use `code.severity`, unchanged" - see [`Self::effective_severity`].
     pub severity_override: Option<Severity>,
+    /// The change that resolves this diagnostic, when there's one safe to
+    /// make without asking (a renamed keyword, a missing line). See [`Fix`].
+    pub fix: Option<Fix>,
 }
 
 impl Diagnostic {
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
         Self {
             code, message: message.into(), context: String::new(), span: None, help: None,
-            secondary: None, severity_override: None,
+            secondary: None, severity_override: None, fix: None,
         }
     }
 
@@ -137,6 +171,12 @@ impl Diagnostic {
             Some(span) => self.with_secondary_span(span, label),
             None => self,
         }
+    }
+
+    /// The change that resolves this diagnostic; see [`Fix`].
+    pub fn with_fix(mut self, fix: Fix) -> Self {
+        self.fix = Some(fix);
+        self
     }
 
     /// A settings-configured severity for this one diagnostic - see
@@ -470,6 +510,9 @@ pub fn render(d: &Diagnostic, filename: &str, source: &str) -> String {
 
     if let Some(help) = &d.help {
         builder = builder.with_help(help);
+    }
+    if let Some(fix) = &d.fix {
+        builder = builder.with_note(format!("fix: {} (`comline fix` applies it)", fix.title));
     }
 
     let report = builder.finish();
