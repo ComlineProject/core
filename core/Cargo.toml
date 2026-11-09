@@ -13,8 +13,9 @@ categories = ["compilers", "development-tools", "parser-implementations"]
 # comline-core's own code builds on older. Verified with `cargo +1.82.0 check`.
 rust-version = "1.82"
 # Keep test/example/bench sources in the package (they resolve target
-# auto-discovery cleanly); only drop the generated Criterion report + helper.
-exclude = ["benches/benchmark_results.html", "benches/run_bench.sh"]
+# auto-discovery cleanly); only drop the generated Criterion report + helper,
+# and the fuzz targets (their own crate, see fuzz/README.md).
+exclude = ["benches/benchmark_results.html", "benches/run_bench.sh", "fuzz/"]
 
 
 [dependencies]

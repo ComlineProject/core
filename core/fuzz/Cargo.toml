@@ -1,0 +1,41 @@
+[package]
+name = "comline-core-fuzz"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+
+# cargo-fuzz targets for the `.ids` and `.idp` parsers and the schema
+# compiler behind them. Outside the workspace: they need nightly,
+# `cargo +nightly fuzz run --fuzz-dir core/fuzz <target>`. See README.md.
+
+# Its own workspace, so the core workspace never builds it.
+[workspace]
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+comline-core = { path = ".." }
+
+[[bin]]
+name = "ids_parse"
+path = "fuzz_targets/ids_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "ids_compile"
+path = "fuzz_targets/ids_compile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "idp_parse"
+path = "fuzz_targets/idp_parse.rs"
+test = false
+doc = false
+bench = false
