@@ -7,6 +7,7 @@
 pub mod compat;
 pub mod config_value;
 pub mod diagnostics;
+pub mod edition;
 #[cfg(feature = "compiler")]
 pub mod doc;
 pub mod encodings;

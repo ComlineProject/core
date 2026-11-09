@@ -92,21 +92,19 @@ fn a_config_only_change_commits_without_bumping_the_version() {
 }
 
 #[test]
-fn changing_the_specification_version_bumps_major() {
-    let dir = TempDir::new().unwrap();
-    scaffold(dir.path(), CONFIG);
-    build(dir.path()).unwrap();
-    let v1 = comline_core::package::build::release(dir.path(), &Default::default())
-        .unwrap()
-        .version;
-
-    scaffold(
-        dir.path(),
-        &CONFIG.replace("specification_version = 1", "specification_version = 2"),
-    );
-    let res = build(dir.path()).unwrap();
-
-    assert_eq!(v1, "0.1.0");
-    assert_eq!(res.current_version, "0.2.0-dev.1", "spec version change is major (0.x: the minor)");
-    assert!(!res.config_changes.is_empty());
+fn a_package_without_a_known_edition_does_not_build() {
+    // Every package names its edition (core#102); edition 1 is the only one.
+    // Moving between editions bumps nothing by itself, which the config
+    // diff's own tests cover.
+    for (config, expected) in [
+        (CONFIG.replace("specification_version = 1\n", ""), "edition::missing"),
+        (CONFIG.replace("specification_version = 1", "specification_version = 2"), "edition::unknown"),
+    ] {
+        let dir = TempDir::new().unwrap();
+        scaffold(dir.path(), &config);
+        let err = build(dir.path()).expect_err("no known edition");
+        let text = format!("{err:#}");
+        assert!(text.contains(expected), "{expected}: {text}");
+        assert!(text.contains("edition 1"), "the help names edition 1: {text}");
+    }
 }

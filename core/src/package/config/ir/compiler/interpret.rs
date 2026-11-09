@@ -191,6 +191,36 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             }
         }
 
+        // Words the package's edition deprecates or removes (core#102). Only
+        // the package's own schemas get here: a dependency's arrive compiled
+        // by its own package, under its own edition.
+        let source = schema_context.borrow().codemap.files().first().map(|f| f.contents().to_string());
+        if let Some(source) = source {
+            let (removed, deprecated): (Vec<_>, Vec<_>) = crate::edition::deprecations(
+                &source,
+                project_context.edition(),
+                crate::schema::idl::vocabulary::DEPRECATIONS,
+            )
+            .into_iter()
+            .partition(|d| d.code == crate::edition::REMOVED);
+            let (deprecated, fatal) = resolve_diagnostic_overrides(
+                &frozen_units, deprecated, &own_settings, &package_settings_spans,
+            );
+            schema_context.borrow().warnings.borrow_mut().extend(deprecated);
+            let failing: Vec<String> = removed
+                .iter()
+                .chain(&fatal)
+                .map(|error| schema_context.borrow().render(error))
+                .collect();
+            if !failing.is_empty() {
+                schema_errors.push(format!(
+                    "Schema '{}' uses words its edition removed:\n{}",
+                    namespace_joined,
+                    failing.join("\n\n")
+                ));
+            }
+        }
+
         if let Err(errors) =
             check_settings_enforcement(&written_units, &own_settings, &package_settings_spans)
         {

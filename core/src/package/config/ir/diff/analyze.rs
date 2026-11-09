@@ -15,7 +15,10 @@ use crate::schema::idl::annotations::{DEFAULT_FRAMING, IMPLICIT_FRAMING};
 /// compared.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ConfigChange {
-    /// The IDL spec version changed — the meaning of the schema syntax may have.
+    /// The package moved to another edition (core#102). No bump by itself:
+    /// the compiled schema doesn't depend on the edition, so whatever the
+    /// move changed in it (a default framing, say) is a change there, with
+    /// its own bump.
     SpecificationVersionChanged { old: u8, new: u8 },
     /// A dependency was removed. A patch: a dependency counts only as far as
     /// the package reaches into it, and what it used of one shows in its own
@@ -46,8 +49,8 @@ impl ConfigChange {
     pub fn bump(&self) -> VersionBump {
         use ConfigChange::*;
         match self {
-            SpecificationVersionChanged { .. }
-            | WireFormatChanged { .. }
+            SpecificationVersionChanged { .. } => VersionBump::None,
+            WireFormatChanged { .. }
             | WireFramingChanged { .. }
             | PackageIdChanged { .. } => VersionBump::Major,
             // Dependencies count by reach (core#119), compared on their own.
@@ -192,11 +195,11 @@ mod tests {
     }
 
     #[test]
-    fn spec_version_change_is_major() {
+    fn an_edition_change_is_reported_without_a_bump() {
         let prev = vec![FrozenUnit::SpecificationVersion(1)];
         let cur = vec![FrozenUnit::SpecificationVersion(2)];
         let changes = analyze_config_changes(&prev, &cur);
-        assert_eq!(changes.bump(), VersionBump::Major);
+        assert_eq!(changes.bump(), VersionBump::None);
         assert_eq!(
             changes.0,
             vec![ConfigChange::SpecificationVersionChanged { old: 1, new: 2 }]
