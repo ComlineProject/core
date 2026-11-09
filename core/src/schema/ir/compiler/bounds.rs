@@ -467,11 +467,20 @@ const UNBOUNDED_DEPTH: DiagnosticCode = DiagnosticCode::error("bounds::unbounded
 /// beside what else it gives up, for its consumers to accept. A position
 /// no protocol reaches is a type another package can use, and has to be
 /// bounded.
-pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
+///
+/// A type another schema declares is checked there, under its own
+/// package's settings, and may itself hold a value without a maximum that
+/// only its own marked protocols reach. `imported` says whether a name
+/// this schema uses is such a type ([`unbounded_declarations`] of the
+/// schema declaring it); naming one is a position without a maximum here,
+/// held to the same rule.
+pub fn check_bounded(units: &mut [FrozenUnit], imported: &dyn Fn(&str) -> bool) -> Vec<Diagnostic> {
     use crate::schema::ir::frozen::unit::Guarantee;
     use crate::schema::ir::unverified;
 
     let recursive = self_containing_structs(units);
+    let local = local_names(units);
+    let foreign = |name: &str| !local.contains(name) && imported(name);
 
     // Every unbounded position, by the declaration it's written in.
     struct Position {
@@ -480,12 +489,14 @@ pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
         ty: String,
         span: Option<(usize, usize)>,
         depth: bool,
+        foreign: bool,
     }
     let mut positions: Vec<Position> = Vec::new();
     let mut depths: Vec<Position> = Vec::new();
     let mut push = |decl: &str, at: String, ty: &TypeRef, span: Option<(usize, usize)>| {
-        if let Some(unbounded) = first_unbounded(ty) {
-            positions.push(Position { decl: decl.to_string(), at, ty: unbounded.to_string(), span, depth: false });
+        if let Some(unbounded) = first_unbounded(ty, &foreign) {
+            let foreign = matches!(unbounded, TypeRef::Named(_));
+            positions.push(Position { decl: decl.to_string(), at, ty: unbounded.to_string(), span, depth: false, foreign });
         }
     };
     for unit in units.iter() {
@@ -503,6 +514,7 @@ pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
                         ty: String::new(),
                         span: Some(*span),
                         depth: true,
+                        foreign: false,
                     });
                 }
             }
@@ -518,12 +530,18 @@ pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
             }
             FrozenUnit::Protocol { name, functions, .. } => {
                 for function in functions {
-                    if let FrozenUnit::Function { name: f, arguments, _return, span, .. } = function {
+                    if let FrozenUnit::Function { name: f, arguments, _return, throws, span, .. } = function {
                         for argument in arguments {
                             push(name, format!("protocol `{name}`, function `{f}`, argument `{}`", argument.name), &argument.ty, Some(argument.span));
                         }
                         if let Some(ret) = _return {
                             push(name, format!("protocol `{name}`, function `{f}`'s return"), ret, Some(*span));
+                        }
+                        // An error another schema declares travels in the
+                        // reply like a return.
+                        for error in imported_errors(units, throws) {
+                            let named = TypeRef::Named(error.to_string());
+                            push(name, format!("protocol `{name}`, function `{f}`, error `{error}`"), &named, Some(*span));
                         }
                     }
                 }
@@ -598,6 +616,12 @@ pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
                 format!("{} can contain itself, and has no depth limit", p.at),
                 "write `@max_depth = N` on it, or set `bounds.depth.max` in settings".to_string(),
             )
+        } else if p.foreign {
+            (
+                UNBOUNDED,
+                format!("{}: `{}` holds a value without a maximum, where it's declared", p.at, p.ty),
+                format!("bound it where `{}` is declared", p.ty),
+            )
         } else {
             let kind = if p.ty == "string" || p.ty.starts_with("char") { "string" } else { "array" };
             let written = if kind == "string" { "char[max N]".to_string() } else { format!("{}[max N]", p.ty.trim_end_matches("[]")) };
@@ -635,13 +659,104 @@ pub fn check_bounded(units: &mut [FrozenUnit]) -> Vec<Diagnostic> {
 }
 
 /// The first string or dynamic array in `ty` without a maximum, as it's
-/// written. A named type is its own declaration's position, checked there.
-fn first_unbounded(ty: &TypeRef) -> Option<&TypeRef> {
+/// written, or the first name of another schema's type that holds one
+/// (`foreign`). A local named type is its own declaration's position,
+/// checked there.
+fn first_unbounded<'a>(ty: &'a TypeRef, foreign: &dyn Fn(&str) -> bool) -> Option<&'a TypeRef> {
     match ty {
         TypeRef::Primitive(PrimitiveType::String) => Some(ty),
         TypeRef::Array { length: None, max: None, .. } => Some(ty),
-        TypeRef::Array { element, .. } => first_unbounded(element),
-        TypeRef::Union(members) => members.iter().find_map(first_unbounded),
+        TypeRef::Array { element, .. } => first_unbounded(element, foreign),
+        TypeRef::Union(members) => members.iter().find_map(|m| first_unbounded(m, foreign)),
+        TypeRef::Named(name) if foreign(name) => Some(ty),
         _ => None,
     }
+}
+
+/// Every name this schema declares itself.
+fn local_names(units: &[FrozenUnit]) -> HashSet<&str> {
+    units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Struct { name, .. }
+            | FrozenUnit::Enum { name, .. }
+            | FrozenUnit::Error { name, imported_from: None, .. }
+            | FrozenUnit::TypeAlias { name, .. }
+            | FrozenUnit::Protocol { name, .. }
+            | FrozenUnit::Constant { name, .. } => Some(name.as_str()),
+            _ => None,
+        })
+        .collect()
+}
+
+/// The names of the errors another schema declares among `throws`.
+fn imported_errors<'a>(units: &'a [FrozenUnit], throws: &[u16]) -> Vec<&'a str> {
+    units
+        .iter()
+        .filter_map(|u| match u {
+            FrozenUnit::Error { name, ordinal, imported_from: Some(_), .. } if throws.contains(ordinal) => {
+                Some(name.as_str())
+            }
+            _ => None,
+        })
+        .collect()
+}
+
+/// The types a schema declares that hold a value without a maximum, for a
+/// schema that uses them ([`check_bounded`]'s `imported`): one with a
+/// string or dynamic array without a maximum, a struct that can contain
+/// itself without a depth limit, one naming such a type from another
+/// schema (`imported`), and one reaching any of these through its own
+/// fields and aliases. Run on the units [`check_bounded`] passed: what's
+/// left is what only marked protocols reach.
+pub fn unbounded_declarations(units: &[FrozenUnit], imported: &dyn Fn(&str) -> bool) -> HashSet<String> {
+    let recursive = self_containing_structs(units);
+    let local = local_names(units);
+    let foreign = |name: &str| !local.contains(name) && imported(name);
+
+    let mut types: HashMap<&str, Vec<&TypeRef>> = HashMap::new();
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, fields, .. } | FrozenUnit::Error { name, fields, imported_from: None, .. } => {
+                let fields = fields.iter().filter_map(|f| match f {
+                    FrozenUnit::Field { ty, .. } => Some(ty),
+                    _ => None,
+                });
+                types.insert(name.as_str(), fields.collect());
+            }
+            FrozenUnit::TypeAlias { name, target, .. } => {
+                types.insert(name.as_str(), vec![target]);
+            }
+            _ => {}
+        }
+    }
+    let mut unbounded: HashSet<&str> = types
+        .iter()
+        .filter(|(name, tys)| {
+            tys.iter().any(|ty| first_unbounded(ty, &foreign).is_some())
+                || recursive.contains(**name)
+                    && !units.iter().any(|u| matches!(u, FrozenUnit::Struct { name: n, parameters, .. } if n == *name && has_max_depth(parameters)))
+        })
+        .map(|(name, _)| *name)
+        .collect();
+    // Whatever reaches one of them, through local names.
+    loop {
+        let before = unbounded.len();
+        for (name, tys) in &types {
+            if unbounded.contains(name) {
+                continue;
+            }
+            let mut names = HashSet::new();
+            for ty in tys {
+                named(ty, &HashMap::new(), &mut names, 0);
+            }
+            if names.iter().any(|n| unbounded.contains(n)) {
+                unbounded.insert(name);
+            }
+        }
+        if unbounded.len() == before {
+            break;
+        }
+    }
+    unbounded.into_iter().map(str::to_string).collect()
 }

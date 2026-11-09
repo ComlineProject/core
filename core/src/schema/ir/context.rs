@@ -1,5 +1,6 @@
 // Standard Uses
 use std::cell::RefCell;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 // Crate Uses
@@ -49,6 +50,11 @@ pub struct SchemaContext {
     /// available here. Set by
     /// `package::config::ir::compiler::interpret::interpret_context`.
     pub warnings: RefCell<Vec<Diagnostic>>,
+    /// The types it declares that hold a value without a maximum, which
+    /// only its own marked protocols may reach: a schema using one is held
+    /// to the same rule (`bounds::check_bounded`). `None` until it's
+    /// compiled; a dependency's schemas carry their own package's.
+    pub unbounded: RefCell<Option<HashSet<String>>>,
 }
 
 impl SchemaContext {
@@ -56,6 +62,7 @@ impl SchemaContext {
         Self {
             namespace, declarations, frozen_schema: RefCell::new(None), codemap,
             compile_state: Default::default(), warnings: RefCell::new(Vec::new()),
+            unbounded: RefCell::new(None),
         }
     }
 

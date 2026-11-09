@@ -1,17 +1,20 @@
 // Standard Uses
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
+use std::rc::Rc;
 
 // Crate Uses
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
 use crate::schema::ir::compiler::import_resolver::{
-    check_imports, resolve_use_to_schema, ImportResolver, ProjectImports,
+    check_imports, resolve_use_to_schema, use_brings_into_scope, ImportResolver, ProjectImports,
 };
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
 use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
+use crate::schema::ir::context::SchemaContext;
 use crate::schema::ir::frozen::unit::FrozenUnit;
 use crate::schema::ir::validation;
 use crate::schema::ir::package_wire::PackageWire;
@@ -58,7 +61,9 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
     // as before this change.
     let package_settings_spans = crate::settings::SettingsSpans::default();
 
-    for schema_context in project_context.schema_contexts.iter() {
+    // Imported schemas first: a schema using another's types reads what
+    // that one's compile found unbounded.
+    for schema_context in compile_order(project_context).iter() {
         // A dependency's schemas arrive compiled by its own package (its
         // settings, its default handshake); they're only resolved against.
         if schema_context.borrow().compile_state.borrow().complete {
@@ -144,7 +149,13 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Default bounds, from the package's settings and the schema's
         // (core#98), stored resolved at each position.
         crate::schema::ir::compiler::bounds::apply_default_bounds(&mut frozen_units, &own_settings);
-        let unbounded = crate::schema::ir::compiler::bounds::check_bounded(&mut frozen_units);
+        let imported =
+            |name: &str| imports_unbounded(name, &declarations, &namespace, project_context);
+        let unbounded =
+            crate::schema::ir::compiler::bounds::check_bounded(&mut frozen_units, &imported);
+        let exported =
+            crate::schema::ir::compiler::bounds::unbounded_declarations(&frozen_units, &imported);
+        *schema_context.borrow().unbounded.borrow_mut() = Some(exported);
         if !unbounded.is_empty() {
             let rendered: Vec<String> =
                 unbounded.iter().map(|error| schema_context.borrow().render(error)).collect();
@@ -271,10 +282,137 @@ fn check_package_encodings(
     Ok(())
 }
 
+/// Whether `name`, as a schema with these `declarations` uses it, is a
+/// type another schema declares that holds a value without a maximum
+/// ([`SchemaContext::unbounded`]). Every schema a `use` could bring it in
+/// from is asked, and one not yet compiled answers yes: it fails closed.
+///
+/// [`SchemaContext::unbounded`]: crate::schema::ir::context::SchemaContext::unbounded
+fn imports_unbounded(
+    name: &str,
+    declarations: &[rust_sitter::Spanned<Declaration>],
+    namespace: &[String],
+    project_context: &ProjectContext,
+) -> bool {
+    let resolver = ImportResolver::new(vec![], Default::default(), None);
+    let (qualifier, bare) = match name.rsplit_once("::") {
+        Some((qualifier, bare)) => (Some(qualifier), bare),
+        None => (None, name),
+    };
+    let declares = |schema: &Rc<RefCell<SchemaContext>>, symbol: &str| {
+        let schema = schema.borrow();
+        if schema.namespace == namespace {
+            return false;
+        }
+        let known = schema
+            .unbounded
+            .borrow()
+            .as_ref()
+            .map(|unbounded| unbounded.contains(symbol));
+        known.unwrap_or(true)
+    };
+
+    // A qualified name may name its schema outright.
+    if let Some(qualifier) = qualifier {
+        let parts: Vec<String> = qualifier.split("::").map(str::to_string).collect();
+        if let Some((schema, remaining)) =
+            project_context.find_schema_by_import_namespace_parts(&parts)
+        {
+            if remaining.is_empty() && declares(&schema, bare) {
+                return true;
+            }
+        }
+    }
+    declarations.iter().any(|decl| {
+        let Declaration::Use(use_stmt) = &decl.value else {
+            return false;
+        };
+        let Ok(target) =
+            resolve_use_to_schema(project_context, &resolver, namespace, &use_stmt.path)
+        else {
+            return false;
+        };
+        let Some(schema) = &target.schema else {
+            return false;
+        };
+        let alias = use_stmt.alias.as_ref().map(|a| a.name.text.as_str());
+        if !use_brings_into_scope(&target.resolved, &target.remaining, alias, bare) {
+            return false;
+        }
+        // `use ns::Name as X` brings `Name` in as `X`.
+        let symbol = match (alias, target.remaining.last()) {
+            (Some(alias), Some(symbol)) if alias == bare => symbol.as_str(),
+            _ => bare,
+        };
+        declares(schema, symbol)
+    })
+}
+
+/// The schemas to compile, each after the ones it imports, otherwise in
+/// the order they were added.
+fn compile_order(project_context: &ProjectContext) -> Vec<Rc<RefCell<SchemaContext>>> {
+    let edges = schema_imports(project_context);
+    let by_namespace: HashMap<String, &Rc<RefCell<SchemaContext>>> = project_context
+        .schema_contexts
+        .iter()
+        .map(|s| (s.borrow().namespace_joined(), s))
+        .collect();
+    fn visit<'a>(
+        node: &'a str,
+        edges: &'a HashMap<String, HashSet<String>>,
+        placed: &mut HashSet<&'a str>,
+        order: &mut Vec<&'a str>,
+    ) {
+        if !placed.insert(node) {
+            return;
+        }
+        let mut imports: Vec<&String> = edges.get(node).into_iter().flatten().collect();
+        imports.sort();
+        for import in imports {
+            visit(import, edges, placed, order);
+        }
+        order.push(node);
+    }
+    let namespaces: Vec<String> = project_context
+        .schema_contexts
+        .iter()
+        .map(|s| s.borrow().namespace_joined())
+        .collect();
+    let mut placed = HashSet::new();
+    let mut order = Vec::new();
+    for namespace in &namespaces {
+        visit(namespace, &edges, &mut placed, &mut order);
+    }
+    order
+        .into_iter()
+        .filter_map(|n| by_namespace.get(n).map(|s| Rc::clone(s)))
+        .collect()
+}
+
 /// Build a same-project schema dependency graph from `use` declarations and
 /// look for cycles (e.g. schema A `use`s something from B, and B `use`s
 /// something from A). Returns the offending cycle's namespaces, if any.
 fn detect_import_cycle(project_context: &ProjectContext) -> Option<Vec<String>> {
+    let edges = schema_imports(project_context);
+
+    let mut visited = HashSet::new();
+    let mut visiting = HashSet::new();
+    let mut path = Vec::new();
+
+    for node in edges.keys() {
+        if !visited.contains(node) {
+            if let Some(cycle) = visit_for_cycle(node, &edges, &mut visited, &mut visiting, &mut path) {
+                return Some(cycle);
+            }
+        }
+    }
+
+    None
+}
+
+/// Each schema's namespace, and the namespaces of the project's schemas
+/// its `use` declarations import.
+fn schema_imports(project_context: &ProjectContext) -> HashMap<String, HashSet<String>> {
     let resolver = ImportResolver::new(vec![], Default::default(), None);
     let mut edges: HashMap<String, HashSet<String>> = HashMap::new();
 
@@ -306,19 +444,7 @@ fn detect_import_cycle(project_context: &ProjectContext) -> Option<Vec<String>> 
         edges.insert(from_namespace, depends_on);
     }
 
-    let mut visited = HashSet::new();
-    let mut visiting = HashSet::new();
-    let mut path = Vec::new();
-
-    for node in edges.keys() {
-        if !visited.contains(node) {
-            if let Some(cycle) = visit_for_cycle(node, &edges, &mut visited, &mut visiting, &mut path) {
-                return Some(cycle);
-            }
-        }
-    }
-
-    None
+    edges
 }
 
 fn visit_for_cycle(
