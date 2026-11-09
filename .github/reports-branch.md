@@ -13,6 +13,10 @@ latest reports of `master`, which the Observatory reads:
   and a clean release build's seconds per crate, from
   `.github/workflows/reports.yml` on every push to `master`. Formats: the
   Observatory's `DATA.md` (`coverage`, `compile`).
+- `core.fuzz.json`: seconds, executions, corpus and findings per fuzz target
+  (`ids_parse`, `ids_compile`, `idp_parse`), from `.github/workflows/fuzz.yml`
+  nightly. Format: the Observatory's `DATA.md` (`fuzz`), written by its
+  `report-fuzz` action.
 
 Each report names the `master` commit it measured. Every publish is one
 commit here, so `git log -- core.bench.json` is the series. Publishing is the

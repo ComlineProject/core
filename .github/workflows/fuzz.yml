@@ -7,6 +7,12 @@ name: Fuzz
 # of the runner (libFuzzer's fork mode) from a corpus cached between runs,
 # and opens an issue on a failure instead of blocking anyone's pull request.
 # See core/fuzz/README.md.
+#
+# Every run writes `core.fuzz.json` (seconds, executions, corpus and findings
+# per target; the Observatory's `fuzz` kind) with the Observatory's
+# report-fuzz action. A run on `master` (the nightly, or a manual one) also
+# commits it to the `reports` branch; only the `publish` job can write, and
+# never on a pull request.
 
 on:
   pull_request:
@@ -70,11 +76,18 @@ jobs:
         run: sh core/fuzz/seed-corpus.sh
 
       - name: Build
-        run: cargo fuzz build --fuzz-dir core/fuzz ${{ matrix.target }}
+        id: build
+        run: |
+          cargo fuzz build --fuzz-dir core/fuzz ${{ matrix.target }}
+          echo "toolchain=$(rustc --version)" >> "$GITHUB_OUTPUT"
 
       - name: Fuzz for ${{ env.SECONDS_PER_TARGET }}s
+        id: run
         shell: bash
         run: |
+          set -o pipefail
+          start=$(date +%s)
+          trap 'echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"' EXIT
           # The nightly forks a process per core; fork mode stops at the first
           # crash, as a single process does. Inputs stop at 1 KiB: the parser
           # costs about a millisecond per kilobyte under the sanitizer, and
@@ -84,7 +97,27 @@ jobs:
           cargo fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} -- \
             -max_total_time=${{ env.SECONDS_PER_TARGET }} "${fork[@]}" \
             -dict=core/fuzz/${{ matrix.dict }} -max_len=1024 \
-            -rss_limit_mb=2048 -malloc_limit_mb=512 -print_final_stats=1
+            -rss_limit_mb=2048 -malloc_limit_mb=512 -print_final_stats=1 \
+            2>&1 | tee "$RUNNER_TEMP/fuzz.log"
+
+      # Before minimizing, which adds its own files next to the finding.
+      - name: Record the run
+        if: always() && steps.build.outcome == 'success'
+        uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
+        with:
+          mode: target
+          name: ${{ matrix.target }}
+          toolchain: ${{ steps.build.outputs.toolchain }}
+          log: ${{ runner.temp }}/fuzz.log
+          corpus: core/fuzz/corpus/${{ matrix.target }}
+          artifacts: core/fuzz/artifacts/${{ matrix.target }}
+          wall-seconds: ${{ steps.run.outputs.seconds || 0 }}
+          fragment: ${{ runner.temp }}/stats/${{ matrix.target }}.json
+      - if: always() && steps.build.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-stats-${{ matrix.target }}
+          path: ${{ runner.temp }}/stats
 
       - name: Minimize the crash
         if: failure()
@@ -132,3 +165,64 @@ jobs:
             echo "Reproduce with \`cargo +nightly fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} <file>\`."
           } > body.md
           gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file body.md
+
+  report:
+    name: fuzz report
+    needs: fuzz
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # The dry run checks the report is newer than the published one.
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          pattern: fuzz-stats-*
+          path: ${{ runner.temp }}/stats
+      - name: Report
+        uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
+        with:
+          mode: combine
+          fragments: ${{ runner.temp }}/stats
+          expect: ids_parse ids_compile idp_parse
+          output: reports/core.fuzz.json
+          markdown: ${{ runner.temp }}/fuzz.md
+      - run: cat "$RUNNER_TEMP/fuzz.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: core.fuzz.json
+          path: reports/core.fuzz.json
+      - name: Publish (dry run)
+        if: github.ref != 'refs/heads/master' || github.event_name == 'pull_request'
+        uses: ComlineProject/observatory/.github/actions/publish-report@v1
+        with:
+          reports: reports/core.fuzz.json
+          readme: .github/reports-branch.md
+          dry-run: 'true'
+
+  publish:
+    name: publish fuzz report
+    needs: report
+    if: ${{ !cancelled() && needs.report.result == 'success' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    concurrency:
+      group: fuzz-publish
+      cancel-in-progress: false
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/download-artifact@v8
+        with:
+          name: core.fuzz.json
+          path: reports
+      - name: Publish to the reports branch
+        uses: ComlineProject/observatory/.github/actions/publish-report@v1
+        with:
+          reports: reports/core.fuzz.json
+          readme: .github/reports-branch.md
