@@ -1,0 +1,134 @@
+name: Fuzz
+
+# The cargo-fuzz targets in core/fuzz: the `.ids` and `.idp` parsers and the
+# schema compiler behind them, on any text. A pull request that touches the
+# compiler runs each target for a minute, seeded from the repo's own schemas
+# and configs. The nightly run gives each target ten minutes on every core
+# of the runner (libFuzzer's fork mode) from a corpus cached between runs,
+# and opens an issue on a failure instead of blocking anyone's pull request.
+# See core/fuzz/README.md.
+
+on:
+  pull_request:
+    paths:
+      - "core/**"
+      - "core_stdlib/**"
+      - "Cargo.toml"
+      - ".github/workflows/fuzz.yml"
+  schedule:
+    - cron: "47 3 * * *"
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  # cargo-fuzz needs nightly; this overrides rust-toolchain.toml.
+  RUSTUP_TOOLCHAIN: nightly
+  CARGO_FUZZ_VERSION: 0.13.2
+
+jobs:
+  fuzz:
+    name: fuzz (${{ matrix.target }})
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: ids_parse
+            dict: ids.dict
+          - target: ids_compile
+            dict: ids.dict
+          - target: idp_parse
+            dict: idp.dict
+    env:
+      NIGHTLY: ${{ github.event_name != 'pull_request' }}
+      SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && 60 || 600 }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: rustup toolchain install nightly --profile minimal
+
+      - name: Cache cargo-fuzz
+        id: cargo-fuzz
+        uses: actions/cache@v6
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-${{ env.CARGO_FUZZ_VERSION }}-${{ runner.os }}
+      - if: steps.cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
+
+      - name: Cache the corpus
+        if: env.NIGHTLY == 'true'
+        uses: actions/cache@v6
+        with:
+          path: core/fuzz/corpus/${{ matrix.target }}
+          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
+          restore-keys: fuzz-corpus-${{ matrix.target }}-
+
+      - name: Seed the corpus from the repo's schemas and configs
+        run: sh core/fuzz/seed-corpus.sh
+
+      - name: Build
+        run: cargo fuzz build --fuzz-dir core/fuzz ${{ matrix.target }}
+
+      - name: Fuzz for ${{ env.SECONDS_PER_TARGET }}s
+        shell: bash
+        run: |
+          # The nightly forks a process per core; fork mode stops at the first
+          # crash, as a single process does. Inputs stop at 1 KiB: the parser
+          # costs about a millisecond per kilobyte under the sanitizer, and
+          # what it gets wrong shows up in short inputs.
+          fork=()
+          [ "$NIGHTLY" = true ] && fork=("-fork=$(nproc)")
+          cargo fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} -- \
+            -max_total_time=${{ env.SECONDS_PER_TARGET }} "${fork[@]}" \
+            -dict=core/fuzz/${{ matrix.dict }} -max_len=1024 \
+            -rss_limit_mb=2048 -malloc_limit_mb=512 -print_final_stats=1
+
+      - name: Minimize the crash
+        if: failure()
+        run: |
+          for crash in core/fuzz/artifacts/${{ matrix.target }}/*; do
+            [ -f "$crash" ] || continue
+            cargo fuzz tmin --fuzz-dir core/fuzz ${{ matrix.target }} "$crash" -r 2000 || true
+          done
+      - name: Upload the crash
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: fuzz-${{ matrix.target }}
+          path: core/fuzz/artifacts/${{ matrix.target }}
+          if-no-files-found: ignore
+
+      - name: Open an issue
+        if: failure() && env.NIGHTLY == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TITLE: "Nightly fuzzing failed: ${{ matrix.target }}"
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 200 \
+            --json title --jq "map(select(.title == env.TITLE)) | length")
+          if [ "$open" != "0" ]; then
+            echo "An issue titled '$TITLE' is already open."
+            exit 0
+          fi
+          {
+            echo "The nightly fuzz run failed: $RUN"
+            echo
+            echo "The crash and its minimized form are the run's \`fuzz-${{ matrix.target }}\` artifact. As text:"
+            echo
+            for crash in core/fuzz/artifacts/${{ matrix.target }}/*; do
+              [ -f "$crash" ] || continue
+              echo "- \`$(basename "$crash")\`:"
+              echo
+              echo '  ```'
+              head -c 2000 "$crash" | sed 's/^/  /'
+              echo
+              echo '  ```'
+            done
+            echo
+            echo "Reproduce with \`cargo +nightly fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} <file>\`."
+          } > body.md
+          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file body.md
