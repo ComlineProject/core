@@ -27,6 +27,7 @@ use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
 use crate::schema::idl::annotations::{self, DEFAULT_FORMAT, DEFAULT_FRAMING, FORMAT_JSON, HANDSHAKE_NONE, IMPLICIT_FRAMING, IMPLICIT_HANDSHAKE};
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
+use comline_catalog::fact;
 
 /// The annotation key.
 pub const KEY: &str = "unverified";
@@ -105,8 +106,8 @@ fn framing_fact(name: &str, fact: &str, encodings: &Encodings) -> Option<String>
     }
     match encodings.find(EncodingKind::Framing, name) {
         Some(ConfigUnit::Encoding { calls, directions, .. }) => match fact {
-            "calls" => calls.clone(),
-            "directions" => directions.clone(),
+            fact::CALLS => calls.clone(),
+            fact::DIRECTIONS => directions.clone(),
             _ => None,
         },
         _ => None,
@@ -117,7 +118,7 @@ fn framing_fact(name: &str, fact: &str, encodings: &Encodings) -> Option<String>
 /// what `method_names` chooses how to do. One that isn't known counts only when
 /// these encodings can't say.
 pub fn names_calls(name: &str, encodings: &Encodings) -> bool {
-    match framing_fact(name, "calls", encodings) {
+    match framing_fact(name, fact::CALLS, encodings) {
         Some(calls) => calls == "by_name",
         None => !encodings.complete,
     }
@@ -126,7 +127,7 @@ pub fn names_calls(name: &str, encodings: &Encodings) -> bool {
 /// Whether the framing `name` carries calls one way only (`directions = one`):
 /// its frames don't say whether they're a request or a reply.
 pub fn one_way_only(name: &str, encodings: &Encodings) -> bool {
-    framing_fact(name, "directions", encodings).as_deref() == Some("one")
+    framing_fact(name, fact::DIRECTIONS, encodings).as_deref() == Some("one")
 }
 
 /// The format a package gets when it sets none, on the framing `name`: the one

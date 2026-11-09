@@ -56,6 +56,7 @@ use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, FrozenUnit};
 
 // External Uses
+use comline_catalog::fact;
 use eyre::{bail, Result};
 use serde_derive::{Deserialize, Serialize};
 
@@ -1173,8 +1174,8 @@ fn shape_hash(
         p.and_then(|p| p.facts.get(fact)).is_some_and(|f| values.contains(&f.value.as_str()))
     };
     let (format, framing) = (profile(EncodingKind::Format, "format"), profile(EncodingKind::Framing, "framing"));
-    let calls_ordered = !states(framing, "calls", &["by_name", "by_id"]);
-    let by_id = states(framing, "calls", &["by_id"]);
+    let calls_ordered = !states(framing, fact::CALLS, &["by_name", "by_id"]);
+    let by_id = states(framing, fact::CALLS, &["by_id"]);
     shape_hash_with(protocol, namespace, index, encodings, history, format, calls_ordered, by_id)
 }
 
@@ -1196,8 +1197,8 @@ fn shape_hash_with(
     };
     let mut builder = Builder {
         index,
-        fields_ordered: !states(format, "struct_fields", &["by_name"]),
-        variants_ordered: !states(format, "enum_variants", &["by_name"]),
+        fields_ordered: !states(format, fact::STRUCT_FIELDS, &["by_name"]),
+        variants_ordered: !states(format, fact::ENUM_VARIANTS, &["by_name"]),
         seen: HashMap::new(),
         declared: vec![],
     };

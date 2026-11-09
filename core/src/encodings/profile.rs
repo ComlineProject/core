@@ -20,6 +20,7 @@ use std::collections::BTreeMap;
 use crate::schema::ir::frozen::unit::Guarantee;
 
 // External Uses
+use comline_catalog::fact;
 use serde_derive::{Deserialize, Serialize};
 
 
@@ -90,28 +91,18 @@ mod fact_value {
 
 impl ProfileKind {
     /// Every fact a profile of this kind states, with the values it may
-    /// take. The set is fixed: a new fact is a change to the comparison too.
-    pub fn facts(self) -> &'static [(&'static str, &'static [&'static str])] {
+    /// take, in the order profiles list them: the specification's catalog.
+    /// The set is fixed: a new fact is a change to the comparison too.
+    pub fn facts(self) -> impl Iterator<Item = &'static comline_catalog::Fact> {
+        comline_catalog::facts_of(self.catalog_kind())
+    }
+
+    /// The catalog's name for this kind.
+    pub fn catalog_kind(self) -> comline_catalog::Kind {
         match self {
-            ProfileKind::Format => &[
-                ("struct_fields", &["by_position", "by_name"]),
-                ("unknown_field", &["rejected", "ignored"]),
-                ("missing_optional", &["rejected", "absent"]),
-                ("enum_variants", &["by_name", "by_index"]),
-                ("unknown_variant", &["rejected", "tolerated"]),
-                ("integer_width", &["by_value", "exact"]),
-                ("output", &["bytes", "json"]),
-            ],
-            ProfileKind::Framing => &[
-                ("calls", &["by_index", "by_name", "by_id"]),
-                ("directions", &["both", "one"]),
-                ("errors", &["by_ordinal", "by_name"]),
-                ("payload", &["opaque", "json"]),
-            ],
-            ProfileKind::Handshake => &[
-                ("schema_agreement", &["true", "false"]),
-                ("encoding_agreement", &["true", "false"]),
-            ],
+            ProfileKind::Format => comline_catalog::Kind::Format,
+            ProfileKind::Framing => comline_catalog::Kind::Framing,
+            ProfileKind::Handshake => comline_catalog::Kind::Handshake,
         }
     }
 
@@ -122,11 +113,7 @@ impl ProfileKind {
     }
 
     pub fn as_str(self) -> &'static str {
-        match self {
-            ProfileKind::Format => "format",
-            ProfileKind::Framing => "framing",
-            ProfileKind::Handshake => "handshake",
-        }
+        self.catalog_kind().as_str()
     }
 }
 
@@ -136,25 +123,24 @@ impl Profile {
     pub fn parse(bytes: &[u8]) -> Result<Profile, String> {
         let profile: Profile =
             serde_json::from_slice(bytes).map_err(|e| format!("it isn't a profile: {e}"))?;
-        let known = profile.kind.facts();
         for (fact, stated) in &profile.facts {
-            let Some((_, values)) = known.iter().find(|(name, _)| name == fact) else {
+            let Some(known) = profile.kind.facts().find(|known| known.id == fact) else {
                 return Err(format!(
                     "it states `{fact}`, which isn't a fact of a {} profile",
                     profile.kind.as_str()
                 ));
             };
-            if !values.contains(&stated.value.as_str()) {
+            if !known.allows(&stated.value) {
                 return Err(format!(
                     "its `{fact}` is `{}`: expected one of {}",
                     stated.value,
-                    values.iter().map(|v| format!("`{v}`")).collect::<Vec<_>>().join(", ")
+                    known.values.iter().map(|v| format!("`{}`", v.id)).collect::<Vec<_>>().join(", ")
                 ));
             }
         }
         if profile.kind.states_every_fact() {
-            if let Some((missing, _)) = known.iter().find(|(name, _)| !profile.facts.contains_key(*name)) {
-                return Err(format!("it doesn't state `{missing}`"));
+            if let Some(missing) = profile.kind.facts().find(|known| !profile.facts.contains_key(known.id)) {
+                return Err(format!("it doesn't state `{}`", missing.id));
             }
         }
         Ok(profile)
@@ -165,8 +151,8 @@ impl Profile {
     /// payload as bytes, and for a format that writes bytes.
     pub fn grammar(&self) -> Option<String> {
         let (fact, none) = match self.kind {
-            ProfileKind::Format => ("output", "bytes"),
-            ProfileKind::Framing => ("payload", "opaque"),
+            ProfileKind::Format => (fact::OUTPUT, "bytes"),
+            ProfileKind::Framing => (fact::PAYLOAD, "opaque"),
             ProfileKind::Handshake => return None,
         };
         self.facts.get(fact).map(|f| f.value.clone()).filter(|value| value != none)
@@ -178,19 +164,73 @@ impl Profile {
     }
 
     /// The guarantees a handshake's profile states as established (its
-    /// facts that are `true`), sorted. Empty for a format or framing.
+    /// facts that are `true`, each establishing the guarantee the catalog
+    /// names), sorted. Empty for a format or framing.
     pub fn establishes(&self) -> Vec<Guarantee> {
         if self.kind != ProfileKind::Handshake {
             return vec![];
         }
-        let stated = |fact: &str| self.facts.get(fact).is_some_and(|f| f.value == "true");
-        let mut set = vec![];
-        if stated("schema_agreement") {
-            set.push(Guarantee::SchemaAgreement);
-        }
-        if stated("encoding_agreement") {
-            set.push(Guarantee::EncodingAgreement);
-        }
+        let mut set: Vec<Guarantee> = self
+            .kind
+            .facts()
+            .filter(|known| self.facts.get(known.id).is_some_and(|f| f.value == "true"))
+            // One core doesn't know isn't established: the protocol gives it
+            // up, which fails closed. A test keeps core and the catalog
+            // agreeing on every guarantee.
+            .filter_map(|known| known.establishes.and_then(Guarantee::from_name))
+            .collect();
+        set.sort();
         set
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Every value core's logic compares a fact with (`diff`, `compat`,
+    /// `unverified`, [`Profile::grammar`], [`Profile::establishes`]) is one
+    /// the catalog lets that fact take, so none can silently never match.
+    #[test]
+    fn the_values_core_acts_on_are_the_catalogs() {
+        let relied_on = [
+            (fact::STRUCT_FIELDS, "by_name"),
+            (fact::UNKNOWN_FIELD, "ignored"),
+            (fact::MISSING_OPTIONAL, "absent"),
+            (fact::ENUM_VARIANTS, "by_name"),
+            (fact::OUTPUT, "bytes"),
+            (fact::OUTPUT, "json"),
+            (fact::CALLS, "by_name"),
+            (fact::CALLS, "by_id"),
+            (fact::DIRECTIONS, "one"),
+            (fact::ERRORS, "by_name"),
+            (fact::PAYLOAD, "opaque"),
+            (fact::PAYLOAD, "json"),
+            (fact::SCHEMA_AGREEMENT, "true"),
+            (fact::ENCODING_AGREEMENT, "true"),
+        ];
+        for (name, value) in relied_on {
+            let known = comline_catalog::fact(name).unwrap();
+            assert!(known.allows(value), "`{name}` can't be `{value}`");
+        }
+    }
+
+    #[test]
+    fn a_profile_is_held_to_the_catalogs_facts() {
+        let profile = |facts: &str| format!(r#"{{ "name": "x@1", "kind": "framing", "facts": {{ {facts} }} }}"#);
+        let fact = |name: &str, value: &str| format!(r#""{name}": {{ "value": "{value}", "proven_by": ["x/a"] }}"#);
+        let all = [fact("calls", "by_name"), fact("directions", "both"), fact("errors", "by_name"), fact("payload", "opaque")];
+        assert!(Profile::parse(profile(&all.join(", ")).as_bytes()).is_ok());
+
+        let wrong = [fact("calls", "by_guess"), all[1].clone(), all[2].clone(), all[3].clone()];
+        let error = Profile::parse(profile(&wrong.join(", ")).as_bytes()).unwrap_err();
+        assert_eq!(error, "its `calls` is `by_guess`: expected one of `by_index`, `by_name`, `by_id`");
+
+        let error = Profile::parse(profile(&all[1..].join(", ")).as_bytes()).unwrap_err();
+        assert_eq!(error, "it doesn't state `calls`");
+
+        let extra = [all.join(", "), fact("struct_fields", "by_name")];
+        let error = Profile::parse(profile(&extra.join(", ")).as_bytes()).unwrap_err();
+        assert_eq!(error, "it states `struct_fields`, which isn't a fact of a framing profile");
     }
 }

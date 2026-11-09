@@ -21,6 +21,10 @@ exclude = ["benches/benchmark_results.html", "benches/run_bench.sh", "fuzz/"]
 [dependencies]
 # The embedded standard library (`use std::…`)
 comline-core-stdlib = { path = "../core_stdlib", version = "0.1.0" }
+# The specification's catalog of shared names: guarantees, facts and their
+# values, the official encodings' aliases and frozen spellings. no_std and
+# dependency-free, so the IR-only build has it too.
+comline-catalog = { git = "https://github.com/ComlineProject/specification", rev = "69d88327431275017ccce99fec43060467515a9f" }
 
 # General
 eyre = "0.6.8"
