@@ -11,6 +11,7 @@ use crate::package::config::ir::frozen::{
 // External Uses
 use comline_catalog::fact;
 
+use crate::schema::ir::frozen::unit::ConfigValue;
 use crate::schema::ir::compiler::settings::conformance::check_settings_conformance;
 
 #[allow(unused)]
@@ -164,6 +165,7 @@ pub fn interpret_assignment(
                 }
             }
         }
+        "unverified" => vec![FrozenUnit::Unverified(interpret_assignment_unverified(&node.value)?)],
         "wire" => {
             let Value::Dictionary(items) = &node.value else {
                 return Err("'wire' should be a dictionary, like \
@@ -224,6 +226,36 @@ fn interpret_assignment_handshake(
         units.push(FrozenUnit::HandshakeParams(written.into_iter().collect()));
     }
     Ok(units)
+}
+
+/// `unverified = "..."` or `unverified = { schema_agreement = "..." }`: frozen
+/// as `@unverified` freezes, a reason or a dictionary of them. What the keys
+/// and reasons say is judged where the guarantees are known, so an entry that
+/// isn't a string is kept for that to report, not refused here.
+fn interpret_assignment_unverified(value: &Value) -> Result<ConfigValue, Box<dyn snafu::Error>> {
+    use crate::package::config::dependency::strip_quotes;
+
+    match value {
+        Value::String(reason) => Ok(ConfigValue::Str(strip_quotes(&reason.value))),
+        Value::Dictionary(items) => {
+            let entries = items.assignments.iter().map(|assignment| {
+                let assignment = &assignment.value;
+                let value = match &assignment.value {
+                    Value::String(reason) => ConfigValue::Str(strip_quotes(&reason.value)),
+                    Value::Boolean(BooleanLiteral::True) => ConfigValue::Bool(true),
+                    Value::Boolean(BooleanLiteral::False) => ConfigValue::Bool(false),
+                    Value::Number(n) => n.value.parse().map(ConfigValue::Integer).unwrap_or(ConfigValue::Marker),
+                    Value::Identifier(name) => ConfigValue::Name(name.value.clone()),
+                    _ => ConfigValue::Marker,
+                };
+                (assignment.key.text(), value)
+            });
+            Ok(ConfigValue::Dict(entries.collect()))
+        }
+        _ => Err("'unverified' should be a reason, like \"the gateway pins schemas by contract\", or a \
+                  dictionary with one for each guarantee, like { schema_agreement = \"...\" }"
+            .into()),
+    }
 }
 
 /// `wire = { format = "...", framing = "..." }`: both entries optional,

@@ -94,6 +94,12 @@ pub enum FrozenUnit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         directions: Option<String>,
     },
+    /// `unverified = ...`: why the package gives up what its own settings
+    /// give up, once for every protocol that takes them: a reason, or a
+    /// dictionary with one per guarantee, as `@unverified` takes. Frozen as
+    /// written, the keys unchecked; `schema::ir::unverified` and the compiler
+    /// judge it. Absent when the package says nothing.
+    Unverified(crate::schema::ir::frozen::unit::ConfigValue),
 }
 
 #[derive(Deserialize, Serialize)]
@@ -224,6 +230,14 @@ pub fn handshake_params(units: &[FrozenUnit]) -> BTreeMap<String, String> {
             _ => None,
         })
         .unwrap_or_default()
+}
+
+/// The package's `unverified`, as written, if it says one.
+pub fn unverified(units: &[FrozenUnit]) -> Option<&crate::schema::ir::frozen::unit::ConfigValue> {
+    units.iter().find_map(|unit| match unit {
+        FrozenUnit::Unverified(value) => Some(value),
+        _ => None,
+    })
 }
 
 /// The package's declared `wire` entries, `(format, framing)`, as written

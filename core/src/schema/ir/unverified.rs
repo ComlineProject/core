@@ -28,6 +28,18 @@
 //! which has to say every guarantee the protocol gives up. Either way the
 //! frozen set is the one core works out; a keyed form's reasons stay in the
 //! frozen annotation.
+//!
+//! **At package scope.** What a package's settings give up, every protocol
+//! that takes them gives up too, so the package can say why once: an
+//! `unverified` key in `config.idp`, a reason or, keyed, one per guarantee
+//! (`unverified = { schema_agreement = "..." }`), under the same gate as the
+//! annotation. It covers only a cause that comes from a package setting, and
+//! only for a protocol that takes that setting rather than writing its own
+//! (`@handshake`, `@framing`): [`Inherits`]. A guarantee the catalog doesn't
+//! give package scope (`bounded_size`) is never covered. A protocol is
+//! acknowledged for what its own marker covers and what the package covers
+//! for it; the latter is frozen with it, restricted to those guarantees
+//! ([`PACKAGE_KEY`]), and the given-up set is still the one core works out.
 
 use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
@@ -37,6 +49,23 @@ use comline_catalog::fact;
 
 /// The annotation key.
 pub const KEY: &str = "unverified";
+
+/// The property a protocol the package's `unverified` covers carries, written
+/// by the compiler beside the given-up set: the package's reasons, as a
+/// dictionary from guarantee to reason, for the guarantees it covers for that
+/// protocol. A protocol it covers nothing for has none.
+pub const PACKAGE_KEY: &str = "unverified_package";
+
+/// What a protocol takes from the package's settings rather than writing
+/// itself, decided before the package's handshake and framing are frozen into
+/// it ([`inherits`]): once they are, they read as the protocol's own.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Inherits {
+    /// It writes no `@handshake`: the package's, or its default, applies.
+    pub handshake: bool,
+    /// It writes no `@framing`: the package's, or its default, applies.
+    pub framing: bool,
+}
 
 /// What the guarantee check reads besides a protocol's own parameters: the
 /// encoding declarations it can see (the package's own and its
@@ -201,10 +230,27 @@ pub fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &
         .unwrap_or(IMPLICIT_FRAMING)
 }
 
+/// One reason a guarantee is given up.
+struct Cause {
+    guarantee: Guarantee,
+    why: String,
+    /// Whether it comes from a package setting the protocol takes, which the
+    /// package can acknowledge, and not from something the protocol writes.
+    package: bool,
+}
+
 /// The guarantees a protocol with these parameters gives up, whether or not
 /// it's marked, each with why. Sorted by guarantee; a guarantee may appear
 /// once per cause.
 pub fn causes(parameters: &[FrozenUnit], encodings: &Encodings) -> Vec<(Guarantee, String)> {
+    causes_from(parameters, encodings, Inherits::default()).into_iter().map(|c| (c.guarantee, c.why)).collect()
+}
+
+/// [`causes`], each with whether it comes from a package setting
+/// `inherits` says the protocol takes. The handshake's, and the same
+/// handshake's policies, come from it; the format is only ever the package's;
+/// the framing's, from it.
+fn causes_from(parameters: &[FrozenUnit], encodings: &Encodings, inherits: Inherits) -> Vec<Cause> {
     let mut causes = vec![];
 
     let handshake = handshake(parameters);
@@ -225,17 +271,21 @@ pub fn causes(parameters: &[FrozenUnit], encodings: &Encodings) -> Vec<(Guarante
             } else {
                 format!("handshake `{handshake}` doesn't establish it")
             };
-            causes.push((guarantee, why));
+            causes.push(Cause { guarantee, why, package: inherits.handshake });
         }
     }
 
     if annotations::HandshakeValue::of_protocol(parameters).param("same_version_differs") == Some("warn") {
-        causes.push((Guarantee::VersionHonesty, format!("handshake `{handshake}` with `same_version_differs = warn`")));
+        let why = format!("handshake `{handshake}` with `same_version_differs = warn`");
+        causes.push(Cause { guarantee: Guarantee::VersionHonesty, why, package: inherits.handshake });
     }
 
     let format = encodings.format.unwrap_or(DEFAULT_FORMAT);
     let framing = framing(parameters, encodings);
-    for (kind, name) in [(EncodingKind::Format, format), (EncodingKind::Framing, framing)] {
+    for (kind, name, package) in [
+        (EncodingKind::Format, format, true),
+        (EncodingKind::Framing, framing, inherits.framing),
+    ] {
         if official::resolve(kind, name).is_some() {
             continue;
         }
@@ -245,14 +295,15 @@ pub fn causes(parameters: &[FrozenUnit], encodings: &Encodings) -> Vec<(Guarante
             Some(_) => false,
         };
         if !has_vectors {
-            causes.push((
-                Guarantee::EncodingConformance,
-                format!("{} `{name}` ships no conformance vectors", kind.as_str()),
-            ));
+            causes.push(Cause {
+                guarantee: Guarantee::EncodingConformance,
+                why: format!("{} `{name}` ships no conformance vectors", kind.as_str()),
+                package,
+            });
         }
     }
 
-    causes.sort_by_key(|(guarantee, _)| *guarantee);
+    causes.sort_by_key(|cause| cause.guarantee);
     causes
 }
 
@@ -306,9 +357,19 @@ pub fn reason(parameters: &[FrozenUnit]) -> Option<&str> {
 }
 
 /// Why `guarantee` is given up, as the author wrote it: the plain form's
-/// reason, or the keyed form's entry for it.
+/// reason, or the keyed form's entry for it. A guarantee the marker doesn't
+/// say is the package's reason for it, where the package acknowledges it for
+/// this protocol ([`package_reason_for`]).
 pub fn reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&str> {
-    match marker(parameters)? {
+    marker(parameters)
+        .and_then(|marker| reason_in(marker, guarantee))
+        .or_else(|| package_reason_for(parameters, guarantee))
+}
+
+/// `guarantee`'s reason in an acknowledgement as written: the plain form's, or
+/// the keyed form's entry for it.
+fn reason_in(value: &ConfigValue, guarantee: Guarantee) -> Option<&str> {
+    match value {
         ConfigValue::Str(reason) => Some(reason),
         ConfigValue::Dict(entries) => entries.iter().find_map(|(key, value)| match value {
             ConfigValue::Str(reason) if key == guarantee.name() => Some(reason.as_str()),
@@ -316,6 +377,21 @@ pub fn reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&st
         }),
         _ => None,
     }
+}
+
+/// What the package's `unverified` covers for this protocol, as frozen
+/// ([`PACKAGE_KEY`]): a dictionary from guarantee to reason.
+pub fn package_scope(parameters: &[FrozenUnit]) -> Option<&ConfigValue> {
+    parameters.iter().find_map(|p| match p {
+        FrozenUnit::Property { name, value } if name == PACKAGE_KEY => Some(value),
+        _ => None,
+    })
+}
+
+/// The package's reason for `guarantee` for this protocol, if its `unverified`
+/// covers it there.
+pub fn package_reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&str> {
+    package_scope(parameters).and_then(|scope| reason_in(scope, guarantee))
 }
 
 /// The reason for a diagnostic or an acceptance prompt about `set`: the plain
@@ -344,22 +420,111 @@ pub fn frozen_set(parameters: &[FrozenUnit]) -> &[Guarantee] {
         .unwrap_or(&[])
 }
 
+/// For each protocol in `units`, in order, what it takes from the package
+/// ([`Inherits`]). Asked of the schema's units as written, before the
+/// package's handshake and framing are frozen into them
+/// ([`PackageWire`](crate::schema::ir::package_wire::PackageWire)).
+pub fn inherits(units: &[FrozenUnit]) -> Vec<Inherits> {
+    let writes = |parameters: &[FrozenUnit], key: &str| {
+        parameters.iter().any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == key))
+    };
+    units
+        .iter()
+        .filter_map(|unit| match unit {
+            FrozenUnit::Protocol { parameters, .. } => Some(Inherits {
+                handshake: !writes(parameters, "handshake"),
+                framing: !writes(parameters, "framing"),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// What the package's acknowledgement `package` covers for a protocol with
+/// these parameters: each guarantee given up, every cause of which comes from
+/// a package setting the protocol takes, and which `package` says a reason
+/// for. Sorted by guarantee.
+pub fn package_covered(
+    parameters: &[FrozenUnit],
+    encodings: &Encodings,
+    inherits: Inherits,
+    package: &ConfigValue,
+) -> Vec<(Guarantee, String)> {
+    let causes = causes_from(parameters, encodings, inherits);
+    let mut covered: Vec<(Guarantee, String)> = vec![];
+    for Cause { guarantee, .. } in &causes {
+        let from_package = causes.iter().filter(|c| c.guarantee == *guarantee).all(|c| c.package);
+        if !from_package || covered.iter().any(|(g, _)| g == guarantee) {
+            continue;
+        }
+        if let Some(reason) = reason_in(package, *guarantee) {
+            covered.push((*guarantee, reason.to_string()));
+        }
+    }
+    covered
+}
+
+/// Every guarantee the package covers for some protocol in `units`.
+pub fn package_covered_by(units: &[FrozenUnit]) -> Vec<Guarantee> {
+    let mut covered = vec![];
+    for unit in units {
+        if let FrozenUnit::Protocol { parameters, .. } = unit {
+            covered.extend(Guarantee::ALL.into_iter().filter(|g| package_reason_for(parameters, *g).is_some()));
+        }
+    }
+    covered.sort();
+    covered.dedup();
+    covered
+}
+
 /// Freeze the given-up set beside every marked protocol's `@unverified`.
 /// Run once the protocol's parameters are final (after the package's
 /// default handshake is applied). An unmarked protocol gets nothing: giving
 /// something up without the marker is a validation error, not a freeze.
 pub fn freeze(units: &mut [FrozenUnit], encodings: &Encodings) {
+    freeze_with(units, encodings, None, &[]);
+}
+
+/// [`freeze`], for a package whose `config.idp` says `package` (its
+/// `unverified`). A protocol the package covers something for is frozen like a
+/// marked one, its set beside [`PACKAGE_KEY`] holding the package's reasons
+/// for what it covers. `inherits` is [`inherits`] of the same units, taken
+/// before the package's wire was frozen in; without it nothing is the
+/// package's to cover. A `PACKAGE_KEY` the schema wrote itself is dropped:
+/// only the compiler says what the package covers.
+pub fn freeze_with(
+    units: &mut [FrozenUnit],
+    encodings: &Encodings,
+    package: Option<&ConfigValue>,
+    inherits: &[Inherits],
+) {
+    let mut inherits = inherits.iter();
     for unit in units {
         let FrozenUnit::Protocol { parameters, .. } = unit else {
             continue;
         };
-        parameters.retain(|p| !matches!(p, FrozenUnit::Unverified(_)));
-        if marker(parameters).is_none() {
+        let inherited = inherits.next().copied().unwrap_or_default();
+        parameters.retain(|p| {
+            !matches!(p, FrozenUnit::Unverified(_))
+                && !matches!(p, FrozenUnit::Property { name, .. } if name == PACKAGE_KEY)
+        });
+        let covered = match package {
+            Some(package) => package_covered(parameters, encodings, inherited, package),
+            None => vec![],
+        };
+        if marker(parameters).is_none() && covered.is_empty() {
             continue;
         }
         let set = given_up(parameters, encodings);
         if !set.is_empty() {
             parameters.push(FrozenUnit::Unverified(set));
+        }
+        if !covered.is_empty() {
+            let reasons = covered.into_iter().map(|(g, reason)| (g.name().to_string(), ConfigValue::Str(reason)));
+            parameters.push(FrozenUnit::Property {
+                name: PACKAGE_KEY.to_string(),
+                value: ConfigValue::Dict(reasons.collect()),
+            });
         }
     }
 }

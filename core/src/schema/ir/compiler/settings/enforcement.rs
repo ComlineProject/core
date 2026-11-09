@@ -81,6 +81,24 @@ pub fn check_settings_enforcement(
     if errors.is_empty() { Ok(()) } else { Err(errors) }
 }
 
+/// A package-level use of an annotation's name, such as `config.idp`'s
+/// `unverified`, held to the gate the annotation is under on a protocol:
+/// what the package's settings say of `annotations.<name>.allowed`. `label`
+/// says what's using it.
+pub fn check_package_annotation(
+    name: &str,
+    package_settings: &SettingsDict,
+    package_spans: &SettingsSpans,
+    label: &str,
+) -> Result<(), Vec<Diagnostic>> {
+    let mut errors = Vec::new();
+    check_governed(
+        keys::annotations_allowed(), package_settings, package_spans, DeclPath::Protocol, name,
+        label, None, &mut errors,
+    );
+    if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
 fn check_field(
     schema_effective: &SettingsDict,
     schema_effective_spans: &SettingsSpans,
@@ -136,6 +154,9 @@ fn check_declaration(
         match param {
             // The preset selector itself, not a policy-governed feature.
             FrozenUnit::Property { name, .. } if name == "settings" => {}
+            // Written by the compiler for what the package's `unverified`
+            // covers, which is gated where the package says it.
+            FrozenUnit::Property { name, .. } if name == crate::schema::ir::unverified::PACKAGE_KEY => {}
             FrozenUnit::Property { name, .. } => {
                 check_governed(
                     keys::annotations_allowed(), &effective, &effective_spans, decl, name,

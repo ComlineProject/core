@@ -1012,7 +1012,7 @@
           "type": "boolean"
         },
         "reason": {
-          "description": "The `@unverified` reason, when it's given up and the marker carries\none: the plain form's, or the keyed form's for this guarantee.",
+          "description": "The `@unverified` reason, when it's given up and the marker carries\none: the plain form's, or the keyed form's for this guarantee. The\npackage's, where it acknowledges the guarantee and the marker has none.",
           "type": [
             "string",
             "null"

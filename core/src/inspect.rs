@@ -118,7 +118,8 @@ pub struct GuaranteeRow {
     /// Empty when held.
     pub causes: Vec<String>,
     /// The `@unverified` reason, when it's given up and the marker carries
-    /// one: the plain form's, or the keyed form's for this guarantee.
+    /// one: the plain form's, or the keyed form's for this guarantee. The
+    /// package's, where it acknowledges the guarantee and the marker has none.
     pub reason: Option<String>,
     pub acceptance: Acceptance,
 }

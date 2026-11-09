@@ -90,6 +90,8 @@ const UNVERIFIED_DUPLICATE_GUARANTEE: DiagnosticCode =
     DiagnosticCode::error("unverified::duplicate-guarantee");
 const UNVERIFIED_MISSING_GUARANTEE: DiagnosticCode =
     DiagnosticCode::error("unverified::missing-guarantee");
+const UNVERIFIED_WRONG_SCOPE: DiagnosticCode =
+    DiagnosticCode::error("unverified::wrong-scope");
 const UNVERIFIED_NOT_GIVEN_UP: DiagnosticCode =
     DiagnosticCode::warning("unverified::not-given-up");
 const UNVERIFIED_NOTHING_GIVEN_UP: DiagnosticCode =
@@ -1335,14 +1337,35 @@ fn check_unverified(
             given_up.push(Guarantee::BoundedSize);
         }
         let cause = unverified::cause(parameters, encodings);
+        let why = |guarantee: Guarantee| match guarantee {
+            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
+            _ => unverified::cause_of(parameters, encodings, guarantee),
+        };
+        // What the package's `unverified` already says why of, for this
+        // protocol: frozen beside it, only for what comes from a package
+        // setting it takes.
+        let by_package = |guarantee: &Guarantee| unverified::package_reason_for(parameters, *guarantee).is_some();
         let Some(marker) = unverified::marker(parameters) else {
-            if !given_up.is_empty() {
+            let uncovered: Vec<Guarantee> = given_up.iter().copied().filter(|g| !by_package(g)).collect();
+            if !uncovered.is_empty() {
+                let cause = if uncovered.len() == given_up.len() {
+                    cause
+                } else {
+                    let mut why_not: Vec<String> = vec![];
+                    for guarantee in &uncovered {
+                        let one = why(*guarantee);
+                        if !why_not.contains(&one) {
+                            why_not.push(one);
+                        }
+                    }
+                    why_not.join("; ")
+                };
                 errors.push(
                     Diagnostic::new(
                         UNVERIFIED_MISSING_MARKER,
                         format!(
                             "protocol `{name}` gives up {} ({cause}) without `@unverified`",
-                            unverified::describe(&given_up)
+                            unverified::describe(&uncovered)
                         ),
                     )
                     .with_help(
@@ -1352,6 +1375,8 @@ fn check_unverified(
                     )
                     .maybe_span(Some(*span)),
                 );
+            } else {
+                give_up_warnings(name, *span, &given_up, &why, warnings);
             }
             continue;
         };
@@ -1365,26 +1390,13 @@ fn check_unverified(
                 .maybe_span(Some(*span)),
             );
         }
-        let why = |guarantee: Guarantee| match guarantee {
-            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
-            _ => unverified::cause_of(parameters, encodings, guarantee),
-        };
         // The keyed form: a reason for every guarantee given up, and only
         // those, under a guarantee's id.
         if let ConfigValue::Dict(entries) = marker {
             let mut listed: Vec<Guarantee> = vec![];
             for (key, value) in entries {
                 let Some(guarantee) = Guarantee::from_name(key) else {
-                    let mut message = format!("`@unverified` on protocol `{name}`: `{key}` isn't a guarantee");
-                    if let Some(s) = closest(key, Guarantee::ALL.iter().map(|g| g.name())) {
-                        message.push_str(&format!(" - did you mean `{s}`?"));
-                    }
-                    let known: Vec<String> = Guarantee::ALL.iter().map(|g| format!("`{}`", g.name())).collect();
-                    errors.push(
-                        Diagnostic::new(UNVERIFIED_UNKNOWN_GUARANTEE, message)
-                            .with_help(format!("the guarantees are {}", known.join(", ")))
-                            .maybe_span(Some(*span)),
-                    );
+                    errors.push(unknown_guarantee(&format!("`@unverified` on protocol `{name}`"), key).maybe_span(Some(*span)));
                     continue;
                 };
                 if listed.contains(&guarantee) {
@@ -1409,7 +1421,7 @@ fn check_unverified(
                     );
                 }
             }
-            for guarantee in given_up.iter().filter(|g| !listed.contains(g)) {
+            for guarantee in given_up.iter().filter(|g| !listed.contains(g) && !by_package(g)) {
                 errors.push(
                     Diagnostic::new(
                         UNVERIFIED_MISSING_GUARANTEE,
@@ -1447,27 +1459,152 @@ fn check_unverified(
                 .maybe_span(Some(*span)),
             );
         }
-        for guarantee in given_up {
-            let code = match guarantee {
-                Guarantee::SchemaAgreement => UNVERIFIED_SCHEMA_AGREEMENT,
-                Guarantee::EncodingAgreement => UNVERIFIED_ENCODING_AGREEMENT,
-                Guarantee::EncodingConformance => UNVERIFIED_ENCODING_CONFORMANCE,
-                Guarantee::VersionHonesty => UNVERIFIED_VERSION_HONESTY,
-                Guarantee::BoundedSize => UNVERIFIED_BOUNDED_SIZE,
-            };
-            warnings.push(
-                Diagnostic::new(
-                    code,
-                    format!(
-                        "protocol `{name}` is unverified: {} isn't established ({})",
-                        guarantee.describe(),
-                        why(guarantee)
-                    ),
-                )
-                .maybe_span(Some(*span)),
-            );
-        }
+        give_up_warnings(name, *span, &given_up, &why, warnings);
     }
+}
+
+/// One informational warning for each guarantee a protocol gives up, each
+/// with a code of its own.
+fn give_up_warnings(
+    name: &str,
+    span: (usize, usize),
+    given_up: &[crate::schema::ir::frozen::unit::Guarantee],
+    why: &dyn Fn(crate::schema::ir::frozen::unit::Guarantee) -> String,
+    warnings: &mut Vec<Diagnostic>,
+) {
+    use crate::schema::ir::frozen::unit::Guarantee;
+
+    for guarantee in given_up.iter().copied() {
+        let code = match guarantee {
+            Guarantee::SchemaAgreement => UNVERIFIED_SCHEMA_AGREEMENT,
+            Guarantee::EncodingAgreement => UNVERIFIED_ENCODING_AGREEMENT,
+            Guarantee::EncodingConformance => UNVERIFIED_ENCODING_CONFORMANCE,
+            Guarantee::VersionHonesty => UNVERIFIED_VERSION_HONESTY,
+            Guarantee::BoundedSize => UNVERIFIED_BOUNDED_SIZE,
+        };
+        warnings.push(
+            Diagnostic::new(
+                code,
+                format!(
+                    "protocol `{name}` is unverified: {} isn't established ({})",
+                    guarantee.describe(),
+                    why(guarantee)
+                ),
+            )
+            .maybe_span(Some(span)),
+        );
+    }
+}
+
+/// `key` in an `unverified` that isn't a guarantee's id, with the nearest one
+/// if there is one. `subject` says whose it is, for the message.
+fn unknown_guarantee(subject: &str, key: &str) -> Diagnostic {
+    use crate::schema::ir::frozen::unit::Guarantee;
+
+    let mut message = format!("{subject}: `{key}` isn't a guarantee");
+    if let Some(s) = closest(key, Guarantee::ALL.iter().map(|g| g.name())) {
+        message.push_str(&format!(" - did you mean `{s}`?"));
+    }
+    let known: Vec<String> = Guarantee::ALL.iter().map(|g| format!("`{}`", g.name())).collect();
+    Diagnostic::new(UNVERIFIED_UNKNOWN_GUARANTEE, message).with_help(format!("the guarantees are {}", known.join(", ")))
+}
+
+/// The package's `unverified` (`config.idp`): why the package gives up what
+/// its settings give up. The errors in what it says: a reason that's missing,
+/// a key that isn't a guarantee or is listed twice, and a guarantee the
+/// catalog doesn't give package scope (what a type gives, such as
+/// `bounded_size`, is acknowledged where it's used). Whether the protocols
+/// give up what it lists is [`check_package_unverified_used`]'s.
+pub fn check_package_unverified(package: &ConfigValue) -> Vec<Diagnostic> {
+    use crate::schema::ir::frozen::unit::Guarantee;
+    use comline_catalog::Scope;
+
+    const SUBJECT: &str = "`unverified` in config.idp";
+    let mut errors = vec![];
+    match package {
+        ConfigValue::Str(reason) => {
+            if reason.trim().is_empty() {
+                errors.push(
+                    Diagnostic::new(UNVERIFIED_MISSING_REASON, format!("{SUBJECT} needs a reason"))
+                        .with_help("every consumer is shown it: say what replaces the check".to_string()),
+                );
+            }
+        }
+        ConfigValue::Dict(entries) => {
+            let mut listed: Vec<Guarantee> = vec![];
+            for (key, value) in entries {
+                let Some(guarantee) = Guarantee::from_name(key) else {
+                    errors.push(unknown_guarantee(SUBJECT, key));
+                    continue;
+                };
+                if listed.contains(&guarantee) {
+                    errors.push(Diagnostic::new(
+                        UNVERIFIED_DUPLICATE_GUARANTEE,
+                        format!("{SUBJECT} gives a reason for `{key}` twice"),
+                    ));
+                    continue;
+                }
+                listed.push(guarantee);
+                let entry = guarantee.entry();
+                if !entry.allows_scope(Scope::Package) {
+                    let allowed: Vec<&str> = entry.scopes.iter().map(|scope| scope.as_str()).collect();
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_WRONG_SCOPE,
+                            format!(
+                                "{SUBJECT}: `{key}` can't be acknowledged at package scope; the scopes it allows are {}",
+                                allowed.join(", ")
+                            ),
+                        )
+                        .with_help(format!("acknowledge `{key}` with `@unverified` where it's given up")),
+                    );
+                    continue;
+                }
+                if !matches!(value, ConfigValue::Str(reason) if !reason.trim().is_empty()) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_MISSING_REASON,
+                            format!("{SUBJECT} needs a reason for `{key}`, as a string"),
+                        )
+                        .with_help("every consumer is shown it: say what replaces the check".to_string()),
+                    );
+                }
+            }
+        }
+        _ => {}
+    }
+    errors
+}
+
+/// A warning for each guarantee the package's `unverified` lists that none of
+/// the protocols taking its settings gives up through them (`covered`: what
+/// [`unverified::package_covered_by`] says of the package's schemas), like a
+/// guarantee a protocol's own marker lists and doesn't give up.
+pub fn check_package_unverified_used(
+    package: &ConfigValue,
+    covered: &[crate::schema::ir::frozen::unit::Guarantee],
+) -> Vec<Diagnostic> {
+    use crate::schema::ir::frozen::unit::Guarantee;
+    use comline_catalog::Scope;
+
+    let ConfigValue::Dict(entries) = package else {
+        return vec![];
+    };
+    entries
+        .iter()
+        .filter_map(|(key, _)| Guarantee::from_name(key))
+        .filter(|g| g.entry().allows_scope(Scope::Package) && !covered.contains(g))
+        .map(|guarantee| {
+            Diagnostic::new(
+                UNVERIFIED_NOT_GIVEN_UP,
+                format!(
+                    "`unverified` in config.idp lists `{}`, which no protocol taking the package's settings gives up through them",
+                    guarantee.name()
+                ),
+            )
+            .with_help(format!("remove `{}` from `unverified`", guarantee.name()))
+        })
+        .collect()
 }
 
 /// `@provider` and `@consumer`: if both are written they have to be
