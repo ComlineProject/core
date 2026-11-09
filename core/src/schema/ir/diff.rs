@@ -11,6 +11,7 @@ use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, IMPLICIT_
 use crate::schema::ir::unverified::{default_format, Encodings};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
+use comline_catalog::fact;
 use schemars::JsonSchema;
 use serde_derive::{Deserialize, Serialize};
 
@@ -447,19 +448,19 @@ impl WireFacts {
                 })
         };
         WireFacts {
-            fields_by_name: all(&formats, "struct_fields", &["by_name"]),
-            optional_fields_tolerated: all(&formats, "unknown_field", &["ignored"])
-                && all(&formats, "missing_optional", &["absent"]),
-            variants_by_name: all(&formats, "enum_variants", &["by_name"]),
-            errors_by_name: all(&framings, "errors", &["by_name"]),
+            fields_by_name: all(&formats, fact::STRUCT_FIELDS, &["by_name"]),
+            optional_fields_tolerated: all(&formats, fact::UNKNOWN_FIELD, &["ignored"])
+                && all(&formats, fact::MISSING_OPTIONAL, &["absent"]),
+            variants_by_name: all(&formats, fact::ENUM_VARIANTS, &["by_name"]),
+            errors_by_name: all(&framings, fact::ERRORS, &["by_name"]),
             calls_by_id: calls
                 .iter()
-                .map(|(key, profiles)| (key.clone(), all(profiles, "calls", &["by_id"])))
+                .map(|(key, profiles)| (key.clone(), all(profiles, fact::CALLS, &["by_id"])))
                 .collect(),
             calls_stable: calls
                 .into_iter()
                 .map(|(key, profiles)| {
-                    let stable = all(&profiles, "calls", &["by_name", "by_id"]);
+                    let stable = all(&profiles, fact::CALLS, &["by_name", "by_id"]);
                     (key, stable)
                 })
                 .collect(),

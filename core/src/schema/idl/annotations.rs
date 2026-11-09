@@ -80,7 +80,10 @@ pub enum AnnotationAuthority {
 // The official formats, framings and handshakes, and their aliases, are
 // declared by the embedded official encodings package
 // (`crate::encodings::official`), not listed here. The constants below name
-// the ones core and the generators act on.
+// the ones core and the generators act on, by the specification's catalog
+// (`comline_catalog::encoding`). `datagram@1` and `jsonrpc@1` are frozen by
+// the spellings they had before names were versioned, the catalog's
+// `frozen_as`, which a test holds these to.
 
 /// The original datagram framing (`datagram@1`): a request names its call
 /// but not its protocol, so a transport carries one protocol, called one
@@ -90,11 +93,11 @@ pub const FRAMING_DATAGRAM: &str = "datagram";
 /// `datagram@2`: the datagram framing whose frames say whether they're a
 /// request or a reply, and which protocol they belong to - what calls in
 /// both directions need.
-pub const FRAMING_DATAGRAM2: &str = "datagram@2";
+pub const FRAMING_DATAGRAM2: &str = comline_catalog::encoding::DATAGRAM_2;
 
 /// `datagram@3`: `datagram@2`'s frames, with calls addressed by wire
 /// number rather than position.
-pub const FRAMING_DATAGRAM3: &str = "datagram@3";
+pub const FRAMING_DATAGRAM3: &str = comline_catalog::encoding::DATAGRAM_3;
 
 /// JSON-RPC's canonical name.
 pub const FRAMING_JSONRPC: &str = "jsonrpc";
@@ -111,11 +114,11 @@ pub const DEFAULT_FRAMING: &str = FRAMING_DATAGRAM3;
 pub const IMPLICIT_FRAMING: &str = FRAMING_DATAGRAM2;
 
 /// `packed@1`: fixed-width fields back to back, varint lengths, no tags.
-pub const FORMAT_PACKED: &str = "packed@1";
+pub const FORMAT_PACKED: &str = comline_catalog::encoding::PACKED_1;
 /// JSON, a struct as an object.
-pub const FORMAT_JSON: &str = "json@1";
+pub const FORMAT_JSON: &str = comline_catalog::encoding::JSON_1;
 /// MessagePack, a struct as an array.
-pub const FORMAT_MSGPACK: &str = "msgpack@1";
+pub const FORMAT_MSGPACK: &str = comline_catalog::encoding::MSGPACK_1;
 
 /// The format a package speaks when its `wire.format` doesn't say.
 pub const DEFAULT_FORMAT: &str = FORMAT_PACKED;
@@ -424,12 +427,12 @@ pub const SIDES: &[&str] = &["Server", "Client", "Multiple"];
 /// needs a connection and the wire numbers `datagram@3` carries. Any other
 /// package gets [`IMPLICIT_HANDSHAKE`] instead: see
 /// [`package_default_handshake`].
-pub const DEFAULT_HANDSHAKE: &str = "comline@2";
+pub const DEFAULT_HANDSHAKE: &str = comline_catalog::encoding::COMLINE_2;
 
 /// What a protocol's frozen IR means when it carries no `@handshake`: core's
 /// default before `comline@2`, and still the default for a protocol on any
 /// framing but `datagram@3`, which may not run on a connection.
-pub const IMPLICIT_HANDSHAKE: &str = "comline@1";
+pub const IMPLICIT_HANDSHAKE: &str = comline_catalog::encoding::COMLINE_1;
 
 /// The handshake a protocol on `framing` (canonical) gets when neither it
 /// nor its package names one: [`DEFAULT_HANDSHAKE`] on [`DEFAULT_FRAMING`],
@@ -470,7 +473,7 @@ pub fn package_default_handshake<'a>(
     if all { DEFAULT_HANDSHAKE } else { IMPLICIT_HANDSHAKE }
 }
 /// The official "no handshake": nothing sent, nothing checked.
-pub const HANDSHAKE_NONE: &str = "none";
+pub const HANDSHAKE_NONE: &str = comline_catalog::encoding::NONE;
 
 /// Check a written handshake name against the official ones, returning
 /// its canonical spelling. A namespaced name (`com.acme.hello@1`) is a
@@ -741,6 +744,13 @@ pub fn for_scope(scope: AnnotationScope) -> impl Iterator<Item = &'static Annota
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_frozen_spellings_are_the_catalogs() {
+        use comline_catalog::{encoding, resolve};
+        assert_eq!(FRAMING_DATAGRAM, resolve(encoding::DATAGRAM_1).unwrap().frozen());
+        assert_eq!(FRAMING_JSONRPC, resolve(encoding::JSONRPC_1).unwrap().frozen());
+    }
 
     #[test]
     fn no_duplicate_keys() {

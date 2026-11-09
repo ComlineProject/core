@@ -16,8 +16,9 @@
 //! be called `comline` doesn't collide with it and gets no privileges.
 //!
 //! **Spellings:** a declared name is one spelling. The names written before
-//! the declarations existed are kept by [`SPELLINGS`]: a declaration can't
-//! state aliases, and only the official encodings have any.
+//! the declarations existed come from the specification's catalog
+//! (`comline_catalog`, see [`spellings`]): a declaration can't state aliases,
+//! and only the official encodings have any.
 
 // Standard Uses
 use std::sync::OnceLock;
@@ -31,16 +32,22 @@ use crate::package::config::ir::frozen::FrozenUnit;
 /// The official package's name, as its `config.idp` declares it.
 pub const PACKAGE: &str = "comline";
 
-/// The official names whose canonical spelling isn't the declared name:
-/// `(declared name, canonical spelling, other aliases)`. The canonical
-/// spelling is what core freezes and what the generators match on
+/// A declared official name's other spellings, from the catalog: `None` when
+/// the declared name is its only one. The canonical spelling is the one core
+/// freezes (the catalog's `frozen_as`) and the generators match on
 /// (`FRAMING_JSONRPC`, `FRAMING_DATAGRAM`), so it stays the one used before
 /// the names were declared, and the IR of every existing package with it.
-/// The declared name is accepted as one more alias.
-const SPELLINGS: &[(&str, &str, &[&str])] = &[
-    ("jsonrpc@1", crate::schema::idl::annotations::FRAMING_JSONRPC, &["json-rpc", "jsonrpc-2.0"]),
-    ("datagram@1", crate::schema::idl::annotations::FRAMING_DATAGRAM, &["comline.datagram"]),
-];
+/// The declared name and the catalog's aliases are accepted besides.
+fn spellings(declared: &'static str) -> Option<StrVariant> {
+    let entry = comline_catalog::encoding(declared)?;
+    let canonical = entry.frozen();
+    let aliases: Vec<&'static str> = std::iter::once(entry.id)
+        .chain(entry.aliases.iter().copied())
+        .filter(|alias| *alias != canonical)
+        .collect();
+    (canonical != declared || !aliases.is_empty())
+        .then(|| StrVariant::with_aliases(canonical, Box::leak(aliases.into_boxed_slice())))
+}
 
 /// The official package's frozen declarations: one
 /// [`FrozenUnit::Encoding`] per official encoding, in the order its
@@ -102,13 +109,7 @@ pub fn variants(kind: EncodingKind) -> &'static [StrVariant] {
         [EncodingKind::Format, EncodingKind::Framing, EncodingKind::Handshake].map(|kind| {
             let mut variants: Vec<StrVariant> = super::declared(units())
                 .filter(|(_, k)| *k == kind)
-                .map(|(name, _)| match SPELLINGS.iter().find(|(declared, ..)| *declared == name) {
-                    Some((declared, canonical, aliases)) => {
-                        let all: Vec<&'static str> = std::iter::once(*declared).chain(aliases.iter().copied()).collect();
-                        StrVariant::with_aliases(canonical, Box::leak(all.into_boxed_slice()))
-                    }
-                    None => StrVariant::new(name),
-                })
+                .map(|(name, _)| spellings(name).unwrap_or_else(|| StrVariant::new(name)))
                 .collect();
             if kind == EncodingKind::Handshake {
                 variants.push(StrVariant::new(crate::schema::idl::annotations::HANDSHAKE_NONE));
@@ -222,6 +223,34 @@ mod tests {
             assert!(map.contains_key("rust"), "{name}");
             assert_eq!(map.contains_key("typescript"), name != "msgpack@1", "{name}");
         }
+    }
+
+    /// The official package declares exactly the catalog's encodings that
+    /// have a profile, in its order and of its kinds, with vectors where the
+    /// catalog names a feature proving them.
+    #[test]
+    fn the_declarations_are_the_catalogs() {
+        let kind = |k| match k {
+            comline_catalog::Kind::Format => EncodingKind::Format,
+            comline_catalog::Kind::Framing => EncodingKind::Framing,
+            comline_catalog::Kind::Handshake => EncodingKind::Handshake,
+        };
+        let declared: Vec<(&str, EncodingKind)> = super::super::declared(units()).collect();
+        let catalog: Vec<(&str, EncodingKind)> = comline_catalog::ENCODINGS
+            .iter()
+            .filter(|e| e.profile)
+            .map(|e| (e.id, kind(e.kind)))
+            .collect();
+        assert_eq!(declared, catalog);
+        for unit in units() {
+            let FrozenUnit::Encoding { name, has_vectors, .. } = unit else { unreachable!() };
+            let entry = comline_catalog::encoding(name).unwrap();
+            assert_eq!(*has_vectors, entry.feature.is_some(), "{name}");
+        }
+        // What isn't declared: `none`, the absence of a handshake.
+        let undeclared: Vec<&str> =
+            comline_catalog::ENCODINGS.iter().filter(|e| !e.profile).map(|e| e.id).collect();
+        assert_eq!(undeclared, [crate::schema::idl::annotations::HANDSHAKE_NONE]);
     }
 
     #[test]

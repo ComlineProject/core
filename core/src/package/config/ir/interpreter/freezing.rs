@@ -9,6 +9,7 @@ use crate::package::config::ir::frozen::{
 // use crate::utils::codemap::Span;
 
 // External Uses
+use comline_catalog::fact;
 
 use crate::schema::ir::compiler::settings::conformance::check_settings_conformance;
 
@@ -414,8 +415,8 @@ fn interpret_assignment_encodings(
             establishes: parsed.establishes(),
             has_vectors,
             grammar: parsed.grammar(),
-            calls: parsed.stated("calls"),
-            directions: parsed.stated("directions"),
+            calls: parsed.stated(fact::CALLS),
+            directions: parsed.stated(fact::DIRECTIONS),
         });
     }
     Ok(units)

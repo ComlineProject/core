@@ -410,6 +410,12 @@ pub fn schema_namespace_as_path(frozen: &[FrozenUnit]) -> Option<String> {
 /// A guarantee Comline gives between peers, which a protocol can give up with
 /// `@unverified`. The `snake_case` names are fixed vocabulary: diagnostics,
 /// a consumer's `accept_unverified` lists and generated docs use them.
+///
+/// The names and their descriptions are the specification's catalog
+/// (`comline_catalog`). The enum stays written by hand: it's frozen into the
+/// IR, and each guarantee needs core's own logic for when it's given up. A
+/// test holds it to the catalog exactly, so a guarantee the spec adds stops
+/// the build until core implements it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[derive(Serialize, Deserialize)]
 pub enum Guarantee {
@@ -437,27 +443,59 @@ impl Guarantee {
 
     /// The written name: `schema_agreement`, ...
     pub fn name(self) -> &'static str {
+        use comline_catalog::guarantee;
         match self {
-            Guarantee::SchemaAgreement => "schema_agreement",
-            Guarantee::EncodingAgreement => "encoding_agreement",
-            Guarantee::EncodingConformance => "encoding_conformance",
-            Guarantee::VersionHonesty => "version_honesty",
-            Guarantee::BoundedSize => "bounded_size",
+            Guarantee::SchemaAgreement => guarantee::SCHEMA_AGREEMENT,
+            Guarantee::EncodingAgreement => guarantee::ENCODING_AGREEMENT,
+            Guarantee::EncodingConformance => guarantee::ENCODING_CONFORMANCE,
+            Guarantee::VersionHonesty => guarantee::VERSION_HONESTY,
+            Guarantee::BoundedSize => guarantee::BOUNDED_SIZE,
         }
+    }
+
+    /// Its entry in the specification's catalog.
+    pub fn entry(self) -> &'static comline_catalog::Guarantee {
+        comline_catalog::guarantee(self.name())
+            .unwrap_or_else(|| unreachable!("`{}` is in the catalog, as a test proves", self.name()))
     }
 
     /// The name in prose: `schema agreement`, ...
     pub fn describe(self) -> &'static str {
-        match self {
-            Guarantee::SchemaAgreement => "schema agreement",
-            Guarantee::EncodingAgreement => "encoding agreement",
-            Guarantee::EncodingConformance => "encoding conformance",
-            Guarantee::VersionHonesty => "version honesty",
-            Guarantee::BoundedSize => "bounded size",
-        }
+        self.entry().title
+    }
+
+    /// What it promises, in a sentence.
+    pub fn description(self) -> &'static str {
+        self.entry().description
     }
 
     pub fn from_name(name: &str) -> Option<Guarantee> {
         Guarantee::ALL.into_iter().find(|g| g.name() == name)
+    }
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::Guarantee;
+
+    /// Core's guarantees are exactly the catalog's, in its order, and each
+    /// variant's frozen spelling is its catalog name in CamelCase: neither
+    /// side can add, drop or reorder one alone.
+    #[test]
+    fn guarantees_are_the_catalogs() {
+        let names: Vec<&str> = Guarantee::ALL.iter().map(|g| g.name()).collect();
+        assert_eq!(names, comline_catalog::sets::GUARANTEES);
+        for guarantee in Guarantee::ALL {
+            let frozen = serde_json::to_value(guarantee).unwrap();
+            let camel: String = guarantee
+                .name()
+                .split('_')
+                .map(|word| word[..1].to_uppercase() + &word[1..])
+                .collect();
+            assert_eq!(frozen, serde_json::Value::String(camel), "{guarantee:?}");
+            assert_eq!(Guarantee::from_name(guarantee.name()), Some(guarantee));
+            assert!(!guarantee.describe().is_empty() && !guarantee.description().is_empty());
+        }
     }
 }
