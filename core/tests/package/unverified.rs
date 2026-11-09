@@ -7,7 +7,7 @@ use comline_core::schema::ir::compiler::Compile;
 use comline_core::schema::ir::diff::{
     analyze_schema_changes, BreakingChange, Modification, NewFeature,
 };
-use comline_core::schema::ir::frozen::unit::{FrozenUnit, Guarantee};
+use comline_core::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 use comline_core::schema::ir::unverified;
 
 const ALLOW: &str = "settings = { annotations = { unverified = { allowed = true } } }\n";
@@ -42,6 +42,12 @@ fn protocol_params<'a>(units: &'a [FrozenUnit], protocol: &str) -> &'a [FrozenUn
 
 const NONE_MARKED: &str =
     "@handshake = \"none\"\n@unverified = \"the gateway predates Comline\"\nprotocol P {\n    function f();\n}\n";
+
+/// `NONE_MARKED`, with a reason for each guarantee a `none` handshake gives up.
+const NONE_KEYED: &str = "@handshake = \"none\"\n\
+     @unverified = {\n    schema_agreement = \"the gateway predates Comline\",\n    \
+     encoding_agreement = \"the gateway only speaks one encoding\"\n}\n\
+     protocol P {\n    function f();\n}\n";
 
 #[test]
 fn giving_something_up_without_the_marker_is_an_error() {
@@ -127,6 +133,25 @@ fn giving_up_is_major_restoring_is_minor_rewording_is_a_patch() {
         changes.modifications.as_slice(),
         [Modification::ChangedAnnotation { key, .. }] if key == "unverified"
     ));
+
+    // The keyed form: rewording a reason, or switching between the forms,
+    // changes no set, so it's a patch as well.
+    let keyed_reworded = NONE_KEYED.replace("the gateway", "the old gateway");
+    for (old, new) in [(NONE_KEYED, keyed_reworded.as_str()), (NONE_MARKED, NONE_KEYED), (NONE_KEYED, NONE_MARKED)] {
+        let changes = analyze_schema_changes(&frozen(old), &frozen(new));
+        assert!(changes.breaking_changes.is_empty(), "{:?}", changes.breaking_changes);
+        assert!(changes.new_features.is_empty(), "{:?}", changes.new_features);
+        assert!(matches!(
+            changes.modifications.as_slice(),
+            [Modification::ChangedAnnotation { key, .. }] if key == "unverified"
+        ));
+    }
+
+    let gave_up = analyze_schema_changes(&frozen(plain), &frozen(NONE_KEYED));
+    assert!(gave_up.breaking_changes.iter().any(|c| matches!(
+        c,
+        BreakingChange::GaveUpGuarantees { guarantees, .. } if guarantees.len() == 2
+    )));
 }
 
 #[test]
@@ -146,6 +171,128 @@ fn comline_and_none_give_up_what_they_always_did() {
         [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
     );
     assert_eq!(unverified::cause(&params("none"), &encodings), "handshake `none`");
+}
+
+// The keyed form, `@unverified = { <guarantee> = "<reason>" }`: a reason for
+// each guarantee given up, under its id in the specification's catalog.
+
+#[test]
+fn the_keyed_form_covering_exactly_the_set_is_accepted() {
+    let (units, warnings) = compile(&config(ALLOW), NONE_KEYED).unwrap();
+    let params = protocol_params(&units, "P");
+    // The frozen set is what core works out; the reasons stay in the annotation.
+    assert_eq!(
+        unverified::frozen_set(params),
+        [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+    );
+    assert_eq!(
+        unverified::marker(params),
+        Some(&ConfigValue::Dict(vec![
+            ("schema_agreement".into(), ConfigValue::Str("the gateway predates Comline".into())),
+            (
+                "encoding_agreement".into(),
+                ConfigValue::Str("the gateway only speaks one encoding".into())
+            ),
+        ]))
+    );
+    assert_eq!(unverified::reason(params), None);
+    assert_eq!(
+        unverified::reason_for(params, Guarantee::EncodingAgreement),
+        Some("the gateway only speaks one encoding")
+    );
+    assert_eq!(unverified::reason_for(params, Guarantee::BoundedSize), None);
+    assert_eq!(warnings, ["unverified::schema-agreement", "unverified::encoding-agreement"]);
+}
+
+#[test]
+fn the_keyed_form_is_shown_with_each_guarantees_own_reason() {
+    let (plain, _) = compile(&config(ALLOW), NONE_MARKED).unwrap();
+    let (keyed, _) = compile(&config(ALLOW), NONE_KEYED).unwrap();
+    let set = [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement];
+    assert_eq!(
+        unverified::protocols(&plain),
+        [("P", &set[..], Some("\"the gateway predates Comline\"".to_string()))]
+    );
+    assert_eq!(
+        unverified::protocols(&keyed),
+        [(
+            "P",
+            &set[..],
+            Some(
+                "schema agreement \"the gateway predates Comline\", \
+                 encoding agreement \"the gateway only speaks one encoding\""
+                    .to_string()
+            )
+        )]
+    );
+}
+
+#[test]
+fn an_unknown_key_is_an_error_with_a_suggestion() {
+    let schema = NONE_KEYED.replace("\n}\nprotocol", ",\n    bounded_sise = \"x\"\n}\nprotocol");
+    let err = format!("{:?}", compile(&config(ALLOW), &schema).unwrap_err());
+    assert!(err.contains("unverified::unknown-guarantee"), "{err}");
+    assert!(err.contains("`bounded_sise` isn't a guarantee - did you mean `bounded_size`?"), "{err}");
+    assert!(!err.contains("missing-guarantee"), "{err}");
+
+    let schema = NONE_KEYED.replace("encoding_agreement", "wibble");
+    let err = format!("{:?}", compile(&config(ALLOW), &schema).unwrap_err());
+    assert!(err.contains("`wibble` isn't a guarantee") && !err.contains("did you mean"), "{err}");
+}
+
+#[test]
+fn a_guarantee_given_up_and_not_listed_is_an_error() {
+    let schema = NONE_KEYED.replace(",\n    encoding_agreement = \"the gateway only speaks one encoding\"", "");
+    let err = format!("{:?}", compile(&config(ALLOW), &schema).unwrap_err());
+    assert!(err.contains("unverified::missing-guarantee"), "{err}");
+    assert!(err.contains("gives up encoding agreement (handshake `none`)"), "{err}");
+    assert!(err.contains("add `encoding_agreement = \"...\"` to `@unverified`"), "{err}");
+    assert!(!err.contains("schema agreement (handshake"), "{err}");
+}
+
+#[test]
+fn a_guarantee_listed_and_not_given_up_is_a_warning() {
+    let schema = NONE_KEYED.replace("\n}\nprotocol", ",\n    version_honesty = \"just in case\"\n}\nprotocol");
+    let (units, warnings) = compile(&config(ALLOW), &schema).unwrap();
+    assert!(warnings.contains(&"unverified::not-given-up".to_string()), "{warnings:?}");
+    assert_eq!(
+        unverified::frozen_set(protocol_params(&units, "P")),
+        [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+    );
+}
+
+#[test]
+fn a_keyed_reason_has_to_be_a_string_that_says_something() {
+    for reason in ["\"  \"", "\"\"", "true"] {
+        let schema = NONE_KEYED.replace("\"the gateway predates Comline\"", reason);
+        let err = format!("{:?}", compile(&config(ALLOW), &schema).unwrap_err());
+        assert!(err.contains("unverified::missing-reason"), "{reason}: {err}");
+        assert!(err.contains("needs a reason for `schema_agreement`"), "{reason}: {err}");
+    }
+}
+
+#[test]
+fn a_guarantee_listed_twice_is_an_error() {
+    let schema = NONE_KEYED.replace("\n}\nprotocol", ",\n    schema_agreement = \"again\"\n}\nprotocol");
+    let err = format!("{:?}", compile(&config(ALLOW), &schema).unwrap_err());
+    assert!(err.contains("unverified::duplicate-guarantee"), "{err}");
+}
+
+#[test]
+fn bounded_size_has_to_be_listed_where_a_string_has_no_maximum() {
+    let unbounded = |marker: &str| {
+        format!("{marker}protocol P {{\n    function put(s: string);\n}}\n")
+    };
+    let keyed = unbounded("@unverified = { bounded_size = \"the uploader streams whatever it's given\" }\n");
+    let (units, warnings) = compile(&config(ALLOW), &keyed).unwrap();
+    assert_eq!(unverified::frozen_set(protocol_params(&units, "P")), [Guarantee::BoundedSize]);
+    assert!(warnings.contains(&"unverified::bounded-size".to_string()), "{warnings:?}");
+
+    // Listing something else doesn't cover it.
+    let other = unbounded("@unverified = { version_honesty = \"not this\" }\n");
+    let err = format!("{:?}", compile(&config(ALLOW), &other).unwrap_err());
+    assert!(err.contains("unverified::missing-guarantee"), "{err}");
+    assert!(err.contains("bounded size") && err.contains("add `bounded_size = \"...\"`"), "{err}");
 }
 
 // Bounded size across schemas: a type another schema declares may hold a

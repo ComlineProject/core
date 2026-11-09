@@ -182,7 +182,7 @@ fn check_accepted(dep: &DependencyConfig, context: &ProjectContext) -> Result<()
                 continue;
             }
             let given_up = unverified::describe(set);
-            let reason = reason.map(|r| format!(": \"{r}\"")).unwrap_or_default();
+            let reason = reason.map(|r| format!(": {r}")).unwrap_or_default();
             let what = match accepted {
                 None => format!("protocol `{protocol}` is unverified, giving up {given_up}{reason}"),
                 Some(old) => format!(

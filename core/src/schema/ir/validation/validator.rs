@@ -84,6 +84,14 @@ const UNVERIFIED_MISSING_MARKER: DiagnosticCode =
     DiagnosticCode::error("unverified::missing-marker");
 const UNVERIFIED_MISSING_REASON: DiagnosticCode =
     DiagnosticCode::error("unverified::missing-reason");
+const UNVERIFIED_UNKNOWN_GUARANTEE: DiagnosticCode =
+    DiagnosticCode::error("unverified::unknown-guarantee");
+const UNVERIFIED_DUPLICATE_GUARANTEE: DiagnosticCode =
+    DiagnosticCode::error("unverified::duplicate-guarantee");
+const UNVERIFIED_MISSING_GUARANTEE: DiagnosticCode =
+    DiagnosticCode::error("unverified::missing-guarantee");
+const UNVERIFIED_NOT_GIVEN_UP: DiagnosticCode =
+    DiagnosticCode::warning("unverified::not-given-up");
 const UNVERIFIED_NOTHING_GIVEN_UP: DiagnosticCode =
     DiagnosticCode::warning("unverified::nothing-given-up");
 const UNVERIFIED_SCHEMA_AGREEMENT: DiagnosticCode =
@@ -1357,6 +1365,78 @@ fn check_unverified(
                 .maybe_span(Some(*span)),
             );
         }
+        let why = |guarantee: Guarantee| match guarantee {
+            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
+            _ => unverified::cause_of(parameters, encodings, guarantee),
+        };
+        // The keyed form: a reason for every guarantee given up, and only
+        // those, under a guarantee's id.
+        if let ConfigValue::Dict(entries) = marker {
+            let mut listed: Vec<Guarantee> = vec![];
+            for (key, value) in entries {
+                let Some(guarantee) = Guarantee::from_name(key) else {
+                    let mut message = format!("`@unverified` on protocol `{name}`: `{key}` isn't a guarantee");
+                    if let Some(s) = closest(key, Guarantee::ALL.iter().map(|g| g.name())) {
+                        message.push_str(&format!(" - did you mean `{s}`?"));
+                    }
+                    let known: Vec<String> = Guarantee::ALL.iter().map(|g| format!("`{}`", g.name())).collect();
+                    errors.push(
+                        Diagnostic::new(UNVERIFIED_UNKNOWN_GUARANTEE, message)
+                            .with_help(format!("the guarantees are {}", known.join(", ")))
+                            .maybe_span(Some(*span)),
+                    );
+                    continue;
+                };
+                if listed.contains(&guarantee) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_DUPLICATE_GUARANTEE,
+                            format!("`@unverified` on protocol `{name}` gives a reason for `{key}` twice"),
+                        )
+                        .maybe_span(Some(*span)),
+                    );
+                    continue;
+                }
+                listed.push(guarantee);
+                if !matches!(value, ConfigValue::Str(reason) if !reason.trim().is_empty()) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_MISSING_REASON,
+                            format!("`@unverified` on protocol `{name}` needs a reason for `{key}`, as a string"),
+                        )
+                        .with_help("every consumer is shown it: say what replaces the check".to_string())
+                        .maybe_span(Some(*span)),
+                    );
+                }
+            }
+            for guarantee in given_up.iter().filter(|g| !listed.contains(g)) {
+                errors.push(
+                    Diagnostic::new(
+                        UNVERIFIED_MISSING_GUARANTEE,
+                        format!(
+                            "protocol `{name}` gives up {} ({}) but `@unverified` doesn't say why",
+                            guarantee.describe(),
+                            why(*guarantee)
+                        ),
+                    )
+                    .with_help(format!("add `{} = \"...\"` to `@unverified`", guarantee.name()))
+                    .maybe_span(Some(*span)),
+                );
+            }
+            for guarantee in listed.iter().filter(|g| !given_up.contains(g)) {
+                warnings.push(
+                    Diagnostic::new(
+                        UNVERIFIED_NOT_GIVEN_UP,
+                        format!(
+                            "`@unverified` on protocol `{name}` lists `{}`, which it doesn't give up",
+                            guarantee.name()
+                        ),
+                    )
+                    .with_help(format!("remove `{}` from `@unverified`", guarantee.name()))
+                    .maybe_span(Some(*span)),
+                );
+            }
+        }
         if given_up.is_empty() {
             warnings.push(
                 Diagnostic::new(
@@ -1381,10 +1461,7 @@ fn check_unverified(
                     format!(
                         "protocol `{name}` is unverified: {} isn't established ({})",
                         guarantee.describe(),
-                        match guarantee {
-                            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
-                            _ => unverified::cause_of(parameters, encodings, guarantee),
-                        }
+                        why(guarantee)
                     ),
                 )
                 .maybe_span(Some(*span)),
@@ -1614,7 +1691,9 @@ fn check_params(
             );
             continue;
         }
-        if let (ConfigValue::Dict(entries), Some(keys)) = (value, config_value::dict_keys(&info.value)) {
+        // `@unverified`'s keys are guarantees, which `check_unverified` reports
+        // with codes of its own.
+        if let (ConfigValue::Dict(entries), Some(keys), false) = (value, config_value::dict_keys(&info.value), name == "unverified") {
             let checked = config_value::check_entries(keys, entries.iter().map(|(k, v)| (k.as_str(), v.form())));
             if let Err(problems) = checked {
                 for problem in problems {
