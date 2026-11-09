@@ -5,10 +5,10 @@
 //! with no entry in `config.idp`, and only this package may declare a bare
 //! name. Its version is the toolchain's.
 //!
-//! The profiles under `profiles/` are copied from ComlineProject/runtime
-//! `runtime/conformance/profiles/` at rev
-//! cf5e06780793d8e71b0ec1133da8fd6c0e42b8e9, where the conformance corpus
-//! proves them. `comline@1`'s and `comline@2`'s state that they establish
+//! The profiles under `profiles/` are copied, without their `$schema`, from
+//! ComlineProject/specification `profiles/` at rev
+//! 3583aaa321aafc74a06e91cc059f4f71e4b30895 (spec 0.10), whose vectors prove
+//! them. `comline@1`'s and `comline@2`'s state that they establish
 //! schema and encoding agreement. `none` isn't declared: it's the absence of a handshake, not
 //! one, and establishes neither.
 //!

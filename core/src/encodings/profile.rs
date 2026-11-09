@@ -3,10 +3,11 @@
 //!
 //! A pinned copy of `Profile`, `ProfileKind`, `Fact` and the fact list from
 //! ComlineProject/runtime `runtime/conformance/src/profile.rs`, at rev
-//! `cf5e06780793d8e71b0ec1133da8fd6c0e42b8e9` (spec 0.10). The runtime corpus
-//! is where the profiles are proven; core only checks that a declared
-//! profile is one. When the runtime's schema moves, this copy moves with it,
-//! and the rev above changes.
+//! `cf5e06780793d8e71b0ec1133da8fd6c0e42b8e9` (spec 0.10), which reads the
+//! profile format ComlineProject/specification defines (`specs/profile.cue`).
+//! The specification's vectors are where the profiles are proven; core only
+//! checks that a declared profile is one. When the profile format moves, this
+//! copy moves with it, and the rev above changes.
 //!
 //! A handshake's facts, `schema_agreement` and `encoding_agreement`, are
 //! what it establishes; one it doesn't state as `true` is given up
