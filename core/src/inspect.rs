@@ -60,7 +60,8 @@ pub struct ProtocolSummary {
     pub format: Choice,
     pub framing: Choice,
     pub handshake: Choice,
-    /// Whether it's marked `@unverified`.
+    /// Whether it gives something up: some guarantee isn't held, whether the
+    /// protocol's own `@unverified` or the package's `unverified` says why.
     pub unverified: bool,
     /// Every guarantee, in [`Guarantee::ALL`] order.
     pub guarantees: Vec<GuaranteeRow>,
@@ -118,7 +119,8 @@ pub struct GuaranteeRow {
     /// Empty when held.
     pub causes: Vec<String>,
     /// The `@unverified` reason, when it's given up and the marker carries
-    /// one: the plain form's, or the keyed form's for this guarantee.
+    /// one: the plain form's, or the keyed form's for this guarantee. The
+    /// package's, where it acknowledges the guarantee and the marker has none.
     pub reason: Option<String>,
     pub acceptance: Acceptance,
 }
@@ -337,7 +339,10 @@ fn summarize(p: Protocol) -> ProtocolSummary {
         format,
         framing,
         handshake,
-        unverified: unverified::marker(p.parameters).is_some(),
+        // What's given up, not who says why: a protocol only the package's
+        // `unverified` covers has no marker. `bounded_size` is in the frozen
+        // set alone.
+        unverified: !unverified::frozen_set(p.parameters).is_empty() || !causes.is_empty(),
         guarantees,
     }
 }
@@ -602,5 +607,25 @@ mod tests {
         }
         assert_eq!(protocol(&context, "billing::api", "Billing"), Some(billing));
         assert_eq!(protocol(&context, "api", "Billing"), None);
+    }
+
+    #[test]
+    fn a_protocol_only_the_package_covers_is_unverified_with_the_packages_reasons() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("app");
+        package(
+            &app,
+            "handshake = \"none\"\nunverified = {\n    schema_agreement = \"pinned by contract\"\n    \
+             encoding_agreement = \"one encoding only\"\n}\n\
+             settings = { annotations = { unverified = { allowed = true } } }\n",
+            "protocol Gateway {\n    function ping();\n}\n",
+        );
+        let context = crate::package::build::compile_package(&app).unwrap();
+        let [gateway] = protocols(&context).try_into().unwrap();
+        // No marker of its own, and still unverified.
+        assert!(gateway.unverified);
+        assert_eq!(row(&gateway, Guarantee::SchemaAgreement).reason.as_deref(), Some("pinned by contract"));
+        assert_eq!(row(&gateway, Guarantee::EncodingAgreement).reason.as_deref(), Some("one encoding only"));
+        assert!(row(&gateway, Guarantee::VersionHonesty).held);
     }
 }

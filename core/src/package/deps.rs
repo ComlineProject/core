@@ -771,6 +771,36 @@ mod tests {
     }
 
     #[test]
+    fn the_acceptance_shows_the_reasons_the_package_gave() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("billing");
+        std::fs::create_dir_all(dir.join("src")).unwrap();
+        std::fs::write(
+            dir.join("config.idp"),
+            "congregation billing\nspecification_version = 1\nhandshake = \"none\"\n\
+             unverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    \
+             encoding_agreement = \"the gateway only speaks one encoding\"\n}\n\
+             settings = { annotations = { unverified = { allowed = true } } }\n",
+        )
+        .unwrap();
+        // No marker of its own: the package says why.
+        std::fs::write(dir.join("src/api.ids"), "protocol Billing {\n    function charge();\n}\n").unwrap();
+        let cache = tmp.path().join("cache");
+
+        let err = resolve(&path_dep("billing", "billing", None), tmp.path(), &cache).map(|_| ()).unwrap_err().to_string();
+        assert!(err.contains("protocol `Billing` is unverified, giving up schema agreement and encoding agreement"), "{err}");
+        assert!(
+            err.contains(
+                "schema agreement \"the gateway pins schemas by contract\", \
+                 encoding agreement \"the gateway only speaks one encoding\""
+            ),
+            "{err}"
+        );
+        resolve(&accepting(&[Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]), tmp.path(), &cache)
+            .expect("accepted for its whole set");
+    }
+
+    #[test]
     fn a_consumer_judges_a_dependencys_schemas_by_the_dependencys_own_package() {
         use crate::schema::ir::frozen::unit::FrozenUnit;
         use crate::schema::ir::unverified;

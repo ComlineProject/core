@@ -55,6 +55,14 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         .collect();
     let wire = PackageWire::of(own_config, own_protocols.iter().map(Vec::as_slice));
     check_package_encodings(project_context, own_format.as_deref(), &wire.framing, &wire.handshake)?;
+    // What the package says of what its own settings give up, for every
+    // protocol that takes them.
+    let package_unverified = crate::package::config::ir::frozen::unverified(own_config);
+    if let Some(package_unverified) = package_unverified {
+        check_package_unverified(package_unverified, &own_settings)?;
+    }
+    let mut package_covered = vec![];
+    let mut first_own: Option<Rc<RefCell<SchemaContext>>> = None;
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
     // package-level value falls back to usage-site-only diagnostics, same
@@ -136,11 +144,17 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Inject Namespace unit
         let namespace_joined = schema_context.borrow().namespace_joined();
         frozen_units.insert(0, FrozenUnit::Namespace(namespace_joined.clone()));
+        // What each protocol takes from the package is read before the
+        // package's handshake is frozen in, which makes it look its own.
+        let inherits = crate::schema::ir::unverified::inherits(&frozen_units);
         wire.freeze_handshake(&mut frozen_units);
-        crate::schema::ir::unverified::freeze(
+        crate::schema::ir::unverified::freeze_with(
             &mut frozen_units,
             &crate::schema::ir::unverified::Encodings::of(project_context),
+            package_unverified,
+            &inherits,
         );
+        package_covered.extend(crate::schema::ir::unverified::package_covered_by(&frozen_units));
         // Settings gate what the schema's author wrote; the package's
         // framing is the package's choice, so it's added after the snapshot
         // enforcement checks.
@@ -248,6 +262,21 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
 
         *schema_context.borrow().frozen_schema.borrow_mut() = Some(frozen_units);
         schema_context.borrow().compile_state.borrow_mut().complete = true;
+        first_own.get_or_insert_with(|| schema_context.clone());
+    }
+
+    // The package's `unverified` lists what none of its protocols give up
+    // through its settings: a warning, on the first schema it compiled, as it
+    // has no schema of its own to be on.
+    if let (Some(package_unverified), Some(first), true) = (package_unverified, &first_own, schema_errors.is_empty()) {
+        package_covered.sort();
+        package_covered.dedup();
+        let unused = validation::validator::check_package_unverified_used(package_unverified, &package_covered);
+        let frozen = first.borrow().frozen_schema.borrow().clone().unwrap_or_default();
+        let (warnings, fatal) =
+            resolve_diagnostic_overrides(&frozen, unused, &own_settings, &package_settings_spans);
+        first.borrow().warnings.borrow_mut().extend(warnings);
+        schema_errors.extend(fatal.iter().map(|d| crate::diagnostics::render(d, "config.idp", "")));
     }
 
     if !schema_errors.is_empty() {
@@ -280,6 +309,28 @@ fn check_package_encodings(
         }
     }
     Ok(())
+}
+
+/// The package's `unverified`, judged without its protocols: allowed by the
+/// package's settings as `@unverified` is, and its keys and reasons sound.
+fn check_package_unverified(
+    package_unverified: &crate::schema::ir::frozen::unit::ConfigValue,
+    package_settings: &crate::settings::SettingsDict,
+) -> Result<()> {
+    let mut problems = crate::schema::ir::compiler::settings::enforcement::check_package_annotation(
+        "unverified",
+        package_settings,
+        &crate::settings::SettingsSpans::default(),
+        "config.idp's `unverified` is held to the same gate as `@unverified`",
+    )
+    .err()
+    .unwrap_or_default();
+    problems.extend(validation::validator::check_package_unverified(package_unverified));
+    if problems.is_empty() {
+        return Ok(());
+    }
+    let rendered: Vec<String> = problems.iter().map(|d| crate::diagnostics::render(d, "config.idp", "")).collect();
+    bail!("config.idp's `unverified` is invalid:\n{}", rendered.join("\n\n"))
 }
 
 /// Whether `name`, as a schema with these `declarations` uses it, is a

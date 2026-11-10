@@ -396,3 +396,211 @@ fn it_stays_unbounded_through_a_rename_a_struct_and_another_schema() {
         "{err}"
     );
 }
+
+// The package's own `unverified`, in `config.idp`: why the package gives up
+// what its own settings give up, once for every protocol that takes them.
+
+const WHY: &str = "the gateway pins schemas by contract";
+
+/// A package with no handshake, its `unverified` as given.
+fn without_handshake(unverified: &str) -> String {
+    config(&format!("handshake = \"none\"\n{unverified}{ALLOW}"))
+}
+
+/// `unverified`, keyed, with `WHY` for what a `none` handshake gives up.
+const PACKAGE_KEYED: &str =
+    "unverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    \
+     encoding_agreement = \"the gateway pins schemas by contract\"\n}\n";
+
+const BARE: &str = "protocol P {\n    function f();\n}\n";
+
+fn package_reasons() -> ConfigValue {
+    ConfigValue::Dict(vec![
+        ("schema_agreement".into(), ConfigValue::Str(WHY.into())),
+        ("encoding_agreement".into(), ConfigValue::Str(WHY.into())),
+    ])
+}
+
+#[test]
+fn a_package_acknowledgement_covers_a_protocol_that_takes_the_package_handshake() {
+    let (units, warnings) = compile(&without_handshake(PACKAGE_KEYED), BARE).unwrap();
+    let params = protocol_params(&units, "P");
+    // What's given up is what core works out, marker or not.
+    assert_eq!(
+        unverified::frozen_set(params),
+        [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement]
+    );
+    assert_eq!(unverified::marker(params), None);
+    assert_eq!(unverified::package_scope(params), Some(&package_reasons()));
+    assert_eq!(unverified::reason_for(params, Guarantee::SchemaAgreement), Some(WHY));
+    assert_eq!(warnings, ["unverified::schema-agreement", "unverified::encoding-agreement"]);
+
+    // Consumers are shown the package's reasons.
+    let set = [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement];
+    assert_eq!(
+        unverified::protocols(&units),
+        [(
+            "P",
+            &set[..],
+            Some(format!("schema agreement \"{WHY}\", encoding agreement \"{WHY}\""))
+        )]
+    );
+}
+
+#[test]
+fn the_plain_form_covers_every_guarantee_a_package_setting_gives_up() {
+    let config = without_handshake(&format!("unverified = \"{WHY}\"\n"));
+    let (units, _) = compile(&config, BARE).unwrap();
+    let params = protocol_params(&units, "P");
+    assert_eq!(unverified::frozen_set(params).len(), 2);
+    // Frozen as the dictionary, the plain reason for each guarantee covered.
+    assert_eq!(unverified::package_scope(params), Some(&package_reasons()));
+}
+
+#[test]
+fn a_protocol_with_its_own_handshake_is_not_covered() {
+    let own = "@handshake = \"none\"\nprotocol Q {\n    function g();\n}\n";
+    let schema = format!("{BARE}\n{own}");
+    let err = format!("{:?}", compile(&without_handshake(PACKAGE_KEYED), &schema).unwrap_err());
+    assert!(err.contains("unverified::missing-marker"), "{err}");
+    assert!(err.contains("protocol `Q` gives up schema agreement and encoding agreement"), "{err}");
+    assert!(!err.contains("protocol `P` gives up"), "{err}");
+
+    // A protocol can't write the property the compiler freezes the package's
+    // reasons in: only the compiler says what the package covers.
+    let forged = "@handshake = \"none\"\n\
+         @unverified_package = {\n    schema_agreement = \"mine\",\n    encoding_agreement = \"mine\"\n}\n\
+         protocol Q {\n    function g();\n}\n";
+    let err = format!("{:?}", compile(&without_handshake(PACKAGE_KEYED), forged).unwrap_err());
+    assert!(err.contains("unverified::missing-marker"), "{err}");
+}
+
+#[test]
+fn bounded_size_is_not_the_packages_to_acknowledge() {
+    // The handshake's losses are covered; the unbounded string isn't.
+    let unbounded = "protocol P {\n    function put(s: string);\n}\n";
+    let err = format!("{:?}", compile(&without_handshake(PACKAGE_KEYED), unbounded).unwrap_err());
+    assert!(err.contains("argument `s`: `string` has no maximum"), "{err}");
+
+    let keyed = format!("unverified = {{ bounded_size = \"{WHY}\" }}\n");
+    let err = format!("{:?}", compile(&without_handshake(&keyed), BARE).unwrap_err());
+    assert!(err.contains("unverified::wrong-scope"), "{err}");
+    assert!(
+        err.contains("`bounded_size` can't be acknowledged at package scope; the scopes it allows are protocol, function, argument, field, type"),
+        "{err}"
+    );
+}
+
+#[test]
+fn the_package_acknowledgement_is_checked_like_a_marker() {
+    let err = format!("{:?}", compile(&without_handshake("unverified = { schema_agreemnt = \"x\" }\n"), BARE).unwrap_err());
+    assert!(err.contains("unverified::unknown-guarantee"), "{err}");
+    assert!(err.contains("`schema_agreemnt` isn't a guarantee - did you mean `schema_agreement`?"), "{err}");
+
+    for reason in ["\"\"", "\"  \"", "true"] {
+        let keyed = format!("unverified = {{ schema_agreement = {reason} }}\n");
+        let err = format!("{:?}", compile(&without_handshake(&keyed), BARE).unwrap_err());
+        assert!(err.contains("unverified::missing-reason"), "{reason}: {err}");
+        assert!(err.contains("needs a reason for `schema_agreement`"), "{reason}: {err}");
+    }
+    let err = format!("{:?}", compile(&without_handshake("unverified = \"\"\n"), BARE).unwrap_err());
+    assert!(err.contains("unverified::missing-reason"), "{err}");
+
+    let twice = "unverified = { schema_agreement = \"a\" schema_agreement = \"b\" }\n";
+    let err = format!("{:?}", compile(&without_handshake(twice), BARE).unwrap_err());
+    assert!(err.contains("unverified::duplicate-guarantee"), "{err}");
+}
+
+#[test]
+fn a_guarantee_no_protocol_gives_up_through_the_package_is_a_warning() {
+    let keyed = format!(
+        "unverified = {{\n    schema_agreement = \"{WHY}\"\n    encoding_agreement = \"{WHY}\"\n    \
+         version_honesty = \"just in case\"\n}}\n"
+    );
+    let (units, warnings) = compile(&without_handshake(&keyed), BARE).unwrap();
+    assert!(warnings.contains(&"unverified::not-given-up".to_string()), "{warnings:?}");
+    // It isn't in what the protocol is covered for.
+    assert_eq!(unverified::package_reason_for(protocol_params(&units, "P"), Guarantee::VersionHonesty), None);
+
+    // The handshake is the default one: there's nothing for it to cover.
+    let (units, warnings) = compile(&config(&format!("{PACKAGE_KEYED}{ALLOW}")), BARE).unwrap();
+    assert_eq!(warnings.iter().filter(|w| *w == "unverified::not-given-up").count(), 2, "{warnings:?}");
+    assert_eq!(unverified::package_scope(protocol_params(&units, "P")), None);
+    assert!(unverified::frozen_set(protocol_params(&units, "P")).is_empty());
+}
+
+#[test]
+fn a_keyed_marker_need_not_list_what_the_package_covers() {
+    let unbounded = |marker: &str| format!("{marker}protocol P {{\n    function put(s: string);\n}}\n");
+    let only_bounded = unbounded("@unverified = { bounded_size = \"the uploader streams whatever it's given\" }\n");
+    let (units, _) = compile(&without_handshake(PACKAGE_KEYED), &only_bounded).unwrap();
+    let params = protocol_params(&units, "P");
+    assert_eq!(
+        unverified::frozen_set(params),
+        [Guarantee::SchemaAgreement, Guarantee::EncodingAgreement, Guarantee::BoundedSize]
+    );
+    // Its own reason for one, the package's for the rest.
+    assert_eq!(
+        unverified::reason_for(params, Guarantee::BoundedSize),
+        Some("the uploader streams whatever it's given")
+    );
+    assert_eq!(unverified::reason_for(params, Guarantee::EncodingAgreement), Some(WHY));
+
+    // Listing one the package covers is fine too, and its own reason wins.
+    let both = unbounded(
+        "@unverified = {\n    schema_agreement = \"mine\",\n    bounded_size = \"the uploader streams whatever it's given\"\n}\n",
+    );
+    let (units, warnings) = compile(&without_handshake(PACKAGE_KEYED), &both).unwrap();
+    assert!(!warnings.contains(&"unverified::not-given-up".to_string()), "{warnings:?}");
+    assert_eq!(unverified::reason_for(protocol_params(&units, "P"), Guarantee::SchemaAgreement), Some("mine"));
+
+    // Without the package, the same marker leaves them unsaid.
+    let err = format!("{:?}", compile(&config(&format!("handshake = \"none\"\n{ALLOW}")), &only_bounded).unwrap_err());
+    assert!(err.contains("unverified::missing-guarantee"), "{err}");
+}
+
+#[test]
+fn a_package_acknowledgement_is_off_without_the_gate() {
+    let config = config(&format!("handshake = \"none\"\n{PACKAGE_KEYED}"));
+    let err = format!("{:?}", compile(&config, BARE).unwrap_err());
+    assert!(err.contains("annotations.unverified.allowed"), "{err}");
+    assert!(err.contains("config.idp's `unverified`"), "{err}");
+}
+
+#[test]
+fn rewording_the_package_reason_is_a_patch_and_moving_it_is_too() {
+    let compiled = |config: &str, schema: &str| compile(config, schema).unwrap().0;
+    let old = compiled(&without_handshake(PACKAGE_KEYED), BARE);
+    let reworded = compiled(&without_handshake(&PACKAGE_KEYED.replace("pins schemas", "fixes the schemas")), BARE);
+    let changes = analyze_schema_changes(&old, &reworded);
+    assert!(changes.breaking_changes.is_empty(), "{:?}", changes.breaking_changes);
+    assert!(changes.new_features.is_empty(), "{:?}", changes.new_features);
+    assert!(matches!(
+        changes.modifications.as_slice(),
+        [Modification::ChangedAnnotation { key, .. }] if key == "unverified_package"
+    ));
+
+    // The protocol says it itself, as it could before: the same set is given
+    // up, so this changes what's said and no more.
+    let own = compiled(&without_handshake(""), NONE_MARKED.replace("@handshake = \"none\"\n", "").as_str());
+    let changes = analyze_schema_changes(&old, &own);
+    assert!(changes.breaking_changes.is_empty(), "{:?}", changes.breaking_changes);
+    assert!(changes.new_features.is_empty(), "{:?}", changes.new_features);
+    assert!(matches!(
+        changes.modifications.as_slice(),
+        [Modification::ChangedAnnotation { key, .. }] if key == "unverified_package"
+    ));
+
+    // What's given up decides major and minor, not who says why.
+    let plain = compiled(&config(ALLOW), BARE);
+    let changes = analyze_schema_changes(&plain, &old);
+    assert!(changes.breaking_changes.iter().any(|c| matches!(
+        c,
+        BreakingChange::GaveUpGuarantees { guarantees, .. } if guarantees.len() == 2
+    )));
+    let changes = analyze_schema_changes(&old, &plain);
+    assert!(changes.new_features.iter().any(|c| matches!(
+        c,
+        NewFeature::RestoredGuarantees { guarantees, .. } if guarantees.len() == 2
+    )));
+}

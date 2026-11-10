@@ -1856,7 +1856,11 @@ fn compare_parameters_with(
             // A wire number: judged by `compare_id`, which knows the framing.
             "id" => {}
             // Adding or removing the marker is judged by the set it freezes,
-            // below; only a reworded reason is reported here.
+            // below; only a reworded reason is reported here. What the
+            // package's `unverified` says for the protocol (`unverified_package`)
+            // is reported whenever it changes, and as a patch: the reason
+            // moving between the package and the marker, or being reworded,
+            // changes nothing a peer sees, and what's given up is judged below.
             "unverified" if old_value.is_none() || new_value.is_none() => {}
             // A depth limit is a bound: raising it breaks old receivers,
             // lowering it old senders.
