@@ -44,3 +44,31 @@ proptest! {
         check::run(&spec, harness::build).map_err(TestCaseError::fail)?;
     }
 }
+
+/// Not a rule of `unverified`, a finding the generator works around: a
+/// dependency's `use s0::T`, naming a sibling schema of its own package, is
+/// resolved against the consumer's schema `s0` where it has one, so two
+/// packages that each have an `s0` and import across them are reported as an
+/// import cycle (`p0::s1 -> s0 -> p0::s1`). The graphs here name schemas per
+/// package (`s00`, `s10`), which doesn't happen.
+#[test]
+#[ignore = "core: a dependency's `use` of its own sibling schema resolves to the consumer's schema of the same name (a false import cycle)"]
+fn a_dependencys_use_of_its_sibling_schema_is_not_the_consumers() {
+    let files = [
+        ("p0/config.idp", "congregation p0\nspecification_version = 1\n"),
+        ("p0/src/s0.ids", "struct A {\n    f0: char[max 64]\n}\n"),
+        ("p0/src/s1.ids", "use s0::A\n\nstruct B {\n    f0: A\n}\n"),
+        (
+            "p1/config.idp",
+            "congregation p1\nspecification_version = 1\ndependencies = {\n    p0 = {\n        path = \"../p0\"\n    }\n}\n",
+        ),
+        ("p1/src/s0.ids", "use p0::s1::B\n\nprotocol Q {\n    function f(a0: B);\n}\n"),
+    ];
+    let tmp = tempfile::tempdir().unwrap();
+    for (path, text) in files {
+        let path = tmp.path().join(path);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, text).unwrap();
+    }
+    comline_core::package::build::compile_package(&tmp.path().join("p1")).expect("p1 builds");
+}
