@@ -33,6 +33,9 @@ pub struct Stats {
     pub built_with_dependencies: u32,
     /// Protocols, among those that built, frozen as giving up each guarantee.
     pub frozen: BTreeMap<&'static str, u32>,
+    /// Protocols of packages other than the root whose frozen set was
+    /// compared (those the build holds).
+    pub dependency_protocols_compared: u32,
     /// Graphs whose upstream change turned a build into a refusal, or back.
     pub change_flipped: u32,
 }
@@ -44,6 +47,7 @@ impl Stats {
         self.refused += other.refused;
         self.built_with_dependencies += other.built_with_dependencies;
         self.change_flipped += other.change_flipped;
+        self.dependency_protocols_compared += other.dependency_protocols_compared;
         for (k, v) in &other.refused_for {
             *self.refused_for.entry(k).or_default() += v;
         }
@@ -88,7 +92,8 @@ const KINDS: &[(&str, &[&str])] = &[
 ];
 
 /// Whether `observed` is what the oracle predicts for `m`'s root.
-pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
+/// On agreement, how many protocols of packages other than the root it compared.
+pub fn agrees(m: &Model, observed: &Observed) -> Result<u32, String> {
     let prediction = predict(m, m.root());
     match (&prediction, observed) {
         (Prediction::Fails(reasons), Observed::Failed(error)) => {
@@ -97,7 +102,7 @@ pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
             let says = |kind: &str| reasons.iter().any(|r| r.starts_with(&format!("[{kind}]")));
             let explained = KINDS.iter().any(|(kind, signs)| says(kind) && signs.iter().any(|sign| error.contains(sign)));
             if explained {
-                Ok(())
+                Ok(0)
             } else {
                 Err(format!("core refused it, but not for what the oracle says:\n  {}\ncore said:\n{error}", reasons.join("\n  ")))
             }
@@ -108,6 +113,7 @@ pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
         (Prediction::Builds(_), Observed::Failed(error)) => Err(format!("core refused it; the oracle says it builds. core said:\n{error}")),
         (Prediction::Builds(expected), Observed::Built(found)) => {
             let mut problems = vec![];
+            let mut compared = 0;
             // Every protocol of the root's own package is in the build, and
             // each one the build holds that is one of the graph's gives up
             // what the oracle says.
@@ -120,13 +126,14 @@ pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
                 }
                 let want: BTreeSet<String> = set.iter().map(|g: &G| g.name().to_string()).collect();
                 for got in seen {
+                    compared += (!in_root) as u32;
                     if *got != want {
                         problems.push(format!("{name}: core froze {got:?}, the oracle says {want:?}"));
                     }
                 }
             }
             if problems.is_empty() {
-                Ok(())
+                Ok(compared)
             } else {
                 Err(problems.join("\n"))
             }
@@ -150,7 +157,9 @@ pub fn run(spec: &Spec, mut build: impl FnMut(&Model) -> Observed) -> Result<Sta
         stats.count(&m);
         decided.push(predict(&m, m.root()).is_builds());
         let observed = build(&m);
-        agrees(&m, &observed).map_err(|why| format!("{what}: {why}\n\nthe packages (p{} is built):\n{}", m.root(), m.describe()))?;
+        let compared = agrees(&m, &observed)
+            .map_err(|why| format!("{what}: {why}\n\nthe packages (p{} is built):\n{}", m.root(), m.describe()))?;
+        stats.dependency_protocols_compared += compared;
     }
     stats.change_flipped += (decided.len() == 2 && decided[0] != decided[1]) as u32;
     Ok(stats)
