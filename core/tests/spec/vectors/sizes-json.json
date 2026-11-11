@@ -1,0 +1,5639 @@
+{
+  "$schema": "../specs/gen/vectors.schema.json",
+  "feature": "sizes-json",
+  "cases": [
+    {
+      "id": "sizes-json/bool",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 5,
+        "min": 4,
+        "type": "bool",
+        "witnesses": {
+          "max": {
+            "bytes": "66616c7365",
+            "value": {
+              "bool": false
+            }
+          },
+          "min": {
+            "bytes": "74727565",
+            "value": {
+              "bool": true
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/u8",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 3,
+        "min": 1,
+        "type": "u8",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "31",
+              "value": {
+                "u8": 1
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "u8": 128
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "u8": 255
+              }
+            }
+          ],
+          "max": {
+            "bytes": "313237",
+            "value": {
+              "u8": 127
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "u8": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/u16",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 5,
+        "min": 1,
+        "type": "u16",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "313237",
+              "value": {
+                "u16": 127
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "u16": 128
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "u16": 255
+              }
+            },
+            {
+              "bytes": "323536",
+              "value": {
+                "u16": 256
+              }
+            }
+          ],
+          "max": {
+            "bytes": "3635353335",
+            "value": {
+              "u16": 65535
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "u16": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/u32",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 10,
+        "min": 1,
+        "type": "u32",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "313237",
+              "value": {
+                "u32": 127
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "u32": 128
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "u32": 255
+              }
+            },
+            {
+              "bytes": "323536",
+              "value": {
+                "u32": 256
+              }
+            },
+            {
+              "bytes": "3635353335",
+              "value": {
+                "u32": 65535
+              }
+            },
+            {
+              "bytes": "3635353336",
+              "value": {
+                "u32": 65536
+              }
+            }
+          ],
+          "max": {
+            "bytes": "34323934393637323935",
+            "value": {
+              "u32": 4294967295
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "u32": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/u64",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 20,
+        "min": 1,
+        "type": "u64",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "313237",
+              "value": {
+                "u64": "127"
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "u64": "128"
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "u64": "255"
+              }
+            },
+            {
+              "bytes": "323536",
+              "value": {
+                "u64": "256"
+              }
+            },
+            {
+              "bytes": "3635353335",
+              "value": {
+                "u64": "65535"
+              }
+            },
+            {
+              "bytes": "3635353336",
+              "value": {
+                "u64": "65536"
+              }
+            },
+            {
+              "bytes": "34323934393637323935",
+              "value": {
+                "u64": "4294967295"
+              }
+            },
+            {
+              "bytes": "34323934393637323936",
+              "value": {
+                "u64": "4294967296"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "3138343436373434303733373039353531363135",
+            "value": {
+              "u64": "18446744073709551615"
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "u64": "0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/u128",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 39,
+        "min": 1,
+        "type": "u128",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "31",
+              "value": {
+                "u128": "1"
+              }
+            },
+            {
+              "bytes": "3138343436373434303733373039353531363136",
+              "value": {
+                "u128": "18446744073709551616"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "333430323832333636393230393338343633343633333734363037343331373638323131343535",
+            "value": {
+              "u128": "340282366920938463463374607431768211455"
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "u128": "0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/i8",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 4,
+        "min": 1,
+        "type": "i8",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2d31",
+              "value": {
+                "i8": -1
+              }
+            },
+            {
+              "bytes": "2d3332",
+              "value": {
+                "i8": -32
+              }
+            },
+            {
+              "bytes": "2d3333",
+              "value": {
+                "i8": -33
+              }
+            },
+            {
+              "bytes": "313237",
+              "value": {
+                "i8": 127
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d313238",
+            "value": {
+              "i8": -128
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "i8": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/i16",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 6,
+        "min": 1,
+        "type": "i16",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2d31",
+              "value": {
+                "i16": -1
+              }
+            },
+            {
+              "bytes": "2d3333",
+              "value": {
+                "i16": -33
+              }
+            },
+            {
+              "bytes": "2d313238",
+              "value": {
+                "i16": -128
+              }
+            },
+            {
+              "bytes": "2d313239",
+              "value": {
+                "i16": -129
+              }
+            },
+            {
+              "bytes": "313237",
+              "value": {
+                "i16": 127
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "i16": 128
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "i16": 255
+              }
+            },
+            {
+              "bytes": "323536",
+              "value": {
+                "i16": 256
+              }
+            },
+            {
+              "bytes": "3332373637",
+              "value": {
+                "i16": 32767
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d3332373638",
+            "value": {
+              "i16": -32768
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "i16": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/i32",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 11,
+        "min": 1,
+        "type": "i32",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2d31",
+              "value": {
+                "i32": -1
+              }
+            },
+            {
+              "bytes": "2d313238",
+              "value": {
+                "i32": -128
+              }
+            },
+            {
+              "bytes": "2d313239",
+              "value": {
+                "i32": -129
+              }
+            },
+            {
+              "bytes": "2d3332373638",
+              "value": {
+                "i32": -32768
+              }
+            },
+            {
+              "bytes": "2d3332373639",
+              "value": {
+                "i32": -32769
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "i32": 255
+              }
+            },
+            {
+              "bytes": "323536",
+              "value": {
+                "i32": 256
+              }
+            },
+            {
+              "bytes": "3635353335",
+              "value": {
+                "i32": 65535
+              }
+            },
+            {
+              "bytes": "3635353336",
+              "value": {
+                "i32": 65536
+              }
+            },
+            {
+              "bytes": "32313437343833363437",
+              "value": {
+                "i32": 2147483647
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d32313437343833363438",
+            "value": {
+              "i32": -2147483648
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "i32": 0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/i64",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 20,
+        "min": 1,
+        "type": "i64",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2d31",
+              "value": {
+                "i64": "-1"
+              }
+            },
+            {
+              "bytes": "2d3332373639",
+              "value": {
+                "i64": "-32769"
+              }
+            },
+            {
+              "bytes": "2d32313437343833363439",
+              "value": {
+                "i64": "-2147483649"
+              }
+            },
+            {
+              "bytes": "2d32313437343833363438",
+              "value": {
+                "i64": "-2147483648"
+              }
+            },
+            {
+              "bytes": "3635353336",
+              "value": {
+                "i64": "65536"
+              }
+            },
+            {
+              "bytes": "34323934393637323935",
+              "value": {
+                "i64": "4294967295"
+              }
+            },
+            {
+              "bytes": "34323934393637323936",
+              "value": {
+                "i64": "4294967296"
+              }
+            },
+            {
+              "bytes": "39323233333732303336383534373735383037",
+              "value": {
+                "i64": "9223372036854775807"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d39323233333732303336383534373735383038",
+            "value": {
+              "i64": "-9223372036854775808"
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "i64": "0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/i128",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 40,
+        "min": 1,
+        "type": "i128",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2d31",
+              "value": {
+                "i128": "-1"
+              }
+            },
+            {
+              "bytes": "31323637363530363030323238323239343031343936373033323035333736",
+              "value": {
+                "i128": "1267650600228229401496703205376"
+              }
+            },
+            {
+              "bytes": "313730313431313833343630343639323331373331363837333033373135383834313035373237",
+              "value": {
+                "i128": "170141183460469231731687303715884105727"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d313730313431313833343630343639323331373331363837333033373135383834313035373238",
+            "value": {
+              "i128": "-170141183460469231731687303715884105728"
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "i128": "0"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/f32",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 16,
+        "min": 3,
+        "type": "f32",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "312e30",
+              "value": {
+                "f32": 1.0
+              }
+            },
+            {
+              "bytes": "2d302e3235",
+              "value": {
+                "f32": -0.25
+              }
+            },
+            {
+              "bytes": "3132333435362e3739",
+              "value": {
+                "f32": 123456.7890625
+              }
+            },
+            {
+              "bytes": "302e303030303132333435363739",
+              "value": {
+                "f32": 0.000012345679351710714
+              }
+            },
+            {
+              "bytes": "2d302e303030303132333435363739",
+              "value": {
+                "f32": -0.000012345679351710714
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d363233333637363330303030302e30",
+            "value": {
+              "f32": -6233676316672.0
+            }
+          },
+          "min": {
+            "bytes": "302e30",
+            "value": {
+              "f32": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/f64",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 24,
+        "min": 3,
+        "type": "f64",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "312e30",
+              "value": {
+                "f64": 1.0
+              }
+            },
+            {
+              "bytes": "2d302e3235",
+              "value": {
+                "f64": -0.25
+              }
+            },
+            {
+              "bytes": "3132333435363738392e313235",
+              "value": {
+                "f64": 123456789.125
+              }
+            },
+            {
+              "bytes": "302e3030303031",
+              "value": {
+                "f64": 0.00001
+              }
+            },
+            {
+              "bytes": "313030303030303030303030303030302e30",
+              "value": {
+                "f64": 1000000000000000.0
+              }
+            }
+          ],
+          "max": {
+            "bytes": "2d302e303030303132363130343730353435353235333237",
+            "value": {
+              "f64": -0.000012610470545525327
+            }
+          },
+          "min": {
+            "bytes": "302e30",
+            "value": {
+              "f64": 0.0
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/char",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 8,
+        "min": 3,
+        "type": "char",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22c3a922",
+              "value": {
+                "char": "é"
+              }
+            },
+            {
+              "bytes": "22e282ac22",
+              "value": {
+                "char": "€"
+              }
+            },
+            {
+              "bytes": "22f09f988022",
+              "value": {
+                "char": "😀"
+              }
+            },
+            {
+              "bytes": "225c2222",
+              "value": {
+                "char": "\""
+              }
+            },
+            {
+              "bytes": "225c6e22",
+              "value": {
+                "char": "\n"
+              }
+            },
+            {
+              "bytes": "227f22",
+              "value": {
+                "char": ""
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c753030303122",
+            "value": {
+              "char": "\u0001"
+            }
+          },
+          "min": {
+            "bytes": "226122",
+            "value": {
+              "char": "a"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/unit",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 4,
+        "min": 4,
+        "type": "unit",
+        "witnesses": {
+          "max": {
+            "bytes": "6e756c6c",
+            "value": {
+              "unit": null
+            }
+          },
+          "min": {
+            "bytes": "6e756c6c",
+            "value": {
+              "unit": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-unbounded",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": null,
+        "min": 2,
+        "type": "string",
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "226122",
+              "value": {
+                "string": "a"
+              }
+            },
+            {
+              "bytes": "2261616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "226161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "226161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "226161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "226161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "2268c3a96c6c6f22",
+              "value": {
+                "string": "héllo"
+              }
+            },
+            {
+              "bytes": "22f09f988022",
+              "value": {
+                "string": "😀"
+              }
+            },
+            {
+              "bytes": "22736179205c2268695c225c6e22",
+              "value": {
+                "string": "say \"hi\"\n"
+              }
+            },
+            {
+              "bytes": "225c5c22",
+              "value": {
+                "string": "\\"
+              }
+            },
+            {
+              "bytes": "225c75303030315c753030316622",
+              "value": {
+                "string": "\u0001\u001f"
+              }
+            },
+            {
+              "bytes": "22e282ac6122",
+              "value": {
+                "string": "€a"
+              }
+            }
+          ],
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-0",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 2,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 0
+          }
+        },
+        "witnesses": {
+          "max": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-1",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 8,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 1
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "226122",
+              "value": {
+                "string": "a"
+              }
+            },
+            {
+              "bytes": "22c3a922",
+              "value": {
+                "string": "é"
+              }
+            },
+            {
+              "bytes": "22e282ac22",
+              "value": {
+                "string": "€"
+              }
+            },
+            {
+              "bytes": "225c2222",
+              "value": {
+                "string": "\""
+              }
+            },
+            {
+              "bytes": "225c5c22",
+              "value": {
+                "string": "\\"
+              }
+            },
+            {
+              "bytes": "22f09f988022",
+              "value": {
+                "string": "😀"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c753030303122",
+            "value": {
+              "string": "\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-3",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 20,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 3
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2261616122",
+              "value": {
+                "string": "aaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a922",
+              "value": {
+                "string": "ééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ac22",
+              "value": {
+                "string": "€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c2222",
+              "value": {
+                "string": "\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a922",
+              "value": {
+                "string": "éé"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-7",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 44,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 7
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "226161616161616122",
+              "value": {
+                "string": "aaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "ééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "222022",
+              "value": {
+                "string": " "
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-8",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 50,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 8
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22616161616161616122",
+              "value": {
+                "string": "aaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "éééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "22c3a922",
+              "value": {
+                "string": "é"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-31",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 188,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 31
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "226161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "ééééééééééééééééééééééééééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "22c3a9e282ac22",
+              "value": {
+                "string": "é€"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-32",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 194,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 32
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "éééééééééééééééééééééééééééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "22f09f98806122",
+              "value": {
+                "string": "😀a"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-63",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 380,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 63
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2261616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "ééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "227f7f22",
+              "value": {
+                "string": ""
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-max-64",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 386,
+        "min": 2,
+        "type": {
+          "bounded_string": {
+            "max": 64
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "226161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616161616122",
+              "value": {
+                "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+              }
+            },
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c5c22",
+              "value": {
+                "string": "\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\\"
+              }
+            },
+            {
+              "bytes": "225c753030303122",
+              "value": {
+                "string": "\u0001"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "string": ""
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-fixed-3",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 20,
+        "min": 5,
+        "type": {
+          "fixed_string": {
+            "len": 3
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22c3a9c3a9c3a922",
+              "value": {
+                "string": "ééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ac22",
+              "value": {
+                "string": "€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c2222",
+              "value": {
+                "string": "\"\"\""
+              }
+            },
+            {
+              "bytes": "222061e282ac22",
+              "value": {
+                "string": " a€"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "2261616122",
+            "value": {
+              "string": "aaa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-fixed-8",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 50,
+        "min": 10,
+        "type": {
+          "fixed_string": {
+            "len": 8
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "éééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "225c7530303031e282ac7f5c6e5c7530303031e282ac7ff09f988022",
+              "value": {
+                "string": "\u0001€\n\u0001€😀"
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "22616161616161616122",
+            "value": {
+              "string": "aaaaaaaa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/string-fixed-32",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 194,
+        "min": 34,
+        "type": {
+          "fixed_string": {
+            "len": 32
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a9c3a922",
+              "value": {
+                "string": "éééééééééééééééééééééééééééééééé"
+              }
+            },
+            {
+              "bytes": "22e282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ace282ac22",
+              "value": {
+                "string": "€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€€"
+              }
+            },
+            {
+              "bytes": "225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c225c2222",
+              "value": {
+                "string": "\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\"\""
+              }
+            },
+            {
+              "bytes": "22615c753030303161622062f09f98806262e282ac7f5c227f5c6e7f5c5c5c7530303031f09f9880e282ac615c5c5c5c5c75303030315c7530303031f09f98805c6e2020615c7530303031c3a95c2222",
+              "value": {
+                "string": "a\u0001ab b😀bb€\"\n\\\u0001😀€a\\\\\u0001\u0001😀\n  a\u0001é\""
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c753030303122",
+            "value": {
+              "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+            }
+          },
+          "min": {
+            "bytes": "22616161616161616161616161616161616161616161616161616161616161616122",
+            "value": {
+              "string": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-unbounded",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": null,
+        "min": 2,
+        "type": {
+          "array": "u8"
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b305d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b302c315d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 1
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b302c312c325d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 1
+                  },
+                  {
+                    "u8": 2
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b302c312c322c332c342c352c362c372c382c392c31302c31312c31322c31332c31342c31352c31362c31372c31382c31395d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 1
+                  },
+                  {
+                    "u8": 2
+                  },
+                  {
+                    "u8": 3
+                  },
+                  {
+                    "u8": 4
+                  },
+                  {
+                    "u8": 5
+                  },
+                  {
+                    "u8": 6
+                  },
+                  {
+                    "u8": 7
+                  },
+                  {
+                    "u8": 8
+                  },
+                  {
+                    "u8": 9
+                  },
+                  {
+                    "u8": 10
+                  },
+                  {
+                    "u8": 11
+                  },
+                  {
+                    "u8": 12
+                  },
+                  {
+                    "u8": 13
+                  },
+                  {
+                    "u8": 14
+                  },
+                  {
+                    "u8": 15
+                  },
+                  {
+                    "u8": 16
+                  },
+                  {
+                    "u8": 17
+                  },
+                  {
+                    "u8": 18
+                  },
+                  {
+                    "u8": 19
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c3235352c3235355d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  }
+                ]
+              }
+            }
+          ],
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-unbounded-strings",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": null,
+        "min": 2,
+        "type": {
+          "array": "string"
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b2261222c226263222c22225d",
+              "value": {
+                "array": [
+                  {
+                    "string": "a"
+                  },
+                  {
+                    "string": "bc"
+                  },
+                  {
+                    "string": ""
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b22f09f9880f09f9880f09f9880225d",
+              "value": {
+                "array": [
+                  {
+                    "string": "😀😀😀"
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b22225d",
+              "value": {
+                "array": [
+                  {
+                    "string": ""
+                  }
+                ]
+              }
+            }
+          ],
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-max-0",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 2,
+        "min": 2,
+        "type": {
+          "bounded_array": {
+            "max": 0,
+            "of": "u8"
+          }
+        },
+        "witnesses": {
+          "max": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          },
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-max-1",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 5,
+        "min": 2,
+        "type": {
+          "bounded_array": {
+            "max": 1,
+            "of": "u8"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b305d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235355d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 255
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b3132375d",
+            "value": {
+              "array": [
+                {
+                  "u8": 127
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-max-3",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 13,
+        "min": 2,
+        "type": {
+          "bounded_array": {
+            "max": 3,
+            "of": "u8"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b302c302c305d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 0
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c3235352c3235355d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b375d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 7
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b302c3132375d",
+              "value": {
+                "array": [
+                  {
+                    "u8": 0
+                  },
+                  {
+                    "u8": 127
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b3132372c3132372c3132375d",
+            "value": {
+              "array": [
+                {
+                  "u8": 127
+                },
+                {
+                  "u8": 127
+                },
+                {
+                  "u8": 127
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-max-2-of-strings",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 31,
+        "min": 2,
+        "type": {
+          "bounded_array": {
+            "max": 2,
+            "of": {
+              "bounded_string": {
+                "max": 2
+              }
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b226162222c22f09f9880f09f9880225d",
+              "value": {
+                "array": [
+                  {
+                    "string": "ab"
+                  },
+                  {
+                    "string": "😀😀"
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b22225d",
+              "value": {
+                "array": [
+                  {
+                    "string": ""
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b22c3a9e282ac222c225c75303030315c7530303031225d",
+              "value": {
+                "array": [
+                  {
+                    "string": "é€"
+                  },
+                  {
+                    "string": "\u0001\u0001"
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b22222c22e282ac5c6e225d",
+              "value": {
+                "array": [
+                  {
+                    "string": ""
+                  },
+                  {
+                    "string": "€\n"
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b225c75303030315c7530303031222c225c75303030315c7530303031225d",
+            "value": {
+              "array": [
+                {
+                  "string": "\u0001\u0001"
+                },
+                {
+                  "string": "\u0001\u0001"
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/array-max-3-of-options",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 16,
+        "min": 2,
+        "type": {
+          "bounded_array": {
+            "max": 3,
+            "of": {
+              "option": "u8"
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b6e756c6c2c3235352c305d",
+              "value": {
+                "array": [
+                  {
+                    "option": null
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 0
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c3235352c3235355d",
+              "value": {
+                "array": [
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c6e756c6c5d",
+              "value": {
+                "array": [
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": null
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b6e756c6c2c6e756c6c2c6e756c6c5d",
+            "value": {
+              "array": [
+                {
+                  "option": null
+                },
+                {
+                  "option": null
+                },
+                {
+                  "option": null
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b5d",
+            "value": {
+              "array": []
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/fixed-4",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 17,
+        "min": 9,
+        "type": {
+          "fixed": {
+            "len": 4,
+            "of": "u8"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b3235352c3235352c3235352c3235355d",
+              "value": {
+                "tuple": [
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b312c3230302c332c345d",
+              "value": {
+                "tuple": [
+                  {
+                    "u8": 1
+                  },
+                  {
+                    "u8": 200
+                  },
+                  {
+                    "u8": 3
+                  },
+                  {
+                    "u8": 4
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c3235352c312c3235355d",
+              "value": {
+                "tuple": [
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 255
+                  },
+                  {
+                    "u8": 1
+                  },
+                  {
+                    "u8": 255
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b3132372c3132372c3132372c3132375d",
+            "value": {
+              "tuple": [
+                {
+                  "u8": 127
+                },
+                {
+                  "u8": 127
+                },
+                {
+                  "u8": 127
+                },
+                {
+                  "u8": 127
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b302c302c302c305d",
+            "value": {
+              "tuple": [
+                {
+                  "u8": 0
+                },
+                {
+                  "u8": 0
+                },
+                {
+                  "u8": 0
+                },
+                {
+                  "u8": 0
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/fixed-1",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 7,
+        "min": 6,
+        "type": {
+          "fixed": {
+            "len": 1,
+            "of": "bool"
+          }
+        },
+        "witnesses": {
+          "max": {
+            "bytes": "5b66616c73655d",
+            "value": {
+              "tuple": [
+                {
+                  "bool": false
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b747275655d",
+            "value": {
+              "tuple": [
+                {
+                  "bool": true
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/fixed-2-of-strings",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 31,
+        "min": 7,
+        "type": {
+          "fixed": {
+            "len": 2,
+            "of": {
+              "bounded_string": {
+                "max": 2
+              }
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b226162222c22f09f9880f09f9880225d",
+              "value": {
+                "tuple": [
+                  {
+                    "string": "ab"
+                  },
+                  {
+                    "string": "😀😀"
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b225c5c7f222c22225d",
+              "value": {
+                "tuple": [
+                  {
+                    "string": "\\"
+                  },
+                  {
+                    "string": ""
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b225c75303030315c7530303031222c225c75303030315c7530303031225d",
+            "value": {
+              "tuple": [
+                {
+                  "string": "\u0001\u0001"
+                },
+                {
+                  "string": "\u0001\u0001"
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b22222c22225d",
+            "value": {
+              "tuple": [
+                {
+                  "string": ""
+                },
+                {
+                  "string": ""
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/fixed-3-of-options",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 16,
+        "min": 7,
+        "type": {
+          "fixed": {
+            "len": 3,
+            "of": {
+              "option": "u8"
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "5b6e756c6c2c3235352c305d",
+              "value": {
+                "tuple": [
+                  {
+                    "option": null
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 0
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3235352c3235352c3235355d",
+              "value": {
+                "tuple": [
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 255
+                    }
+                  }
+                ]
+              }
+            },
+            {
+              "bytes": "5b3132372c312c6e756c6c5d",
+              "value": {
+                "tuple": [
+                  {
+                    "option": {
+                      "u8": 127
+                    }
+                  },
+                  {
+                    "option": {
+                      "u8": 1
+                    }
+                  },
+                  {
+                    "option": null
+                  }
+                ]
+              }
+            }
+          ],
+          "max": {
+            "bytes": "5b6e756c6c2c6e756c6c2c6e756c6c5d",
+            "value": {
+              "tuple": [
+                {
+                  "option": null
+                },
+                {
+                  "option": null
+                },
+                {
+                  "option": null
+                }
+              ]
+            }
+          },
+          "min": {
+            "bytes": "5b302c302c305d",
+            "value": {
+              "tuple": [
+                {
+                  "option": {
+                    "u8": 0
+                  }
+                },
+                {
+                  "option": {
+                    "u8": 0
+                  }
+                },
+                {
+                  "option": {
+                    "u8": 0
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/option-u8",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 4,
+        "min": 1,
+        "type": {
+          "option": "u8"
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "313237",
+              "value": {
+                "option": {
+                  "u8": 127
+                }
+              }
+            },
+            {
+              "bytes": "313238",
+              "value": {
+                "option": {
+                  "u8": 128
+                }
+              }
+            },
+            {
+              "bytes": "323535",
+              "value": {
+                "option": {
+                  "u8": 255
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "6e756c6c",
+            "value": {
+              "option": null
+            }
+          },
+          "min": {
+            "bytes": "30",
+            "value": {
+              "option": {
+                "u8": 0
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/option-bool",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 5,
+        "min": 4,
+        "type": {
+          "option": "bool"
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "74727565",
+              "value": {
+                "option": {
+                  "bool": true
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "66616c7365",
+            "value": {
+              "option": {
+                "bool": false
+              }
+            }
+          },
+          "min": {
+            "bytes": "6e756c6c",
+            "value": {
+              "option": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/option-string",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": null,
+        "min": 2,
+        "type": {
+          "option": "string"
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "6e756c6c",
+              "value": {
+                "option": null
+              }
+            },
+            {
+              "bytes": "2268656c6c6f22",
+              "value": {
+                "option": {
+                  "string": "hello"
+                }
+              }
+            }
+          ],
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "option": {
+                "string": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/option-max-3-chars",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 20,
+        "min": 2,
+        "type": {
+          "option": {
+            "bounded_string": {
+              "max": 3
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "6e756c6c",
+              "value": {
+                "option": null
+              }
+            },
+            {
+              "bytes": "22616222",
+              "value": {
+                "option": {
+                  "string": "ab"
+                }
+              }
+            },
+            {
+              "bytes": "22f09f9880f09f9880f09f988022",
+              "value": {
+                "option": {
+                  "string": "😀😀😀"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "225c75303030315c75303030315c753030303122",
+            "value": {
+              "option": {
+                "string": "\u0001\u0001\u0001"
+              }
+            }
+          },
+          "min": {
+            "bytes": "2222",
+            "value": {
+              "option": {
+                "string": ""
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/option-struct",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 33,
+        "min": 4,
+        "type": {
+          "option": {
+            "struct": {
+              "fields": [
+                [
+                  "x",
+                  "i32"
+                ],
+                [
+                  "y",
+                  "i32"
+                ]
+              ],
+              "name": "Point"
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b2278223a302c2279223a307d",
+              "value": {
+                "option": {
+                  "struct": {
+                    "fields": [
+                      [
+                        "x",
+                        {
+                          "i32": 0
+                        }
+                      ],
+                      [
+                        "y",
+                        {
+                          "i32": 0
+                        }
+                      ]
+                    ],
+                    "name": "Point"
+                  }
+                }
+              }
+            },
+            {
+              "bytes": "7b2278223a2d312c2279223a3330307d",
+              "value": {
+                "option": {
+                  "struct": {
+                    "fields": [
+                      [
+                        "x",
+                        {
+                          "i32": -1
+                        }
+                      ],
+                      [
+                        "y",
+                        {
+                          "i32": 300
+                        }
+                      ]
+                    ],
+                    "name": "Point"
+                  }
+                }
+              }
+            },
+            {
+              "bytes": "7b2278223a3235352c2279223a36353533367d",
+              "value": {
+                "option": {
+                  "struct": {
+                    "fields": [
+                      [
+                        "x",
+                        {
+                          "i32": 255
+                        }
+                      ],
+                      [
+                        "y",
+                        {
+                          "i32": 65536
+                        }
+                      ]
+                    ],
+                    "name": "Point"
+                  }
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b2278223a2d323134373438333634382c2279223a2d323134373438333634387d",
+            "value": {
+              "option": {
+                "struct": {
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "i32": -2147483648
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "i32": -2147483648
+                      }
+                    ]
+                  ],
+                  "name": "Point"
+                }
+              }
+            }
+          },
+          "min": {
+            "bytes": "6e756c6c",
+            "value": {
+              "option": null
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-point",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 33,
+        "min": 13,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "x",
+                "i32"
+              ],
+              [
+                "y",
+                "i32"
+              ]
+            ],
+            "name": "Point"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b2278223a312c2279223a2d327d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "i32": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "i32": -2
+                      }
+                    ]
+                  ],
+                  "name": "Point"
+                }
+              }
+            },
+            {
+              "bytes": "7b2278223a323134373438333634372c2279223a307d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "i32": 2147483647
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "i32": 0
+                      }
+                    ]
+                  ],
+                  "name": "Point"
+                }
+              }
+            },
+            {
+              "bytes": "7b2278223a2d323134373438333634382c2279223a2d33323736387d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "i32": -2147483648
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "i32": -32768
+                      }
+                    ]
+                  ],
+                  "name": "Point"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b2278223a2d323134373438333634382c2279223a2d323134373438333634387d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "i32": -2147483648
+                    }
+                  ],
+                  [
+                    "y",
+                    {
+                      "i32": -2147483648
+                    }
+                  ]
+                ],
+                "name": "Point"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b2278223a302c2279223a307d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "i32": 0
+                    }
+                  ],
+                  [
+                    "y",
+                    {
+                      "i32": 0
+                    }
+                  ]
+                ],
+                "name": "Point"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-empty",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 2,
+        "min": 2,
+        "type": {
+          "struct": {
+            "fields": [],
+            "name": "Empty"
+          }
+        },
+        "witnesses": {
+          "max": {
+            "bytes": "7b7d",
+            "value": {
+              "struct": {
+                "fields": [],
+                "name": "Empty"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b7d",
+            "value": {
+              "struct": {
+                "fields": [],
+                "name": "Empty"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-mixed",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 206,
+        "min": 38,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "id",
+                "u32"
+              ],
+              [
+                "name",
+                {
+                  "bounded_string": {
+                    "max": 16
+                  }
+                }
+              ],
+              [
+                "tags",
+                {
+                  "bounded_array": {
+                    "max": 4,
+                    "of": "u8"
+                  }
+                }
+              ],
+              [
+                "note",
+                {
+                  "option": {
+                    "bounded_string": {
+                      "max": 8
+                    }
+                  }
+                }
+              ]
+            ],
+            "name": "Msg"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b226964223a372c226e616d65223a226869222c2274616773223a5b312c325d2c226e6f7465223a6e756c6c7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "id",
+                      {
+                        "u32": 7
+                      }
+                    ],
+                    [
+                      "name",
+                      {
+                        "string": "hi"
+                      }
+                    ],
+                    [
+                      "tags",
+                      {
+                        "array": [
+                          {
+                            "u8": 1
+                          },
+                          {
+                            "u8": 2
+                          }
+                        ]
+                      }
+                    ],
+                    [
+                      "note",
+                      {
+                        "option": null
+                      }
+                    ]
+                  ],
+                  "name": "Msg"
+                }
+              }
+            },
+            {
+              "bytes": "7b226964223a37303030302c226e616d65223a2268c3a96c6c6f2077c3b6726c64222c2274616773223a5b5d2c226e6f7465223a2278227d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "id",
+                      {
+                        "u32": 70000
+                      }
+                    ],
+                    [
+                      "name",
+                      {
+                        "string": "héllo wörld"
+                      }
+                    ],
+                    [
+                      "tags",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "note",
+                      {
+                        "option": {
+                          "string": "x"
+                        }
+                      }
+                    ]
+                  ],
+                  "name": "Msg"
+                }
+              }
+            },
+            {
+              "bytes": "7b226964223a3235352c226e616d65223a22222c2274616773223a5b5d2c226e6f7465223a22e282ac227d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "id",
+                      {
+                        "u32": 255
+                      }
+                    ],
+                    [
+                      "name",
+                      {
+                        "string": ""
+                      }
+                    ],
+                    [
+                      "tags",
+                      {
+                        "array": []
+                      }
+                    ],
+                    [
+                      "note",
+                      {
+                        "option": {
+                          "string": "€"
+                        }
+                      }
+                    ]
+                  ],
+                  "name": "Msg"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b226964223a343239343936373239352c226e616d65223a225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c7530303031222c2274616773223a5b3132372c3132372c3132372c3132375d2c226e6f7465223a225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c7530303031227d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "id",
+                    {
+                      "u32": 4294967295
+                    }
+                  ],
+                  [
+                    "name",
+                    {
+                      "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+                    }
+                  ],
+                  [
+                    "tags",
+                    {
+                      "array": [
+                        {
+                          "u8": 127
+                        },
+                        {
+                          "u8": 127
+                        },
+                        {
+                          "u8": 127
+                        },
+                        {
+                          "u8": 127
+                        }
+                      ]
+                    }
+                  ],
+                  [
+                    "note",
+                    {
+                      "option": {
+                        "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+                      }
+                    }
+                  ]
+                ],
+                "name": "Msg"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b226964223a302c226e616d65223a22222c2274616773223a5b5d2c226e6f7465223a22227d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "id",
+                    {
+                      "u32": 0
+                    }
+                  ],
+                  [
+                    "name",
+                    {
+                      "string": ""
+                    }
+                  ],
+                  [
+                    "tags",
+                    {
+                      "array": []
+                    }
+                  ],
+                  [
+                    "note",
+                    {
+                      "option": {
+                        "string": ""
+                      }
+                    }
+                  ]
+                ],
+                "name": "Msg"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-nested",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 140,
+        "min": 52,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "from",
+                {
+                  "struct": {
+                    "fields": [
+                      [
+                        "x",
+                        "i32"
+                      ],
+                      [
+                        "y",
+                        "i32"
+                      ]
+                    ],
+                    "name": "Point"
+                  }
+                }
+              ],
+              [
+                "to",
+                {
+                  "struct": {
+                    "fields": [
+                      [
+                        "x",
+                        "i32"
+                      ],
+                      [
+                        "y",
+                        "i32"
+                      ]
+                    ],
+                    "name": "Point"
+                  }
+                }
+              ],
+              [
+                "label",
+                {
+                  "option": {
+                    "bounded_string": {
+                      "max": 8
+                    }
+                  }
+                }
+              ]
+            ],
+            "name": "Line"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b2266726f6d223a7b2278223a302c2279223a307d2c22746f223a7b2278223a332c2279223a347d2c226c6162656c223a6e756c6c7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "from",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": 0
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": 0
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "to",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": 3
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": 4
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "label",
+                      {
+                        "option": null
+                      }
+                    ]
+                  ],
+                  "name": "Line"
+                }
+              }
+            },
+            {
+              "bytes": "7b2266726f6d223a7b2278223a2d352c2279223a357d2c22746f223a7b2278223a3130302c2279223a3130307d2c226c6162656c223a226162227d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "from",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": -5
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": 5
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "to",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": 100
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": 100
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "label",
+                      {
+                        "option": {
+                          "string": "ab"
+                        }
+                      }
+                    ]
+                  ],
+                  "name": "Line"
+                }
+              }
+            },
+            {
+              "bytes": "7b2266726f6d223a7b2278223a36353533352c2279223a36353533367d2c22746f223a7b2278223a2d33323736382c2279223a2d33323736387d2c226c6162656c223a6e756c6c7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "from",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": 65535
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": 65536
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "to",
+                      {
+                        "struct": {
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "i32": -32768
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "i32": -32768
+                              }
+                            ]
+                          ],
+                          "name": "Point"
+                        }
+                      }
+                    ],
+                    [
+                      "label",
+                      {
+                        "option": null
+                      }
+                    ]
+                  ],
+                  "name": "Line"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b2266726f6d223a7b2278223a2d323134373438333634382c2279223a2d323134373438333634387d2c22746f223a7b2278223a2d323134373438333634382c2279223a2d323134373438333634387d2c226c6162656c223a225c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c75303030315c7530303031227d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "from",
+                    {
+                      "struct": {
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "i32": -2147483648
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "i32": -2147483648
+                            }
+                          ]
+                        ],
+                        "name": "Point"
+                      }
+                    }
+                  ],
+                  [
+                    "to",
+                    {
+                      "struct": {
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "i32": -2147483648
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "i32": -2147483648
+                            }
+                          ]
+                        ],
+                        "name": "Point"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    {
+                      "option": {
+                        "string": "\u0001\u0001\u0001\u0001\u0001\u0001\u0001\u0001"
+                      }
+                    }
+                  ]
+                ],
+                "name": "Line"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b2266726f6d223a7b2278223a302c2279223a307d2c22746f223a7b2278223a302c2279223a307d2c226c6162656c223a22227d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "from",
+                    {
+                      "struct": {
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "i32": 0
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "i32": 0
+                            }
+                          ]
+                        ],
+                        "name": "Point"
+                      }
+                    }
+                  ],
+                  [
+                    "to",
+                    {
+                      "struct": {
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "i32": 0
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "i32": 0
+                            }
+                          ]
+                        ],
+                        "name": "Point"
+                      }
+                    }
+                  ],
+                  [
+                    "label",
+                    {
+                      "option": {
+                        "string": ""
+                      }
+                    }
+                  ]
+                ],
+                "name": "Line"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-15-fields",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 151,
+        "min": 121,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "f00",
+                "u8"
+              ],
+              [
+                "f01",
+                "u8"
+              ],
+              [
+                "f02",
+                "u8"
+              ],
+              [
+                "f03",
+                "u8"
+              ],
+              [
+                "f04",
+                "u8"
+              ],
+              [
+                "f05",
+                "u8"
+              ],
+              [
+                "f06",
+                "u8"
+              ],
+              [
+                "f07",
+                "u8"
+              ],
+              [
+                "f08",
+                "u8"
+              ],
+              [
+                "f09",
+                "u8"
+              ],
+              [
+                "f10",
+                "u8"
+              ],
+              [
+                "f11",
+                "u8"
+              ],
+              [
+                "f12",
+                "u8"
+              ],
+              [
+                "f13",
+                "u8"
+              ],
+              [
+                "f14",
+                "u8"
+              ]
+            ],
+            "name": "Wide15"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b22663030223a3235352c22663031223a3235352c22663032223a3235352c22663033223a3235352c22663034223a3235352c22663035223a3235352c22663036223a3235352c22663037223a3235352c22663038223a3235352c22663039223a3235352c22663130223a3235352c22663131223a3235352c22663132223a3235352c22663133223a3235352c22663134223a3235357d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 255
+                      }
+                    ]
+                  ],
+                  "name": "Wide15"
+                }
+              }
+            },
+            {
+              "bytes": "7b22663030223a302c22663031223a31372c22663032223a33342c22663033223a35312c22663034223a36382c22663035223a38352c22663036223a3130322c22663037223a3131392c22663038223a3133362c22663039223a3135332c22663130223a3137302c22663131223a3138372c22663132223a3230342c22663133223a3232312c22663134223a3233387d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 17
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 34
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 51
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 68
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 85
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 102
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 119
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 136
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 153
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 170
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 187
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 204
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 221
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 238
+                      }
+                    ]
+                  ],
+                  "name": "Wide15"
+                }
+              }
+            },
+            {
+              "bytes": "7b22663030223a3132372c22663031223a3132382c22663032223a3132372c22663033223a302c22663034223a3132372c22663035223a312c22663036223a302c22663037223a302c22663038223a3132382c22663039223a3132382c22663130223a312c22663131223a312c22663132223a312c22663133223a3235352c22663134223a317d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 127
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 128
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 127
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 127
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 128
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 128
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 1
+                      }
+                    ]
+                  ],
+                  "name": "Wide15"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b22663030223a3132372c22663031223a3132372c22663032223a3132372c22663033223a3132372c22663034223a3132372c22663035223a3132372c22663036223a3132372c22663037223a3132372c22663038223a3132372c22663039223a3132372c22663130223a3132372c22663131223a3132372c22663132223a3132372c22663133223a3132372c22663134223a3132377d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "f00",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f01",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f02",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f03",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f04",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f05",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f06",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f07",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f08",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f09",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f10",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f11",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f12",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f13",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f14",
+                    {
+                      "u8": 127
+                    }
+                  ]
+                ],
+                "name": "Wide15"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b22663030223a302c22663031223a302c22663032223a302c22663033223a302c22663034223a302c22663035223a302c22663036223a302c22663037223a302c22663038223a302c22663039223a302c22663130223a302c22663131223a302c22663132223a302c22663133223a302c22663134223a307d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "f00",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f01",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f02",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f03",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f04",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f05",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f06",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f07",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f08",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f09",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f10",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f11",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f12",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f13",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f14",
+                    {
+                      "u8": 0
+                    }
+                  ]
+                ],
+                "name": "Wide15"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-16-fields",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 161,
+        "min": 129,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "f00",
+                "u8"
+              ],
+              [
+                "f01",
+                "u8"
+              ],
+              [
+                "f02",
+                "u8"
+              ],
+              [
+                "f03",
+                "u8"
+              ],
+              [
+                "f04",
+                "u8"
+              ],
+              [
+                "f05",
+                "u8"
+              ],
+              [
+                "f06",
+                "u8"
+              ],
+              [
+                "f07",
+                "u8"
+              ],
+              [
+                "f08",
+                "u8"
+              ],
+              [
+                "f09",
+                "u8"
+              ],
+              [
+                "f10",
+                "u8"
+              ],
+              [
+                "f11",
+                "u8"
+              ],
+              [
+                "f12",
+                "u8"
+              ],
+              [
+                "f13",
+                "u8"
+              ],
+              [
+                "f14",
+                "u8"
+              ],
+              [
+                "f15",
+                "u8"
+              ]
+            ],
+            "name": "Wide16"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b22663030223a3235352c22663031223a3235352c22663032223a3235352c22663033223a3235352c22663034223a3235352c22663035223a3235352c22663036223a3235352c22663037223a3235352c22663038223a3235352c22663039223a3235352c22663130223a3235352c22663131223a3235352c22663132223a3235352c22663133223a3235352c22663134223a3235352c22663135223a3235357d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f15",
+                      {
+                        "u8": 255
+                      }
+                    ]
+                  ],
+                  "name": "Wide16"
+                }
+              }
+            },
+            {
+              "bytes": "7b22663030223a302c22663031223a31372c22663032223a33342c22663033223a35312c22663034223a36382c22663035223a38352c22663036223a3130322c22663037223a3131392c22663038223a3133362c22663039223a3135332c22663130223a3137302c22663131223a3138372c22663132223a3230342c22663133223a3232312c22663134223a3233382c22663135223a3235357d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 17
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 34
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 51
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 68
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 85
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 102
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 119
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 136
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 153
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 170
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 187
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 204
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 221
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 238
+                      }
+                    ],
+                    [
+                      "f15",
+                      {
+                        "u8": 255
+                      }
+                    ]
+                  ],
+                  "name": "Wide16"
+                }
+              }
+            },
+            {
+              "bytes": "7b22663030223a312c22663031223a3235352c22663032223a302c22663033223a312c22663034223a3132382c22663035223a3235352c22663036223a3132372c22663037223a3235352c22663038223a3132372c22663039223a312c22663130223a302c22663131223a3235352c22663132223a3235352c22663133223a302c22663134223a3132382c22663135223a317d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "f00",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f01",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f02",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f03",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f04",
+                      {
+                        "u8": 128
+                      }
+                    ],
+                    [
+                      "f05",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f06",
+                      {
+                        "u8": 127
+                      }
+                    ],
+                    [
+                      "f07",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f08",
+                      {
+                        "u8": 127
+                      }
+                    ],
+                    [
+                      "f09",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "f10",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f11",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f12",
+                      {
+                        "u8": 255
+                      }
+                    ],
+                    [
+                      "f13",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "f14",
+                      {
+                        "u8": 128
+                      }
+                    ],
+                    [
+                      "f15",
+                      {
+                        "u8": 1
+                      }
+                    ]
+                  ],
+                  "name": "Wide16"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b22663030223a3132372c22663031223a3132372c22663032223a3132372c22663033223a3132372c22663034223a3132372c22663035223a3132372c22663036223a3132372c22663037223a3132372c22663038223a3132372c22663039223a3132372c22663130223a3132372c22663131223a3132372c22663132223a3132372c22663133223a3132372c22663134223a3132372c22663135223a3132377d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "f00",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f01",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f02",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f03",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f04",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f05",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f06",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f07",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f08",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f09",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f10",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f11",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f12",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f13",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f14",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "f15",
+                    {
+                      "u8": 127
+                    }
+                  ]
+                ],
+                "name": "Wide16"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b22663030223a302c22663031223a302c22663032223a302c22663033223a302c22663034223a302c22663035223a302c22663036223a302c22663037223a302c22663038223a302c22663039223a302c22663130223a302c22663131223a302c22663132223a302c22663133223a302c22663134223a302c22663135223a307d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "f00",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f01",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f02",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f03",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f04",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f05",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f06",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f07",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f08",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f09",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f10",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f11",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f12",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f13",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f14",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "f15",
+                    {
+                      "u8": 0
+                    }
+                  ]
+                ],
+                "name": "Wide16"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/struct-long-names",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 53,
+        "min": 46,
+        "type": {
+          "struct": {
+            "fields": [
+              [
+                "id",
+                "u8"
+              ],
+              [
+                "a_much_longer_field_name",
+                "u16"
+              ],
+              [
+                "x",
+                {
+                  "option": "bool"
+                }
+              ]
+            ],
+            "name": "Named"
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b226964223a312c22615f6d7563685f6c6f6e6765725f6669656c645f6e616d65223a3330302c2278223a747275657d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "id",
+                      {
+                        "u8": 1
+                      }
+                    ],
+                    [
+                      "a_much_longer_field_name",
+                      {
+                        "u16": 300
+                      }
+                    ],
+                    [
+                      "x",
+                      {
+                        "option": {
+                          "bool": true
+                        }
+                      }
+                    ]
+                  ],
+                  "name": "Named"
+                }
+              }
+            },
+            {
+              "bytes": "7b226964223a302c22615f6d7563685f6c6f6e6765725f6669656c645f6e616d65223a3132372c2278223a6e756c6c7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "id",
+                      {
+                        "u8": 0
+                      }
+                    ],
+                    [
+                      "a_much_longer_field_name",
+                      {
+                        "u16": 127
+                      }
+                    ],
+                    [
+                      "x",
+                      {
+                        "option": null
+                      }
+                    ]
+                  ],
+                  "name": "Named"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b226964223a3132372c22615f6d7563685f6c6f6e6765725f6669656c645f6e616d65223a36353533352c2278223a66616c73657d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "id",
+                    {
+                      "u8": 127
+                    }
+                  ],
+                  [
+                    "a_much_longer_field_name",
+                    {
+                      "u16": 65535
+                    }
+                  ],
+                  [
+                    "x",
+                    {
+                      "option": {
+                        "bool": false
+                      }
+                    }
+                  ]
+                ],
+                "name": "Named"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b226964223a302c22615f6d7563685f6c6f6e6765725f6669656c645f6e616d65223a302c2278223a6e756c6c7d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "id",
+                    {
+                      "u8": 0
+                    }
+                  ],
+                  [
+                    "a_much_longer_field_name",
+                    {
+                      "u16": 0
+                    }
+                  ],
+                  [
+                    "x",
+                    {
+                      "option": null
+                    }
+                  ]
+                ],
+                "name": "Named"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/enum-color",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 7,
+        "min": 5,
+        "type": {
+          "enum": {
+            "name": "Color",
+            "variants": [
+              "Red",
+              "Green",
+              "Blue"
+            ]
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "22426c756522",
+              "value": {
+                "unit_variant": {
+                  "enum": "Color",
+                  "index": 2,
+                  "variant": "Blue"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "22477265656e22",
+            "value": {
+              "unit_variant": {
+                "enum": "Color",
+                "index": 1,
+                "variant": "Green"
+              }
+            }
+          },
+          "min": {
+            "bytes": "2252656422",
+            "value": {
+              "unit_variant": {
+                "enum": "Color",
+                "index": 0,
+                "variant": "Red"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/enum-single",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 6,
+        "min": 6,
+        "type": {
+          "enum": {
+            "name": "Only",
+            "variants": [
+              "Only"
+            ]
+          }
+        },
+        "witnesses": {
+          "max": {
+            "bytes": "224f6e6c7922",
+            "value": {
+              "unit_variant": {
+                "enum": "Only",
+                "index": 0,
+                "variant": "Only"
+              }
+            }
+          },
+          "min": {
+            "bytes": "224f6e6c7922",
+            "value": {
+              "unit_variant": {
+                "enum": "Only",
+                "index": 0,
+                "variant": "Only"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/enum-129-variants",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 6,
+        "min": 6,
+        "type": {
+          "enum": {
+            "name": "Many",
+            "variants": [
+              "v000",
+              "v001",
+              "v002",
+              "v003",
+              "v004",
+              "v005",
+              "v006",
+              "v007",
+              "v008",
+              "v009",
+              "v010",
+              "v011",
+              "v012",
+              "v013",
+              "v014",
+              "v015",
+              "v016",
+              "v017",
+              "v018",
+              "v019",
+              "v020",
+              "v021",
+              "v022",
+              "v023",
+              "v024",
+              "v025",
+              "v026",
+              "v027",
+              "v028",
+              "v029",
+              "v030",
+              "v031",
+              "v032",
+              "v033",
+              "v034",
+              "v035",
+              "v036",
+              "v037",
+              "v038",
+              "v039",
+              "v040",
+              "v041",
+              "v042",
+              "v043",
+              "v044",
+              "v045",
+              "v046",
+              "v047",
+              "v048",
+              "v049",
+              "v050",
+              "v051",
+              "v052",
+              "v053",
+              "v054",
+              "v055",
+              "v056",
+              "v057",
+              "v058",
+              "v059",
+              "v060",
+              "v061",
+              "v062",
+              "v063",
+              "v064",
+              "v065",
+              "v066",
+              "v067",
+              "v068",
+              "v069",
+              "v070",
+              "v071",
+              "v072",
+              "v073",
+              "v074",
+              "v075",
+              "v076",
+              "v077",
+              "v078",
+              "v079",
+              "v080",
+              "v081",
+              "v082",
+              "v083",
+              "v084",
+              "v085",
+              "v086",
+              "v087",
+              "v088",
+              "v089",
+              "v090",
+              "v091",
+              "v092",
+              "v093",
+              "v094",
+              "v095",
+              "v096",
+              "v097",
+              "v098",
+              "v099",
+              "v100",
+              "v101",
+              "v102",
+              "v103",
+              "v104",
+              "v105",
+              "v106",
+              "v107",
+              "v108",
+              "v109",
+              "v110",
+              "v111",
+              "v112",
+              "v113",
+              "v114",
+              "v115",
+              "v116",
+              "v117",
+              "v118",
+              "v119",
+              "v120",
+              "v121",
+              "v122",
+              "v123",
+              "v124",
+              "v125",
+              "v126",
+              "v127",
+              "v128"
+            ]
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "227630303122",
+              "value": {
+                "unit_variant": {
+                  "enum": "Many",
+                  "index": 1,
+                  "variant": "v001"
+                }
+              }
+            },
+            {
+              "bytes": "227631323622",
+              "value": {
+                "unit_variant": {
+                  "enum": "Many",
+                  "index": 126,
+                  "variant": "v126"
+                }
+              }
+            },
+            {
+              "bytes": "227631323722",
+              "value": {
+                "unit_variant": {
+                  "enum": "Many",
+                  "index": 127,
+                  "variant": "v127"
+                }
+              }
+            },
+            {
+              "bytes": "227631323822",
+              "value": {
+                "unit_variant": {
+                  "enum": "Many",
+                  "index": 128,
+                  "variant": "v128"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "227630303022",
+            "value": {
+              "unit_variant": {
+                "enum": "Many",
+                "index": 0,
+                "variant": "v000"
+              }
+            }
+          },
+          "min": {
+            "bytes": "227630303022",
+            "value": {
+              "unit_variant": {
+                "enum": "Many",
+                "index": 0,
+                "variant": "v000"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/enum-long-names",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 34,
+        "min": 3,
+        "type": {
+          "enum": {
+            "name": "Long",
+            "variants": [
+              "a",
+              "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+              "ccccccccccccccccccccccccccccccc",
+              "dddddddddddddddddddddddddddddddd"
+            ]
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "2262626262626262626262626262626262626262626262626262626262626222",
+              "value": {
+                "unit_variant": {
+                  "enum": "Long",
+                  "index": 1,
+                  "variant": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+                }
+              }
+            },
+            {
+              "bytes": "226363636363636363636363636363636363636363636363636363636363636322",
+              "value": {
+                "unit_variant": {
+                  "enum": "Long",
+                  "index": 2,
+                  "variant": "ccccccccccccccccccccccccccccccc"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "22646464646464646464646464646464646464646464646464646464646464646422",
+            "value": {
+              "unit_variant": {
+                "enum": "Long",
+                "index": 3,
+                "variant": "dddddddddddddddddddddddddddddddd"
+              }
+            }
+          },
+          "min": {
+            "bytes": "226122",
+            "value": {
+              "unit_variant": {
+                "enum": "Long",
+                "index": 0,
+                "variant": "a"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/recursive-chain-3",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 31,
+        "min": 13,
+        "type": {
+          "recursive": {
+            "max_depth": 3,
+            "of": {
+              "struct": {
+                "fields": [
+                  [
+                    "next",
+                    {
+                      "option": "self"
+                    }
+                  ]
+                ],
+                "name": "Node"
+              }
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b226e657874223a7b226e657874223a6e756c6c7d7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "next",
+                      {
+                        "option": {
+                          "struct": {
+                            "fields": [
+                              [
+                                "next",
+                                {
+                                  "option": null
+                                }
+                              ]
+                            ],
+                            "name": "Node"
+                          }
+                        }
+                      }
+                    ]
+                  ],
+                  "name": "Node"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b226e657874223a7b226e657874223a7b226e657874223a6e756c6c7d7d7d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "next",
+                    {
+                      "option": {
+                        "struct": {
+                          "fields": [
+                            [
+                              "next",
+                              {
+                                "option": {
+                                  "struct": {
+                                    "fields": [
+                                      [
+                                        "next",
+                                        {
+                                          "option": null
+                                        }
+                                      ]
+                                    ],
+                                    "name": "Node"
+                                  }
+                                }
+                              }
+                            ]
+                          ],
+                          "name": "Node"
+                        }
+                      }
+                    }
+                  ]
+                ],
+                "name": "Node"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b226e657874223a6e756c6c7d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "next",
+                    {
+                      "option": null
+                    }
+                  ]
+                ],
+                "name": "Node"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "id": "sizes-json/recursive-tree-2",
+      "op": "size",
+      "input": {
+        "format": "json@1",
+        "max": 46,
+        "min": 15,
+        "type": {
+          "recursive": {
+            "max_depth": 2,
+            "of": {
+              "struct": {
+                "fields": [
+                  [
+                    "children",
+                    {
+                      "bounded_array": {
+                        "max": 2,
+                        "of": "self"
+                      }
+                    }
+                  ]
+                ],
+                "name": "Tree"
+              }
+            }
+          }
+        },
+        "witnesses": {
+          "between": [
+            {
+              "bytes": "7b226368696c6472656e223a5b7b226368696c6472656e223a5b5d7d5d7d",
+              "value": {
+                "struct": {
+                  "fields": [
+                    [
+                      "children",
+                      {
+                        "array": [
+                          {
+                            "struct": {
+                              "fields": [
+                                [
+                                  "children",
+                                  {
+                                    "array": []
+                                  }
+                                ]
+                              ],
+                              "name": "Tree"
+                            }
+                          }
+                        ]
+                      }
+                    ]
+                  ],
+                  "name": "Tree"
+                }
+              }
+            }
+          ],
+          "max": {
+            "bytes": "7b226368696c6472656e223a5b7b226368696c6472656e223a5b5d7d2c7b226368696c6472656e223a5b5d7d5d7d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "children",
+                    {
+                      "array": [
+                        {
+                          "struct": {
+                            "fields": [
+                              [
+                                "children",
+                                {
+                                  "array": []
+                                }
+                              ]
+                            ],
+                            "name": "Tree"
+                          }
+                        },
+                        {
+                          "struct": {
+                            "fields": [
+                              [
+                                "children",
+                                {
+                                  "array": []
+                                }
+                              ]
+                            ],
+                            "name": "Tree"
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ],
+                "name": "Tree"
+              }
+            }
+          },
+          "min": {
+            "bytes": "7b226368696c6472656e223a5b5d7d",
+            "value": {
+              "struct": {
+                "fields": [
+                  [
+                    "children",
+                    {
+                      "array": []
+                    }
+                  ]
+                ],
+                "name": "Tree"
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}

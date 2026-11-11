@@ -30,6 +30,15 @@ jobs:
       # are its tests.
       - run: cargo test --verbose -p comline-core --features deps
 
+  # The size vectors the sizer is tested against (core/tests/spec) are the
+  # specification's own, at the rev `comline-catalog` is pinned to.
+  spec_vectors:
+    name: Vendored size vectors
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - run: bash core/tests/spec/vendor.sh --check
+
   # The IR alone (`default-features = false`): what a generator depends on.
   # It has no parser, so unlike the default build it compiles for WASI and
   # the browser; this keeps tree-sitter (and anything else that can't) out.

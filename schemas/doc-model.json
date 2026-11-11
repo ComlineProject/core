@@ -87,6 +87,13 @@
         "name": {
           "type": "string"
         },
+        "sizes": {
+          "description": "What it takes, as a struct's `sizes`.",
+          "items": {
+            "$ref": "#/definitions/SizeRange"
+          },
+          "type": "array"
+        },
         "type": {
           "$ref": "#/definitions/Type"
         }
@@ -976,6 +983,13 @@
           ],
           "description": "`None` when the function has no reply at all; [`Type::Unit`] for `()`."
         },
+        "returns_sizes": {
+          "description": "What the reply takes, as a struct's `sizes`.",
+          "items": {
+            "$ref": "#/definitions/SizeRange"
+          },
+          "type": "array"
+        },
         "throws": {
           "description": "The errors it declares with `!`, each a reference to the error.",
           "items": {
@@ -1655,6 +1669,39 @@
       ],
       "type": "object"
     },
+    "SizeRange": {
+      "description": "How many bytes a type takes in one data format: at least `min` and at\nmost `max`, from the format's size rules in the specification\n([`crate::schema::ir::size`]).",
+      "properties": {
+        "format": {
+          "description": "The format, by its wire name (`packed@1`).",
+          "type": "string"
+        },
+        "max": {
+          "description": "The most. Absent where there is no bound: a `string` or a `T[]` with\nno maximum, or a type that contains itself with no `@max_depth`.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": [
+            "integer",
+            "null"
+          ]
+        },
+        "min": {
+          "description": "The fewest bytes any value takes.",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "upper_bound": {
+          "description": "`max` is only a bound that no value is known to reach (none of the\nofficial formats has one). Absent otherwise.",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "format",
+        "min"
+      ],
+      "type": "object"
+    },
     "Source": {
       "description": "Where a [`Choice`] came from.",
       "oneOf": [
@@ -1828,6 +1875,13 @@
             },
             "name": {
               "type": "string"
+            },
+            "sizes": {
+              "description": "What it takes in each format its package's protocols use, those\nwith size rules (the official ones). Absent where it can't be told\n(a `union` in it) and in a model of a built version, which keeps no\nprotocol to say which formats.",
+              "items": {
+                "$ref": "#/definitions/SizeRange"
+              },
+              "type": "array"
             }
           },
           "required": [
@@ -1856,6 +1910,13 @@
             },
             "name": {
               "type": "string"
+            },
+            "sizes": {
+              "description": "As for a struct.",
+              "items": {
+                "$ref": "#/definitions/SizeRange"
+              },
+              "type": "array"
             },
             "variants": {
               "items": {
@@ -2092,6 +2153,13 @@
             },
             "name": {
               "type": "string"
+            },
+            "sizes": {
+              "description": "What the type it names takes; as for a struct.",
+              "items": {
+                "$ref": "#/definitions/SizeRange"
+              },
+              "type": "array"
             },
             "target": {
               "$ref": "#/definitions/Type"
