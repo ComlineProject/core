@@ -10,6 +10,10 @@ name: Fuzz
 # issue on a failure instead of blocking anyone's pull request.
 # See core/fuzz/README.md.
 #
+# The jobs are the shared reusable workflow's (ComlineProject/.github,
+# fuzz.yml), run in the fuzz CI image (nightly and cargo-fuzz in it, nothing
+# installed here).
+#
 # Every run writes `core.fuzz.json` (seconds, executions, corpus and findings
 # per target; the Observatory's `fuzz` kind) with the Observatory's
 # report-fuzz action. A run on `master` (the nightly, or a manual one) also
@@ -27,209 +31,41 @@ on:
     - cron: "47 3 * * *"
   workflow_dispatch:
 
-env:
-  CARGO_TERM_COLOR: always
-  # cargo-fuzz needs nightly; this overrides rust-toolchain.toml.
-  RUSTUP_TOOLCHAIN: nightly
-  CARGO_FUZZ_VERSION: 0.13.2
+permissions:
+  contents: read
+
+# A newer push to the same pull request supersedes this run; the nightly and
+# manual runs of a branch queue.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   fuzz:
-    name: fuzz (${{ matrix.target }})
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      issues: write
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - target: ids_parse
-            dict: ids.dict
-          - target: ids_compile
-            dict: ids.dict
-          - target: idp_parse
-            dict: idp.dict
-          # Structured input (a package graph): no tokens to give it.
-          - target: unverified_oracle
-            dict: ''
-    env:
-      NIGHTLY: ${{ github.event_name != 'pull_request' }}
-      SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && 60 || 600 }}
-    steps:
-      - uses: actions/checkout@v7
-      - run: rustup toolchain install nightly --profile minimal
-
-      - name: Cache cargo-fuzz
-        id: cargo-fuzz
-        uses: actions/cache@v6
-        with:
-          path: ~/.cargo/bin/cargo-fuzz
-          key: cargo-fuzz-${{ env.CARGO_FUZZ_VERSION }}-${{ runner.os }}
-      - if: steps.cargo-fuzz.outputs.cache-hit != 'true'
-        run: cargo install cargo-fuzz --locked --version "$CARGO_FUZZ_VERSION"
-
-      - name: Cache the corpus
-        if: env.NIGHTLY == 'true'
-        uses: actions/cache@v6
-        with:
-          path: core/fuzz/corpus/${{ matrix.target }}
-          key: fuzz-corpus-${{ matrix.target }}-${{ github.run_id }}
-          restore-keys: fuzz-corpus-${{ matrix.target }}-
-
-      - name: Seed the corpus from the repo's schemas and configs
-        run: sh core/fuzz/seed-corpus.sh
-
-      - name: Build
-        id: build
-        run: |
-          cargo fuzz build --fuzz-dir core/fuzz ${{ matrix.target }}
-          echo "toolchain=$(rustc --version)" >> "$GITHUB_OUTPUT"
-
-      - name: Fuzz for ${{ env.SECONDS_PER_TARGET }}s
-        id: run
-        shell: bash
-        run: |
-          set -o pipefail
-          start=$(date +%s)
-          trap 'echo "seconds=$(( $(date +%s) - start ))" >> "$GITHUB_OUTPUT"' EXIT
-          # The nightly forks a process per core; fork mode stops at the first
-          # crash, as a single process does. Inputs stop at 1 KiB: the parser
-          # costs about a millisecond per kilobyte under the sanitizer, and
-          # what it gets wrong shows up in short inputs.
-          fork=()
-          [ "$NIGHTLY" = true ] && fork=("-fork=$(nproc)")
-          dict=()
-          [ -n "${{ matrix.dict }}" ] && dict=("-dict=core/fuzz/${{ matrix.dict }}")
-          cargo fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} -- \
-            -max_total_time=${{ env.SECONDS_PER_TARGET }} "${fork[@]}" \
-            "${dict[@]}" -max_len=1024 \
-            -rss_limit_mb=2048 -malloc_limit_mb=512 -print_final_stats=1 \
-            2>&1 | tee "$RUNNER_TEMP/fuzz.log"
-
-      # Before minimizing, which adds its own files next to the finding.
-      - name: Record the run
-        if: always() && steps.build.outcome == 'success'
-        uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
-        with:
-          mode: target
-          name: ${{ matrix.target }}
-          toolchain: ${{ steps.build.outputs.toolchain }}
-          log: ${{ runner.temp }}/fuzz.log
-          corpus: core/fuzz/corpus/${{ matrix.target }}
-          artifacts: core/fuzz/artifacts/${{ matrix.target }}
-          wall-seconds: ${{ steps.run.outputs.seconds || 0 }}
-          fragment: ${{ runner.temp }}/stats/${{ matrix.target }}.json
-      - if: always() && steps.build.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: fuzz-stats-${{ matrix.target }}
-          path: ${{ runner.temp }}/stats
-
-      - name: Minimize the crash
-        if: failure()
-        run: |
-          for crash in core/fuzz/artifacts/${{ matrix.target }}/*; do
-            [ -f "$crash" ] || continue
-            cargo fuzz tmin --fuzz-dir core/fuzz ${{ matrix.target }} "$crash" -r 2000 || true
-          done
-      - name: Upload the crash
-        if: failure()
-        uses: actions/upload-artifact@v7
-        with:
-          name: fuzz-${{ matrix.target }}
-          path: core/fuzz/artifacts/${{ matrix.target }}
-          if-no-files-found: ignore
-
-      - name: Open an issue
-        if: failure() && env.NIGHTLY == 'true'
-        env:
-          GH_TOKEN: ${{ github.token }}
-          TITLE: "Nightly fuzzing failed: ${{ matrix.target }}"
-          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          open=$(gh issue list --repo "$GITHUB_REPOSITORY" --state open --limit 200 \
-            --json title --jq "map(select(.title == env.TITLE)) | length")
-          if [ "$open" != "0" ]; then
-            echo "An issue titled '$TITLE' is already open."
-            exit 0
-          fi
-          {
-            echo "The nightly fuzz run failed: $RUN"
-            echo
-            echo "The crash and its minimized form are the run's \`fuzz-${{ matrix.target }}\` artifact. As text:"
-            echo
-            for crash in core/fuzz/artifacts/${{ matrix.target }}/*; do
-              [ -f "$crash" ] || continue
-              echo "- \`$(basename "$crash")\`:"
-              echo
-              echo '  ```'
-              head -c 2000 "$crash" | sed 's/^/  /'
-              echo
-              echo '  ```'
-            done
-            echo
-            echo "Reproduce with \`cargo +nightly fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} <file>\`."
-          } > body.md
-          gh issue create --repo "$GITHUB_REPOSITORY" --title "$TITLE" --body-file body.md
-
-  report:
-    name: fuzz report
-    needs: fuzz
-    if: ${{ !cancelled() }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          # The dry run checks the report is newer than the published one.
-          fetch-depth: 0
-      - uses: actions/download-artifact@v8
-        with:
-          pattern: fuzz-stats-*
-          path: ${{ runner.temp }}/stats
-      - name: Report
-        uses: ComlineProject/observatory/.github/actions/report-fuzz@v1
-        with:
-          mode: combine
-          fragments: ${{ runner.temp }}/stats
-          expect: ids_parse ids_compile idp_parse unverified_oracle
-          output: reports/core.fuzz.json
-          markdown: ${{ runner.temp }}/fuzz.md
-      - run: cat "$RUNNER_TEMP/fuzz.md" >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v7
-        with:
-          name: core.fuzz.json
-          path: reports/core.fuzz.json
-      - name: Publish (dry run)
-        if: github.ref != 'refs/heads/master' || github.event_name == 'pull_request'
-        uses: ComlineProject/observatory/.github/actions/publish-report@v1
-        with:
-          reports: reports/core.fuzz.json
-          readme: .github/reports-branch.md
-          dry-run: 'true'
-
-  publish:
-    name: publish fuzz report
-    needs: report
-    if: ${{ !cancelled() && needs.report.result == 'success' && github.ref == 'refs/heads/master' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    name: fuzz
+    # What the reusable workflow's jobs may ask for: `issues: write` for the
+    # fuzz jobs (the nightly's issue), `contents: write` for the publish job
+    # alone (never on a pull request).
     permissions:
       contents: write
-    concurrency:
-      group: fuzz-publish
-      cancel-in-progress: false
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-      - uses: actions/download-artifact@v8
-        with:
-          name: core.fuzz.json
-          path: reports
-      - name: Publish to the reports branch
-        uses: ComlineProject/observatory/.github/actions/publish-report@v1
-        with:
-          reports: reports/core.fuzz.json
-          readme: .github/reports-branch.md
+      issues: write
+    uses: ComlineProject/.github/.github/workflows/fuzz.yml@6bfbbcc9bccd25b44c06dbf41408885bb29aafe6 # main, no release tag yet
+    with:
+      image: ghcr.io/comlineproject/ci-fuzz@sha256:85c9577ed3350d729d4d9261307fd3075735dba44edae895baa241e3fac89fea
+      # One minute per target on a pull request, ten (on every core) nightly.
+      # The oracle's input is a package graph: no tokens to give it.
+      targets: >-
+        [
+          {"target": "ids_parse", "dict": "ids.dict"},
+          {"target": "ids_compile", "dict": "ids.dict"},
+          {"target": "idp_parse", "dict": "idp.dict"},
+          "unverified_oracle"
+        ]
+      fuzz-dir: core/fuzz
+      # Inputs stop at 1 KiB: the parser costs about a millisecond per
+      # kilobyte under the sanitizer, and what it gets wrong shows up in
+      # short inputs.
+      libfuzzer-args: -max_len=1024
+      report-path: reports/core.fuzz.json
+      publish: true
+      default-branch: master
