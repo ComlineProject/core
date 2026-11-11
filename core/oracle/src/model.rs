@@ -1,12 +1,11 @@
 //! A package graph, concretely: what the oracle reads and the renderer writes.
 //!
 //! Packages are `p0`, `p1`, ... and each depends only on lower ones, so the
-//! graph is a DAG by construction. A package's schemas are `src/s00.ids`,
-//! `src/s01.ids`, ... (package, then schema); a schema holds structs and
-//! protocols. Names are unique across the whole graph (`P1S0T2`, `P1S0Q0`,
-//! schema `s10`): an acceptance names a protocol and nothing else, and a
-//! dependency's `use s00::T` names the consumer's own `s00` if it has one
-//! (`tests/package/unverified_oracle.rs`, the ignored `a_dependencys_use_...`).
+//! graph is a DAG by construction. A package's schemas are `src/s0.ids`,
+//! `src/s1.ids`, ...; every package has an `s0`, and a `use s0::T` names the
+//! schema of the package it is written in; a schema holds structs and
+//! protocols. Type and protocol names are unique across the whole graph
+//! (`P1S0T2`, `P1S0Q0`): an acceptance names a protocol and nothing else.
 //!
 //! Types are ordered by `(package, schema, struct)`. A plain (non-array)
 //! reference only goes to a lower one, and one through an array goes anywhere
@@ -230,7 +229,7 @@ impl Model {
         for (pkg, package) in self.packages.iter().enumerate() {
             files.push((format!("p{pkg}/config.idp"), self.config_text(pkg)));
             for schema in 0..package.schemas.len() {
-                files.push((format!("p{pkg}/src/s{pkg}{schema}.ids"), self.schema_text(pkg, schema)));
+                files.push((format!("p{pkg}/src/s{schema}.ids"), self.schema_text(pkg, schema)));
             }
         }
         files
@@ -292,7 +291,7 @@ impl Model {
         for ty in tys {
             if let Ty::Struct { of, .. } = ty {
                 if (of.pkg, of.schema) != (pkg, schema) {
-                    let path = if of.pkg == pkg { format!("s{}{}", of.pkg, of.schema) } else { format!("p{}::s{}{}", of.pkg, of.pkg, of.schema) };
+                    let path = if of.pkg == pkg { format!("s{}", of.schema) } else { format!("p{}::s{}", of.pkg, of.schema) };
                     uses.insert(format!("use {path}::{}\n", self.type_name(*of)));
                 }
             }
