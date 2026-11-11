@@ -1,7 +1,7 @@
 //! The differential check: what core did with a graph against what the oracle
 //! says it must.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 
 use crate::model::{Model, G};
 use crate::oracle::{predict, Prediction};
@@ -15,6 +15,65 @@ pub enum Observed {
     /// It built; every protocol the build holds, with the guarantees frozen as
     /// given up (by name: `schema_agreement`, ...), empty for none.
     Built(Vec<(String, BTreeSet<String>)>),
+}
+
+/// What a run covered: how many graphs there were and which way the oracle
+/// decided them, so a test can tell it isn't vacuous (every graph refused, or
+/// every one built with nothing given up).
+#[derive(Debug, Clone, Default)]
+pub struct Stats {
+    pub graphs: u32,
+    /// Predicted to build, and built.
+    pub built: u32,
+    /// Predicted to fail, and refused; by the kinds of the reasons given
+    /// (a graph can have several).
+    pub refused: u32,
+    pub refused_for: BTreeMap<&'static str, u32>,
+    /// Graphs that built with more than one package.
+    pub built_with_dependencies: u32,
+    /// Protocols, among those that built, frozen as giving up each guarantee.
+    pub frozen: BTreeMap<&'static str, u32>,
+    /// Graphs whose upstream change turned a build into a refusal, or back.
+    pub change_flipped: u32,
+}
+
+impl Stats {
+    pub fn add(&mut self, other: &Stats) {
+        self.graphs += other.graphs;
+        self.built += other.built;
+        self.refused += other.refused;
+        self.built_with_dependencies += other.built_with_dependencies;
+        self.change_flipped += other.change_flipped;
+        for (k, v) in &other.refused_for {
+            *self.refused_for.entry(k).or_default() += v;
+        }
+        for (k, v) in &other.frozen {
+            *self.frozen.entry(k).or_default() += v;
+        }
+    }
+
+    fn count(&mut self, m: &Model) {
+        self.graphs += 1;
+        match predict(m, m.root()) {
+            Prediction::Fails(reasons) => {
+                self.refused += 1;
+                for kind in ["gate", "package-unverified", "bounds", "marker", "acceptance"] {
+                    if reasons.iter().any(|r| r.starts_with(&format!("[{kind}]"))) {
+                        *self.refused_for.entry(kind).or_default() += 1;
+                    }
+                }
+            }
+            Prediction::Builds(sets) => {
+                self.built += 1;
+                self.built_with_dependencies += (m.packages.len() > 1) as u32;
+                for set in sets.values() {
+                    for g in set {
+                        *self.frozen.entry(g.name()).or_default() += 1;
+                    }
+                }
+            }
+        }
+    }
 }
 
 /// Whether `observed` is what the oracle predicts for `m`'s root.
@@ -56,16 +115,22 @@ pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
 
 /// Build `spec`'s graph, and then the graph after its change, with `build`
 /// (which writes the model's files and has core build the root), and check
-/// each. The error says which, with the graph as files.
-pub fn run(spec: &Spec, mut build: impl FnMut(&Model) -> Observed) -> Result<(), String> {
+/// each. The error says which, with the graph as files; the `Stats` count
+/// what the oracle decided.
+pub fn run(spec: &Spec, mut build: impl FnMut(&Model) -> Observed) -> Result<Stats, String> {
+    let mut stats = Stats::default();
     let base = spec.model();
     let mut graphs = vec![("the graph", base.clone())];
     if let Some(change) = &spec.change {
         graphs.push(("after the upstream change", base.changed(change)));
     }
+    let mut decided = vec![];
     for (what, m) in graphs {
+        stats.count(&m);
+        decided.push(predict(&m, m.root()).is_builds());
         let observed = build(&m);
         agrees(&m, &observed).map_err(|why| format!("{what}: {why}\n\nthe packages (p{} is built):\n{}", m.root(), m.describe()))?;
     }
-    Ok(())
+    stats.change_flipped += (decided.len() == 2 && decided[0] != decided[1]) as u32;
+    Ok(stats)
 }

@@ -53,8 +53,16 @@ pub enum Prediction {
     /// It builds, and each protocol of every package in the closure gives up
     /// this (frozen with it: empty is nothing frozen).
     Builds(BTreeMap<String, BTreeSet<G>>),
-    /// It doesn't, for these reasons (any one is enough).
+    /// It doesn't, for these reasons (any one is enough), each starting with
+    /// its kind in brackets: `[gate]`, `[package-unverified]`, `[bounds]`,
+    /// `[marker]`, `[acceptance]`.
     Fails(Vec<String>),
+}
+
+impl Prediction {
+    pub fn is_builds(&self) -> bool {
+        matches!(self, Prediction::Builds(_))
+    }
 }
 
 pub fn predict(m: &Model, root: usize) -> Prediction {
@@ -167,14 +175,14 @@ pub fn bounds_errors(m: &Model, pkg: usize) -> Vec<String> {
             // through another schema's type ends there.
             let reaching: Vec<&Protocol> = s.protocols.iter().filter(|q| reaches_in_schema(m, here, &q.args, id)).collect();
             if reaching.is_empty() || reaching.iter().any(|q| q.marker.is_none()) {
-                errors.push(format!("{}: a position without a maximum, and not every protocol reaching it says `@unverified`", m.type_name(id)));
+                errors.push(format!("[bounds] {}: a position without a maximum, and not every protocol reaching it says `@unverified`", m.type_name(id)));
             }
         }
         // A protocol's own arguments.
         for (idx, q) in s.protocols.iter().enumerate() {
             let own = q.args.iter().any(is_unbounded_value) || q.args.iter().any(|t| names_foreign_unbounded(m, here, t));
             if own && q.marker.is_none() {
-                errors.push(format!("{}: an argument without a maximum, and no `@unverified`", m.protocol_name(ProtocolId { pkg, schema, idx })));
+                errors.push(format!("[bounds] {}: an argument without a maximum, and no `@unverified`", m.protocol_name(ProtocolId { pkg, schema, idx })));
             }
         }
     }
@@ -226,13 +234,13 @@ pub fn protocol_errors(m: &Model, p: ProtocolId) -> Vec<String> {
     let mut errors = vec![];
     if let Some(Ack::Keyed(keys)) = &m.protocol(p).marker {
         if keys.contains(&Key::Unknown) {
-            errors.push(format!("{name}: a key that is no guarantee's id (`keyed/unknown-guarantee`)"));
+            errors.push(format!("[marker] {name}: a key that is no guarantee's id (`keyed/unknown-guarantee`)"));
         }
     }
     // A marker covers its own listing, the package what it covers.
     let missing: Vec<&str> = given.iter().filter(|g| !listed.contains(g) && !covered.contains(g)).map(|g| g.name()).collect();
     if !missing.is_empty() {
-        errors.push(format!("{name}: gives up {missing:?} without saying why"));
+        errors.push(format!("[marker] {name}: gives up {missing:?} without saying why"));
     }
     errors
 }
@@ -244,11 +252,11 @@ pub fn package_errors(m: &Model, pkg: usize) -> Vec<String> {
 
     let marked = package.schemas.iter().flat_map(|s| &s.protocols).any(|q| q.marker.is_some());
     if (marked || package.unverified.is_some()) && !package.gate {
-        errors.push(format!("p{pkg}: `unverified` used, and the package's settings don't allow it"));
+        errors.push(format!("[gate] p{pkg}: `unverified` used, and the package's settings don't allow it"));
     }
     if let Some(Ack::Keyed(keys)) = &package.unverified {
         if keys.contains(&Key::Guarantee(G::BoundedSize)) || keys.contains(&Key::Unknown) {
-            errors.push(format!("p{pkg}: the package's `unverified` names `bounded_size` or no guarantee"));
+            errors.push(format!("[package-unverified] p{pkg}: the package's `unverified` names `bounded_size` or no guarantee"));
         }
     }
     errors.extend(bounds_errors(m, pkg));
@@ -274,7 +282,7 @@ pub fn acceptance_errors(m: &Model, pkg: usize) -> Vec<String> {
             }
             let accepted: Option<BTreeSet<G>> = dep.accepts.get(&name).map(|set| set.iter().copied().collect());
             if accepted.as_ref() != Some(&given) {
-                errors.push(format!("p{pkg}: {name} gives up {:?}, accepted for {accepted:?}", given.iter().map(|g| g.name()).collect::<Vec<_>>()));
+                errors.push(format!("[acceptance] p{pkg}: {name} gives up {:?}, accepted for {accepted:?}", given.iter().map(|g| g.name()).collect::<Vec<_>>()));
             }
         }
     }

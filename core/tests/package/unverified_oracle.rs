@@ -23,26 +23,34 @@
 #[path = "../../oracle/harness.rs"]
 mod harness;
 
-use comline_core_oracle::check;
+use std::sync::Mutex;
+
+use comline_core_oracle::check::{self, Stats};
 use comline_core_oracle::gen;
 use proptest::prelude::*;
-use proptest::test_runner::FileFailurePersistence;
+use proptest::test_runner::{FileFailurePersistence, TestRunner};
 
 fn cases() -> u32 {
-    std::env::var("PROPTEST_CASES").ok().and_then(|n| n.parse().ok()).unwrap_or(256)
+    std::env::var("PROBE_CASES").ok().or_else(|| std::env::var("PROPTEST_CASES").ok()).and_then(|n| n.parse().ok()).unwrap_or(2000)
 }
 
-proptest! {
-    #![proptest_config(ProptestConfig {
+#[test]
+fn a_build_succeeds_exactly_when_the_oracle_says() {
+    let config = ProptestConfig {
         cases: cases(),
         failure_persistence: Some(Box::new(FileFailurePersistence::WithSource("regressions"))),
         ..ProptestConfig::default()
-    })]
-
-    #[test]
-    fn a_build_succeeds_exactly_when_the_oracle_says(spec in gen::spec()) {
-        check::run(&spec, harness::build).map_err(TestCaseError::fail)?;
+    };
+    let stats = Mutex::new(Stats::default());
+    let result = TestRunner::new(config).run(&gen::spec(), |spec| {
+        let seen = check::run(&spec, harness::build).map_err(TestCaseError::fail)?;
+        stats.lock().unwrap().add(&seen);
+        Ok(())
+    });
+    if let Err(failure) = result {
+        panic!("{failure}");
     }
+    panic!("PROBE {:#?}", stats.lock().unwrap());
 }
 
 /// Not a rule of `unverified`, a finding the generator works around: a
