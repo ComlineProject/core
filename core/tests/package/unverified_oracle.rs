@@ -61,7 +61,6 @@ fn a_build_succeeds_exactly_when_the_oracle_says() {
     // each kind of reason to refuse and each guarantee frozen, and changes
     // that flip a build. Only at a case count where that is a certainty.
     let stats = stats.into_inner().unwrap();
-    eprintln!("{stats:#?}");
     if cases >= 200 {
         let enough = |n: u32, of: u32| n * of >= stats.graphs;
         assert!(enough(stats.built, 10), "fewer than 1 in 10 graphs built: {stats:#?}");
@@ -191,7 +190,7 @@ fn an_upstream_field_made_unbounded_is_not_accepted_by_a_consumer_that_accepted_
 /// import cycle (`p0::s1 -> s0 -> p0::s1`). The graphs here name schemas per
 /// package (`s00`, `s10`), which doesn't happen.
 #[test]
-#[ignore = "core: a dependency's `use` of its own sibling schema resolves to the consumer's schema of the same name (a false import cycle)"]
+#[ignore = "core#245: a dependency's `use` of its own sibling schema resolves to the consumer's schema of the same name (a false import cycle)"]
 fn a_dependencys_use_of_its_sibling_schema_is_not_the_consumers() {
     let files = [
         ("p0/config.idp", "congregation p0\nspecification_version = 1\n"),
