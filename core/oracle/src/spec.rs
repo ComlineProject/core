@@ -149,9 +149,14 @@ fn resolve_ty(m: &Model, at: (usize, usize), owner: Option<TypeId>, spec: TySpec
         TyKind::Bytes { bounded } => Ty::Bytes { bounded },
         TyKind::Struct { array } => {
             let candidates = visible(m, at, owner, array);
-            match candidates.len() {
+            // An even pick names one of this schema's own types where there
+            // is one, so a type is usually reached by a protocol of its own
+            // schema; an odd one anything visible.
+            let own: Vec<TypeId> = candidates.iter().copied().filter(|id| (id.pkg, id.schema) == at).collect();
+            let from = if spec.pick % 2 == 0 && !own.is_empty() { own } else { candidates };
+            match from.len() {
                 0 => Ty::Str { bounded: true },
-                n => Ty::Struct { of: candidates[spec.pick as usize % n], array },
+                n => Ty::Struct { of: from[(spec.pick / 2) as usize % n], array },
             }
         }
     }

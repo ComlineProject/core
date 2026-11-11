@@ -84,7 +84,7 @@ fn schema() -> impl Strategy<Value = SchemaSpec> {
 
 fn package() -> impl Strategy<Value = PackageSpec> {
     (
-        prop_oneof![9 => Just(true), 1 => Just(false)],
+        prop_oneof![19 => Just(true), 1 => Just(false)],
         handshake(),
         package_ack(),
         vec(schema(), 1..3),

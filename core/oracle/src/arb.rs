@@ -89,7 +89,7 @@ fn schema(u: &mut Unstructured) -> Result<SchemaSpec> {
 
 fn package(u: &mut Unstructured) -> Result<PackageSpec> {
     Ok(PackageSpec {
-        gate: below(u, 10)? != 0,
+        gate: below(u, 20)? != 0,
         handshake: handshake(u)?,
         unverified: package_ack(u)?,
         schemas: (0..count(u, 1, 2)?).map(|_| schema(u)).collect::<Result<_>>()?,
