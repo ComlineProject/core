@@ -1,11 +1,13 @@
 name: Fuzz
 
 # The cargo-fuzz targets in core/fuzz: the `.ids` and `.idp` parsers and the
-# schema compiler behind them, on any text. A pull request that touches the
-# compiler runs each target for a minute, seeded from the repo's own schemas
-# and configs. The nightly run gives each target ten minutes on every core
-# of the runner (libFuzzer's fork mode) from a corpus cached between runs,
-# and opens an issue on a failure instead of blocking anyone's pull request.
+# schema compiler behind them, on any text, and the guarantee-safety oracle
+# (`unverified_oracle`) on arbitrary package graphs. A pull request that
+# touches the compiler runs each target for a minute, seeded from the repo's
+# own schemas and configs (the oracle's, from nothing: its input is a graph).
+# The nightly run gives each target ten minutes on every core of the runner
+# (libFuzzer's fork mode) from a corpus cached between runs, and opens an
+# issue on a failure instead of blocking anyone's pull request.
 # See core/fuzz/README.md.
 #
 # Every run writes `core.fuzz.json` (seconds, executions, corpus and findings
@@ -48,6 +50,9 @@ jobs:
             dict: ids.dict
           - target: idp_parse
             dict: idp.dict
+          # Structured input (a package graph): no tokens to give it.
+          - target: unverified_oracle
+            dict: ''
     env:
       NIGHTLY: ${{ github.event_name != 'pull_request' }}
       SECONDS_PER_TARGET: ${{ github.event_name == 'pull_request' && 60 || 600 }}
@@ -94,9 +99,11 @@ jobs:
           # what it gets wrong shows up in short inputs.
           fork=()
           [ "$NIGHTLY" = true ] && fork=("-fork=$(nproc)")
+          dict=()
+          [ -n "${{ matrix.dict }}" ] && dict=("-dict=core/fuzz/${{ matrix.dict }}")
           cargo fuzz run --fuzz-dir core/fuzz ${{ matrix.target }} -- \
             -max_total_time=${{ env.SECONDS_PER_TARGET }} "${fork[@]}" \
-            -dict=core/fuzz/${{ matrix.dict }} -max_len=1024 \
+            "${dict[@]}" -max_len=1024 \
             -rss_limit_mb=2048 -malloc_limit_mb=512 -print_final_stats=1 \
             2>&1 | tee "$RUNNER_TEMP/fuzz.log"
 
@@ -187,7 +194,7 @@ jobs:
         with:
           mode: combine
           fragments: ${{ runner.temp }}/stats
-          expect: ids_parse ids_compile idp_parse
+          expect: ids_parse ids_compile idp_parse unverified_oracle
           output: reports/core.fuzz.json
           markdown: ${{ runner.temp }}/fuzz.md
       - run: cat "$RUNNER_TEMP/fuzz.md" >> "$GITHUB_STEP_SUMMARY"

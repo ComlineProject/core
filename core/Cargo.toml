@@ -15,7 +15,7 @@ rust-version = "1.82"
 # Keep test/example/bench sources in the package (they resolve target
 # auto-discovery cleanly); only drop the generated Criterion report + helper,
 # and the fuzz targets (their own crate, see fuzz/README.md).
-exclude = ["benches/benchmark_results.html", "benches/run_bench.sh", "fuzz/"]
+exclude = ["benches/benchmark_results.html", "benches/run_bench.sh", "fuzz/", "oracle/"]
 
 
 [dependencies]
@@ -94,6 +94,12 @@ tempfile = "3.8"
 # (`IAI_CALLGRIND_RUNNER_VERSION` in .github/workflows/bench.yml):
 #   cargo install iai-callgrind-runner --version 0.16.1 --locked
 iai-callgrind = "=0.16.1"
+
+# The guarantee-safety property test (tests/package/unverified_oracle.rs): the
+# strategies and the oracle live in `oracle/`, which doesn't depend on this
+# crate. Exact pin on proptest, like iai-callgrind.
+proptest = "=1.5.0"
+comline-core-oracle = { path = "oracle", features = ["proptest"] }
 
 [[bench]]
 name = "parser_benchmark"
