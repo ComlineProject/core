@@ -183,14 +183,13 @@ fn an_upstream_field_made_unbounded_is_not_accepted_by_a_consumer_that_accepted_
     expect(&m, false);
 }
 
-/// Not a rule of `unverified`, a finding the generator works around: a
-/// dependency's `use s0::T`, naming a sibling schema of its own package, is
-/// resolved against the consumer's schema `s0` where it has one, so two
-/// packages that each have an `s0` and import across them are reported as an
-/// import cycle (`p0::s1 -> s0 -> p0::s1`). The graphs here name schemas per
-/// package (`s00`, `s10`), which doesn't happen.
+/// Regression test for core#245: a dependency's `use s0::A`, naming a
+/// sibling schema of its own package, resolves within that package, not
+/// against the consumer's schema of the same name. Two packages that each have
+/// an `s0` and import across them used to be reported as an import cycle
+/// (`p0::s1 -> s0 -> p0::s1`). The graphs here share schema names across
+/// packages, so random ones cover this too.
 #[test]
-#[ignore = "core#245: a dependency's `use` of its own sibling schema resolves to the consumer's schema of the same name (a false import cycle)"]
 fn a_dependencys_use_of_its_sibling_schema_is_not_the_consumers() {
     let files = [
         ("p0/config.idp", "congregation p0\nspecification_version = 1\n"),

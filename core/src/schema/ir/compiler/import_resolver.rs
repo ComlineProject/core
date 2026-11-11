@@ -433,7 +433,20 @@ pub fn resolve_use_to_schema(
     current_namespace: &[String],
     use_path: &UsePath,
 ) -> Result<ResolvedUseTarget, String> {
-    let resolved = resolver.resolve(use_path, current_namespace)?;
+    let mut resolved = resolver.resolve(use_path, current_namespace)?;
+
+    // A dependency's schemas sit under its name in the consumer's project,
+    // but what they `use` is written against the dependency's own package:
+    // `use s0::A` in `p0::s1` is `p0::s0`, not the consumer's `s0`. Its own
+    // package is tried first; a path it doesn't match (`std::...`) resolves
+    // as written.
+    if let Some(dependency) = dependency_of(project_context, current_namespace) {
+        let mut within = vec![dependency.clone()];
+        within.extend(resolved.absolute_namespace.iter().cloned());
+        if project_context.find_schema_by_import_namespace_parts(&within).is_some() {
+            resolved.absolute_namespace = within;
+        }
+    }
 
     // Longest-prefix match against known schema namespaces: this naturally
     // handles both whole-schema imports (`use pkg::types;`) and single-symbol
@@ -446,6 +459,16 @@ pub fn resolve_use_to_schema(
     };
 
     Ok(ResolvedUseTarget { schema, remaining, resolved })
+}
+
+/// The declared dependency a schema of `namespace` belongs to (its first
+/// segment, as `interpret_schemas` namespaces them), or `None` for the
+/// project's own schemas.
+fn dependency_of(project_context: &ProjectContext, namespace: &[String]) -> Option<String> {
+    let first = namespace.first()?;
+    let dependencies =
+        DependencyConfig::parse_dependencies(&project_context.config.assignments).ok()?;
+    dependencies.contains_key(first).then(|| first.clone())
 }
 
 /// Whether a schema declares a top-level symbol
