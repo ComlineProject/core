@@ -71,10 +71,11 @@ fn the_in_memory_build_refuses_declared_dependencies_too() {
 }
 
 /// A dependency with no schemas gives `use shared::models::Big` nothing to
-/// resolve against (core#249).
+/// resolve against, so the import is unresolved rather than skipped
+/// (core#249).
 #[cfg(feature = "deps")]
 #[test]
-fn a_dependency_with_no_schemas_is_an_error() {
+fn an_import_of_a_dependency_with_no_schemas_is_unresolved() {
     let tmp = tempfile::tempdir().unwrap();
     write_package(&tmp.path().join("shared"), "shared", "", &[]);
     write_package(
@@ -85,7 +86,24 @@ fn a_dependency_with_no_schemas_is_an_error() {
     );
 
     let error = error_of(&tmp.path().join("app"));
-    assert!(error.contains("dependency 'shared': no schemas"), "{error}");
+    assert!(error.contains("Unresolved import"), "{error}");
+}
+
+/// A dependency with no schemas is fine as long as nothing imports from it:
+/// a package of settings blocks only is a dependency like any other.
+#[cfg(feature = "deps")]
+#[test]
+fn a_dependency_with_no_schemas_that_nothing_imports_builds() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package(&tmp.path().join("shared"), "shared", "", &[]);
+    write_package(
+        &tmp.path().join("app"),
+        "app",
+        DEPENDS_ON_SHARED,
+        &[("api.ids", "struct W { n: u8 }\nprotocol P { function g(w: W); }\n")],
+    );
+
+    compile_package(&tmp.path().join("app")).expect("app builds");
 }
 
 /// A dependency that is declared but whose schemas never reached the build

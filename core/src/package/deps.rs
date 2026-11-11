@@ -127,17 +127,6 @@ pub(crate) fn resolve_with(
     in_progress.remove(&canonical);
     let context = context?;
 
-    // One with no schemas has nothing to import. A `use` of it would find no
-    // schema, and the type it names would count as bounded unchecked.
-    if crate::package::build::glob_schema_sources(&resolved_path)?.is_empty() {
-        bail!(
-            "dependency '{}': no schemas at '{}'\n  help: a dependency's schemas are the ones \
-             under its `src/`; check the path or the pinned commit",
-            dep.name,
-            resolved_path.display()
-        );
-    }
-
     let content_hash = hash_frozen_content(&context)?;
 
     match dep.declared_hash() {
