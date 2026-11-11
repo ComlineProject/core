@@ -15,17 +15,29 @@ use crate::model::Handshake;
 use crate::spec::*;
 
 fn handshake() -> impl Strategy<Value = Handshake> {
-    prop_oneof![6 => Just(Handshake::Default), 2 => Just(Handshake::None), 1 => Just(Handshake::Comline1)]
+    prop_oneof![8 => Just(Handshake::Default), 2 => Just(Handshake::None), 1 => Just(Handshake::Comline1)]
 }
 
-/// A marker or a package's `unverified`.
-fn ack() -> impl Strategy<Value = AckSpec> {
+/// A protocol's marker: mostly what an author who got it right writes, and
+/// the rest what a careless one does.
+fn marker() -> impl Strategy<Value = AckSpec> {
     prop_oneof![
-        2 => Just(AckSpec::Nothing),
+        1 => Just(AckSpec::Nothing),
         3 => Just(AckSpec::Plain),
         2 => Just(AckSpec::Needed),
-        8 => Just(AckSpec::Auto),
+        10 => Just(AckSpec::Auto),
         // Any keys, a misspelt one among them.
+        1 => (0u8..64).prop_map(AckSpec::Keys),
+    ]
+}
+
+/// The package's `unverified`: mostly absent.
+fn package_ack() -> impl Strategy<Value = AckSpec> {
+    prop_oneof![
+        8 => Just(AckSpec::Nothing),
+        1 => Just(AckSpec::Plain),
+        1 => Just(AckSpec::Needed),
+        4 => Just(AckSpec::Auto),
         1 => (0u8..64).prop_map(AckSpec::Keys),
     ]
 }
@@ -34,9 +46,9 @@ fn ack() -> impl Strategy<Value = AckSpec> {
 /// can be named, a list of it (which closes cycles) less often.
 fn ty() -> impl Strategy<Value = TySpec> {
     let kind = prop_oneof![
-        4 => Just(TyKind::Str { bounded: true }),
-        3 => Just(TyKind::Bytes { bounded: true }),
-        5 => Just(TyKind::Struct { array: false }),
+        6 => Just(TyKind::Str { bounded: true }),
+        5 => Just(TyKind::Bytes { bounded: true }),
+        8 => Just(TyKind::Struct { array: false }),
         2 => Just(TyKind::Struct { array: true }),
         1 => Just(TyKind::Str { bounded: false }),
         1 => Just(TyKind::Bytes { bounded: false }),
@@ -63,7 +75,7 @@ fn structure() -> impl Strategy<Value = StructSpec> {
 }
 
 fn protocol() -> impl Strategy<Value = ProtocolSpec> {
-    (handshake(), ack(), vec(ty(), 1..3)).prop_map(|(handshake, marker, args)| ProtocolSpec { handshake, marker, args })
+    (handshake(), marker(), vec(ty(), 1..3)).prop_map(|(handshake, marker, args)| ProtocolSpec { handshake, marker, args })
 }
 
 fn schema() -> impl Strategy<Value = SchemaSpec> {
@@ -74,7 +86,7 @@ fn package() -> impl Strategy<Value = PackageSpec> {
     (
         prop_oneof![9 => Just(true), 1 => Just(false)],
         handshake(),
-        ack(),
+        package_ack(),
         vec(schema(), 1..3),
         vec(dep(), 1..3),
     )

@@ -16,30 +16,40 @@ fn count(u: &mut Unstructured, from: usize, to: usize) -> Result<usize> {
 }
 
 fn handshake(u: &mut Unstructured) -> Result<Handshake> {
-    Ok(match below(u, 9)? {
-        0..=5 => Handshake::Default,
-        6 | 7 => Handshake::None,
+    Ok(match below(u, 11)? {
+        0..=7 => Handshake::Default,
+        8 | 9 => Handshake::None,
         _ => Handshake::Comline1,
     })
 }
 
-fn ack(u: &mut Unstructured) -> Result<AckSpec> {
-    Ok(match below(u, 16)? {
-        0 | 1 => AckSpec::Nothing,
-        2..=4 => AckSpec::Plain,
-        5 | 6 => AckSpec::Needed,
-        7..=14 => AckSpec::Auto,
+fn marker(u: &mut Unstructured) -> Result<AckSpec> {
+    Ok(match below(u, 17)? {
+        0 => AckSpec::Nothing,
+        1..=3 => AckSpec::Plain,
+        4 | 5 => AckSpec::Needed,
+        6..=15 => AckSpec::Auto,
+        _ => AckSpec::Keys(below(u, 64)?),
+    })
+}
+
+fn package_ack(u: &mut Unstructured) -> Result<AckSpec> {
+    Ok(match below(u, 15)? {
+        0..=7 => AckSpec::Nothing,
+        8 => AckSpec::Plain,
+        9 => AckSpec::Needed,
+        10..=13 => AckSpec::Auto,
         _ => AckSpec::Keys(below(u, 64)?),
     })
 }
 
 fn ty(u: &mut Unstructured) -> Result<TySpec> {
-    let kind = match below(u, 16)? {
-        0..=3 => TyKind::Str { bounded: true },
-        4..=6 => TyKind::Bytes { bounded: true },
-        7..=11 => TyKind::Struct { array: false },
-        12 | 13 => TyKind::Struct { array: true },
-        14 => TyKind::Str { bounded: false },
+    let kind = match below(u, 23)? {
+        0..=5 => TyKind::Str { bounded: true },
+        6..=10 => TyKind::Bytes { bounded: true },
+        11..=18 => TyKind::Struct { array: false },
+        19 | 20 => TyKind::Struct { array: true },
+        21 => TyKind::Str { bounded: false },
         _ => TyKind::Bytes { bounded: false },
     };
     Ok(TySpec { kind, pick: u.arbitrary()? })
@@ -68,7 +78,7 @@ fn structure(u: &mut Unstructured) -> Result<StructSpec> {
 }
 
 fn protocol(u: &mut Unstructured) -> Result<ProtocolSpec> {
-    Ok(ProtocolSpec { handshake: handshake(u)?, marker: ack(u)?, args: tys(u, 1, 2)? })
+    Ok(ProtocolSpec { handshake: handshake(u)?, marker: marker(u)?, args: tys(u, 1, 2)? })
 }
 
 fn schema(u: &mut Unstructured) -> Result<SchemaSpec> {
@@ -81,7 +91,7 @@ fn package(u: &mut Unstructured) -> Result<PackageSpec> {
     Ok(PackageSpec {
         gate: below(u, 10)? != 0,
         handshake: handshake(u)?,
-        unverified: ack(u)?,
+        unverified: package_ack(u)?,
         schemas: (0..count(u, 1, 2)?).map(|_| schema(u)).collect::<Result<_>>()?,
         deps: (0..count(u, 1, 2)?).map(|_| dep(u)).collect::<Result<_>>()?,
     })
