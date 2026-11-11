@@ -49,9 +49,9 @@ jobs:
     permissions:
       contents: write
       issues: write
-    uses: ComlineProject/.github/.github/workflows/fuzz.yml@6bfbbcc9bccd25b44c06dbf41408885bb29aafe6 # main, no release tag yet
+    uses: ComlineProject/.github/.github/workflows/fuzz.yml@797d473553d7f2fc50895bb2573acb83ac63c7cb # main, no release tag yet
     with:
-      image: ghcr.io/comlineproject/ci-fuzz@sha256:85c9577ed3350d729d4d9261307fd3075735dba44edae895baa241e3fac89fea
+      image: ghcr.io/comlineproject/ci-fuzz@sha256:d18222e3007d318c73b1df500d997222ff6dca536b4b0e89e6ab7e55fc81326a
       # One minute per target on a pull request, ten (on every core) nightly.
       # The oracle's input is a package graph: no tokens to give it.
       targets: >-

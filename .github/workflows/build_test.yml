@@ -26,7 +26,7 @@ jobs:
     name: rust
     permissions:
       contents: read
-    uses: ComlineProject/.github/.github/workflows/rust-ci.yml@6bfbbcc9bccd25b44c06dbf41408885bb29aafe6 # main, no release tag yet
+    uses: ComlineProject/.github/.github/workflows/rust-ci.yml@797d473553d7f2fc50895bb2573acb83ac63c7cb # main, no release tag yet
     with:
       # Dependency resolution is behind `deps` (the CLI turns it on), and so
       # are its tests.
@@ -53,17 +53,16 @@ jobs:
   # It has no parser, so unlike the default build it compiles for WASI and
   # the browser; this keeps tree-sitter (and anything else that can't) out.
   # In the wasm CI image (stable 1.99.1, which `rust-toolchain.toml` pins, and
-  # the browser target); the WASI target is not in it, so it is added here.
+  # both wasm targets).
   ir_only:
     name: IR only (no default features)
     runs-on: ubuntu-24.04
     timeout-minutes: 20
-    container: ghcr.io/comlineproject/ci-wasm@sha256:742fbab34886e53d099c7faee9ffa9cd9c53cda085f8139eb112106f9be1e0e5
+    container: ghcr.io/comlineproject/ci-wasm@sha256:badd6af13cee6c459c9284de8ef0ef4a1667ed7e35582f87d1afb08f3c30fd8f
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      - run: rustup target add wasm32-wasip1 wasm32-unknown-unknown
       - run: cargo build --verbose -p comline-core --no-default-features
       - run: cargo test --verbose -p comline-core --no-default-features --lib
       - run: cargo build --verbose -p comline-core --no-default-features --target wasm32-wasip1

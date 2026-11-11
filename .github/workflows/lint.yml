@@ -1,0 +1,24 @@
+name: Lint
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+# Not `lint-...`: the reusable workflow's own group is that, and groups are
+# case-insensitive, so the same name would make the call wait on itself.
+concurrency:
+  group: ci-lint-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  lint:
+    name: lint
+    permissions:
+      contents: read
+    uses: ComlineProject/.github/.github/workflows/lint.yml@797d473553d7f2fc50895bb2573acb83ac63c7cb # main, no release tag yet
+    with:
+      renovate-config: renovate.json
