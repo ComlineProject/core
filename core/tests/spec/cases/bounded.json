@@ -163,7 +163,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Node {\n    optional next: Node\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
+                            "text": "struct Node {\n    kids: Node[max 4]\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
                         }
                     ],
                     "dependencies": []
@@ -190,7 +190,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Node {\n    optional next: Node\n}\n\n@unverified = \"trees are small in practice\"\nprotocol P {\n    function f(n: Node);\n}\n"
+                            "text": "struct Node {\n    kids: Node[max 4]\n}\n\n@unverified = \"trees are small in practice\"\nprotocol P {\n    function f(n: Node);\n}\n"
                         }
                     ],
                     "dependencies": []
@@ -232,7 +232,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "@max_depth = 4\nstruct Node {\n    optional next: Node\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
+                            "text": "@max_depth = 4\nstruct Node {\n    kids: Node[max 4]\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
                         }
                     ],
                     "dependencies": []

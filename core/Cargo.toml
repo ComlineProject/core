@@ -24,7 +24,7 @@ comline-core-stdlib = { path = "../core_stdlib", version = "0.1.0" }
 # The specification's catalog of shared names: guarantees, facts and their
 # values, the official encodings' aliases and frozen spellings. no_std and
 # dependency-free, so the IR-only build has it too.
-comline-catalog = { git = "https://github.com/ComlineProject/specification", rev = "efb734323252ab912e8829768e9195b3910c13d4" }
+comline-catalog = { git = "https://github.com/ComlineProject/specification", rev = "9e590a2846f3f14bfe8a28c9485a76c5482a1563" }
 
 # General
 eyre = "0.6.8"
