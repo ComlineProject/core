@@ -1,6 +1,7 @@
 #[cfg(feature = "deps")]
 mod compiler_cases;
 mod encodings;
+mod fail_closed_imports;
 mod from_sources;
 mod handshake;
 mod package_wire;

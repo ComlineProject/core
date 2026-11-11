@@ -186,6 +186,9 @@ impl PackageSources {
                 .map_err(|e| eyre!("{}", e))?,
         );
 
+        // `std` is allowed here: the std package's own schemas are compiled
+        // from sources too (see `stdlib::schemas`).
+        reject_shadowing_namespaces(&context, &self.schemas, true)?;
         interpret_schema_sources(&mut context, &with_std(self.schemas))?;
         Ok(context)
     }
@@ -309,6 +312,7 @@ fn interpret_schemas(
     in_progress: &mut HashSet<PathBuf>,
 ) -> Result<()> {
     let local = glob_schema_sources(package_path)?;
+    reject_shadowing_namespaces(context, &local, false)?;
     let dependencies =
         crate::package::deps::resolve_dependency_schemas(context, package_path, in_progress)?;
 
@@ -331,6 +335,7 @@ fn interpret_schemas(
 #[cfg(not(feature = "deps"))]
 fn interpret_schemas(context: &mut ProjectContext, package_path: &Path) -> Result<()> {
     let sources = glob_schema_sources(package_path)?;
+    reject_shadowing_namespaces(context, &sources, false)?;
     interpret_schema_sources(context, &with_std(sources))
 }
 
@@ -352,8 +357,73 @@ fn interpret_schema_sources(
     context: &mut ProjectContext,
     schemas: &[(Vec<String>, String)],
 ) -> Result<()> {
+    #[cfg(not(feature = "deps"))]
+    reject_unresolvable_dependencies(context)?;
     add_schema_sources(context, schemas)?;
     compiler::interpret::interpret_context(context)
+}
+
+#[cfg(feature = "compiler")]
+/// The names of the dependencies `context`'s config declares, sorted.
+fn declared_dependencies(context: &ProjectContext) -> Result<Vec<String>> {
+    let declared = crate::package::config::dependency::DependencyConfig::parse_dependencies(
+        &context.config.assignments,
+    )
+    .map_err(|e| eyre!("{e}"))?;
+    let mut names: Vec<String> = declared.into_keys().collect();
+    names.sort();
+    Ok(names)
+}
+
+#[cfg(feature = "compiler")]
+#[cfg(not(feature = "deps"))]
+/// A build without the `deps` feature never fetches or merges a dependency,
+/// so it can't check what a schema imports from one, and a type reached
+/// through such an import would count as bounded without anyone having
+/// looked at it. A package that declares dependencies is refused instead of
+/// built with its imports taken on trust.
+fn reject_unresolvable_dependencies(context: &ProjectContext) -> Result<()> {
+    let declared = declared_dependencies(context)?;
+    if declared.is_empty() {
+        return Ok(());
+    }
+    bail!(
+        "this package declares dependencies ({}), but this build of comline-core doesn't have \
+         the `deps` feature, so it can't resolve them or check what the package imports from them\n  \
+         help: build with the `deps` feature",
+        declared.join(", ")
+    )
+}
+
+#[cfg(feature = "compiler")]
+/// Refuses a package's own schema whose namespace starts with the name of a
+/// dependency it declares, or with `std` (unless `allow_std`). Such a
+/// schema would pass for the dependency's or std's own: its imports are never
+/// checked, and its protocols are filed under the dependency's name instead
+/// of the package's. `own` are the package's schemas only, not yet merged
+/// with a dependency's or std's.
+fn reject_shadowing_namespaces(
+    context: &ProjectContext,
+    own: &[(Vec<String>, String)],
+    allow_std: bool,
+) -> Result<()> {
+    let declared = declared_dependencies(context)?;
+    for (namespace, _) in own {
+        let Some(first) = namespace.first() else { continue };
+        let what = if declared.contains(first) {
+            format!("the dependency '{first}'")
+        } else if !allow_std && first == crate::package::stdlib::NAMESPACE {
+            "the standard library".to_string()
+        } else {
+            continue;
+        };
+        bail!(
+            "schema '{}.{SCHEMA_EXTENSION}' is named like {what}\n  help: rename the module '{first}': \
+             under that name its imports wouldn't be checked, and its protocols wouldn't count as this package's",
+            namespace.join("/"),
+        )
+    }
+    Ok(())
 }
 
 #[cfg(feature = "compiler")]

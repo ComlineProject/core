@@ -888,13 +888,19 @@ pub(crate) fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
 /// schemas a package imports (see `package::stdlib`), and one that no std
 /// schema matches gets a suggestion from std's namespaces.
 ///
-/// Passes, because there is nothing to check it against:
-/// - a declared dependency with no schemas in this project: a build without
-///   the `deps` feature never merges them;
-/// - every `use` in a dependency's own schemas (`current_namespace` under a
-///   dependency's name). Those resolve against the dependency itself, and were
-///   checked when it was compiled on its own during resolution. The same goes
-///   for std's own schemas, which core's tests compile.
+/// A declared dependency with no schemas in this project is an unresolved
+/// import too, but only with the `deps` feature. Without it nothing merges a
+/// dependency, and the build refuses a package that declares one before it
+/// gets here (see `package::build`); a caller that gets here some other way
+/// has nothing to check the import against.
+///
+/// Passes, because there is nothing to check it against: every `use` in a
+/// dependency's own schemas (`current_namespace` under a dependency's name).
+/// Those resolve against the dependency itself, and were checked when it was
+/// compiled on its own during resolution. The same goes for std's own
+/// schemas, which core's tests compile. A package's own schema can't be named
+/// like a dependency or `std`, so this namespace is never one of its own (the
+/// build rejects that before it gets here).
 pub fn check_imports(
     declarations: &[rust_sitter::Spanned<Declaration>],
     current_namespace: &[String],
@@ -942,7 +948,10 @@ pub fn check_imports(
         let first = target.resolved.absolute_namespace.first().map(String::as_str).unwrap_or_default();
 
         let Some(schema) = &target.schema else {
-            if dependencies.contains(first) && !top_level.contains(first) {
+            // Only a build that can't merge dependencies at all has nothing
+            // to check this against; with `deps`, a dependency with no
+            // schemas here is an unresolved import like any other.
+            if !cfg!(feature = "deps") && dependencies.contains(first) && !top_level.contains(first) {
                 continue;
             }
 

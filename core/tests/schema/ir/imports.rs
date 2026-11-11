@@ -321,14 +321,28 @@ fn build_project_with_dependency() -> ProjectContext {
     ProjectContext::with_config(congregation)
 }
 
+#[cfg(not(feature = "deps"))]
 #[test]
 fn test_a_declared_dependency_without_merged_schemas_is_not_checked() {
     // A build without the `deps` feature never merges a dependency's schemas,
-    // so there's nothing to check its imports against.
+    // so there's nothing to check its imports against. (`compile_package`
+    // refuses such a package before it gets here.)
     let mut project = build_project_with_dependency();
     add_schema(&mut project, &["api"], "use shared::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
 
     interpret_context(&project).expect("a declared dependency's import passes");
+}
+
+#[cfg(feature = "deps")]
+#[test]
+fn test_a_declared_dependency_without_merged_schemas_is_unresolved() {
+    // With `deps` a dependency's schemas are merged, so one that isn't there
+    // is an import with nothing behind it, not one that can't be checked.
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["api"], "use shared::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
+
+    let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
+    assert!(error.contains("Unresolved import"), "{error}");
 }
 
 #[test]
