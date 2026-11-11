@@ -1,0 +1,289 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "chain",
+    "cases": [
+        {
+            "id": "chain/unmarked-is-unbounded",
+            "description": "a type that holds another package's unbounded value, two packages away, is unbounded where an unmarked protocol uses it",
+            "packages": [
+                {
+                    "name": "a",
+                    "config": "congregation a\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "b",
+                    "config": "congregation b\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    a = {\n        path = \"../a\"\n        accept_unverified = { Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use a::api::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n@unverified = \"wrapping uploads\"\nprotocol Wrap {\n    function wrap(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "a",
+                            "accept_unverified": {
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "c",
+                    "config": "congregation c\nspecification_version = 1\ndependencies = {\n    b = {\n        path = \"../b\"\n        accept_unverified = { Wrap = [\"bounded_size\"] Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use b::api::Wrapper\n\nprotocol Orders {\n    function send(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "b",
+                            "accept_unverified": {
+                                "Wrap": [
+                                    "bounded_size"
+                                ],
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "c",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "chain/marked-gives-up",
+            "description": "a marked protocol using it gives bounded_size up, for its own consumers to accept",
+            "packages": [
+                {
+                    "name": "a",
+                    "config": "congregation a\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "b",
+                    "config": "congregation b\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    a = {\n        path = \"../a\"\n        accept_unverified = { Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use a::api::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n@unverified = \"wrapping uploads\"\nprotocol Wrap {\n    function wrap(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "a",
+                            "accept_unverified": {
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "c",
+                    "config": "congregation c\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    b = {\n        path = \"../b\"\n        accept_unverified = { Wrap = [\"bounded_size\"] Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use b::api::Wrapper\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "b",
+                            "accept_unverified": {
+                                "Wrap": [
+                                    "bounded_size"
+                                ],
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "c",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Orders",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "orders carry the upload"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "chain/acceptance-needs-every-link",
+            "description": "accepting b's protocol is not enough: a's, which b's package contains, is accepted too",
+            "packages": [
+                {
+                    "name": "a",
+                    "config": "congregation a\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "b",
+                    "config": "congregation b\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    a = {\n        path = \"../a\"\n        accept_unverified = { Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use a::api::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n@unverified = \"wrapping uploads\"\nprotocol Wrap {\n    function wrap(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "a",
+                            "accept_unverified": {
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                },
+                {
+                    "name": "c",
+                    "config": "congregation c\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    b = {\n        path = \"../b\"\n        accept_unverified = { Wrap = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use b::api::Wrapper\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "b",
+                            "accept_unverified": {
+                                "Wrap": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "c",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Upload` is unverified, giving up bounded size"
+                ]
+            }
+        },
+        {
+            "id": "chain/middle-doesnt-accept-the-first",
+            "description": "b's own build fails when it doesn't accept a's protocol, so building c does",
+            "packages": [
+                {
+                    "name": "a",
+                    "config": "congregation a\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "b",
+                    "config": "congregation b\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\ndependencies = {\n    a = {\n        path = \"../a\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use a::api::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n@unverified = \"wrapping uploads\"\nprotocol Wrap {\n    function wrap(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "a"
+                        }
+                    ]
+                },
+                {
+                    "name": "c",
+                    "config": "congregation c\nspecification_version = 1\ndependencies = {\n    b = {\n        path = \"../b\"\n        accept_unverified = { Wrap = [\"bounded_size\"] Upload = [\"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use b::api::Wrapper\n\nprotocol Orders {\n    function send(w: Wrapper);\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "b",
+                            "accept_unverified": {
+                                "Wrap": [
+                                    "bounded_size"
+                                ],
+                                "Upload": [
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "c",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Upload` is unverified, giving up bounded size"
+                ]
+            }
+        }
+    ]
+}

@@ -1,0 +1,251 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "marker",
+    "cases": [
+        {
+            "id": "marker/gate-off",
+            "description": "@unverified is refused where the package's settings don't allow it",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the gateway predates Comline\"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "settings::forbidden",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/missing-marker",
+            "description": "a protocol with no handshake gives up two guarantees and has to say why",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-marker",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/plain-marker",
+            "description": "one reason covers everything a protocol gives up, and it is frozen as the set",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the gateway predates Comline\"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "protocol",
+                                "reason": "the gateway predates Comline"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "protocol",
+                                "reason": "the gateway predates Comline"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/package-handshake-unmarked",
+            "description": "the package's default handshake counts: a protocol that takes none has to say why",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-marker",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/package-handshake-marked",
+            "description": "the marker covers what the package's default handshake gives up",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = \"legacy\"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "protocol",
+                                "reason": "legacy"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "protocol",
+                                "reason": "legacy"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/missing-reason",
+            "description": "a marker with a blank reason is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"  \"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-reason",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "marker/nothing-given-up",
+            "description": "a marker where nothing is given up is a warning, and freezes nothing",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = \"just in case\"\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::nothing-given-up",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        }
+    ]
+}

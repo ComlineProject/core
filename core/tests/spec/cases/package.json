@@ -1,0 +1,384 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "package",
+    "cases": [
+        {
+            "id": "package/keyed-covers-inherited",
+            "description": "the package says why for a protocol that takes the package's handshake",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/plain-covers-inherited",
+            "description": "the plain form covers every guarantee a package setting gives up",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = \"the gateway pins schemas by contract\"\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/own-handshake-not-covered",
+            "description": "a protocol with its own @handshake isn't covered by the package",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n\n@handshake = \"none\"\nprotocol Q {\n    function g();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-marker",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/own-handshake-marked",
+            "description": "a protocol with its own @handshake says why itself; the package covers the other",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n\n@handshake = \"none\"\n@unverified = \"Q talks to the gateway directly\"\nprotocol Q {\n    function g();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Q",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "protocol",
+                                "reason": "Q talks to the gateway directly"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "protocol",
+                                "reason": "Q talks to the gateway directly"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/wrong-scope",
+            "description": "bounded_size can't be acknowledged at package scope",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nunverified = { bounded_size = \"the gateway pins schemas by contract\" }\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::wrong-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/not-given-up",
+            "description": "a guarantee the package lists and no protocol gives up through it is a warning",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::not-given-up",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/gate-off",
+            "description": "the package's unverified is held to the same gate as the marker",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "settings::forbidden",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/adds-bounded-size",
+            "description": "a marker says why for bounded_size, which the package can't; the package says the rest",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = { bounded_size = \"the uploader streams whatever it's given\" }\nprotocol P {\n    function put(s: string);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement",
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "package",
+                                "reason": "the gateway pins schemas by contract"
+                            },
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the uploader streams whatever it's given"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "package/bounded-size-not-covered",
+            "description": "the package covering the handshake doesn't cover an unbounded string",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway pins schemas by contract\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function put(s: string);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        }
+    ]
+}

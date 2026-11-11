@@ -1,3 +1,5 @@
+#[cfg(feature = "deps")]
+mod compiler_cases;
 mod encodings;
 mod from_sources;
 mod handshake;

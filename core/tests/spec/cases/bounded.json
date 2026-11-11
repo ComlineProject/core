@@ -1,0 +1,376 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "bounded",
+    "cases": [
+        {
+            "id": "bounded/string-unmarked",
+            "description": "a string without a maximum is an error where no marker gives bounded size up",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function put(s: string);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/list-unmarked",
+            "description": "a list without a maximum is an error too",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function put(xs: u8[]);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/bounded",
+            "description": "a string and a list with maximums give nothing up",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol P {\n    function put(s: char[max 64], xs: u8[max 16]);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "bounded/string-marked",
+            "description": "a marked protocol gives bounded_size up for a string without a maximum",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = \"the uploader streams whatever it's given\"\nprotocol P {\n    function put(s: string);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the uploader streams whatever it's given"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/keyed-for-something-else",
+            "description": "a keyed marker that doesn't list bounded_size doesn't cover a string without a maximum",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = { version_honesty = \"not this\" }\nprotocol P {\n    function put(s: string);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-guarantee",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/recursion-unmarked",
+            "description": "a type that contains itself without @max_depth is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Node {\n    kids: Node[max 4]\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded-depth",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/recursion-marked",
+            "description": "a marked protocol gives bounded_size up for a type that contains itself without @max_depth",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Node {\n    kids: Node[max 4]\n}\n\n@unverified = \"trees are small in practice\"\nprotocol P {\n    function f(n: Node);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "trees are small in practice"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/recursion-max-depth",
+            "description": "a type that contains itself under @max_depth gives nothing up",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@max_depth = 4\nstruct Node {\n    kids: Node[max 4]\n}\n\nprotocol P {\n    function f(n: Node);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "bounded/other-schema-unmarked",
+            "description": "a type from another schema that holds a string without a maximum is unbounded where an unmarked protocol uses it",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/other-schema-marked",
+            "description": "a marked protocol using it gives bounded_size up, as the one that declares it does",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::Blob\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Upload",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the uploader streams whatever it's given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "orders carry the upload"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/other-schema-bounded",
+            "description": "a type bounded where it is declared is bounded where it is used",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        }
+    ]
+}

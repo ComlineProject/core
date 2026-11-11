@@ -30,10 +30,11 @@ jobs:
       # are its tests.
       - run: cargo test --verbose -p comline-core --features deps
 
-  # The size vectors the sizer is tested against (core/tests/spec) are the
-  # specification's own, at the rev `comline-catalog` is pinned to.
+  # The size vectors the sizer is tested against and the compiler cases the
+  # build is (core/tests/spec) are the specification's own, at the rev
+  # `comline-catalog` is pinned to.
   spec_vectors:
-    name: Vendored size vectors
+    name: Vendored specification files
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
