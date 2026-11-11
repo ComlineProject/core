@@ -59,6 +59,16 @@ fn tys(u: &mut Unstructured, from: usize, to: usize) -> Result<Vec<TySpec>> {
     (0..count(u, from, to)?).map(|_| ty(u)).collect()
 }
 
+fn change_ty(u: &mut Unstructured) -> Result<TySpec> {
+    let kind = match below(u, 7)? {
+        0 | 1 => TyKind::Str { bounded: false },
+        2 | 3 => TyKind::Bytes { bounded: false },
+        4 => TyKind::Str { bounded: true },
+        _ => TyKind::Struct { array: u.arbitrary()? },
+    };
+    Ok(TySpec { kind, pick: u.arbitrary()? })
+}
+
 fn accept(u: &mut Unstructured) -> Result<AcceptSpec> {
     Ok(match below(u, 13)? {
         0..=9 => AcceptSpec::Exact,
@@ -99,11 +109,11 @@ fn package(u: &mut Unstructured) -> Result<PackageSpec> {
 
 fn change(u: &mut Unstructured) -> Result<Option<Change>> {
     let (pkg, schema, strukt) = (u.arbitrary()?, u.arbitrary()?, u.arbitrary()?);
-    Ok(match below(u, 11)? {
-        0..=2 => None,
-        3..=5 => Some(Change::AddField { pkg, schema, strukt, ty: ty(u)? }),
-        6..=8 => Some(Change::SwapField { pkg, schema, strukt, field: u.arbitrary()?, ty: ty(u)? }),
-        9 => Some(Change::SetHandshake { pkg, handshake: handshake(u)? }),
+    Ok(match below(u, 12)? {
+        0 | 1 => None,
+        2..=5 => Some(Change::AddField { pkg, schema, strukt, ty: change_ty(u)? }),
+        6..=9 => Some(Change::SwapField { pkg, schema, strukt, field: u.arbitrary()?, ty: change_ty(u)? }),
+        10 => Some(Change::SetHandshake { pkg, handshake: handshake(u)? }),
         _ => Some(Change::SetProtocolHandshake { pkg, schema, protocol: strukt, handshake: handshake(u)? }),
     })
 }

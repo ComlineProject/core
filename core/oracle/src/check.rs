@@ -146,21 +146,24 @@ pub fn agrees(m: &Model, observed: &Observed) -> Result<u32, String> {
 /// each. The error says which, with the graph as files; the `Stats` count
 /// what the oracle decided.
 pub fn run(spec: &Spec, mut build: impl FnMut(&Model) -> Observed) -> Result<Stats, String> {
-    let mut stats = Stats::default();
     let base = spec.model();
-    let mut graphs = vec![("the graph", base.clone())];
+    let mut stats = run_model(&base, "the graph", &mut build)?;
     if let Some(change) = &spec.change {
-        graphs.push(("after the upstream change", base.changed(change)));
+        let changed = base.changed(change);
+        stats.add(&run_model(&changed, "after the upstream change", &mut build)?);
+        let (before, after) = (predict(&base, base.root()).is_builds(), predict(&changed, changed.root()).is_builds());
+        stats.change_flipped += (before != after) as u32;
     }
-    let mut decided = vec![];
-    for (what, m) in graphs {
-        stats.count(&m);
-        decided.push(predict(&m, m.root()).is_builds());
-        let observed = build(&m);
-        let compared = agrees(&m, &observed)
-            .map_err(|why| format!("{what}: {why}\n\nthe packages (p{} is built):\n{}", m.root(), m.describe()))?;
-        stats.dependency_protocols_compared += compared;
-    }
-    stats.change_flipped += (decided.len() == 2 && decided[0] != decided[1]) as u32;
+    Ok(stats)
+}
+
+/// Build one graph with `build` and check it.
+pub fn run_model(m: &Model, what: &str, build: &mut impl FnMut(&Model) -> Observed) -> Result<Stats, String> {
+    let mut stats = Stats::default();
+    stats.count(m);
+    let observed = build(m);
+    let compared = agrees(m, &observed)
+        .map_err(|why| format!("{what}: {why}\n\nthe packages (p{} is built):\n{}", m.root(), m.describe()))?;
+    stats.dependency_protocols_compared += compared;
     Ok(stats)
 }

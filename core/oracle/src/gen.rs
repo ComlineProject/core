@@ -56,6 +56,18 @@ fn ty() -> impl Strategy<Value = TySpec> {
     (kind, any::<u8>()).prop_map(|(kind, pick)| TySpec { kind, pick })
 }
 
+/// What an upstream change puts in a field: as often one without a maximum
+/// as not, since that is what a change a consumer didn't accept looks like.
+fn change_ty() -> impl Strategy<Value = TySpec> {
+    let kind = prop_oneof![
+        2 => Just(TyKind::Str { bounded: false }),
+        2 => Just(TyKind::Bytes { bounded: false }),
+        1 => Just(TyKind::Str { bounded: true }),
+        2 => any::<bool>().prop_map(|array| TyKind::Struct { array }),
+    ];
+    (kind, any::<u8>()).prop_map(|(kind, pick)| TySpec { kind, pick })
+}
+
 fn accept() -> impl Strategy<Value = AcceptSpec> {
     prop_oneof![
         10 => Just(AcceptSpec::Exact),
@@ -96,11 +108,11 @@ fn package() -> impl Strategy<Value = PackageSpec> {
 fn change() -> impl Strategy<Value = Option<Change>> {
     let (p, s, t) = (any::<u8>(), any::<u8>(), any::<u8>());
     prop_oneof![
-        3 => Just(None::<Change>),
+        2 => Just(None::<Change>),
         // Mostly what the issue names: a field that holds no maximum, and a
         // type swapped.
-        3 => (p, s, t, ty()).prop_map(|(pkg, schema, strukt, ty)| Some(Change::AddField { pkg, schema, strukt, ty })),
-        3 => (p, s, t, any::<u8>(), ty()).prop_map(|(pkg, schema, strukt, field, ty)| Some(Change::SwapField { pkg, schema, strukt, field, ty })),
+        4 => (p, s, t, change_ty()).prop_map(|(pkg, schema, strukt, ty)| Some(Change::AddField { pkg, schema, strukt, ty })),
+        4 => (p, s, t, any::<u8>(), change_ty()).prop_map(|(pkg, schema, strukt, field, ty)| Some(Change::SwapField { pkg, schema, strukt, field, ty })),
         1 => (p, handshake()).prop_map(|(pkg, handshake)| Some(Change::SetHandshake { pkg, handshake })),
         1 => (p, s, t, handshake()).prop_map(|(pkg, schema, protocol, handshake)| Some(Change::SetProtocolHandshake { pkg, schema, protocol, handshake })),
     ]
