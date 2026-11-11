@@ -1,56 +1,56 @@
 {
   "format": 2,
-  "commit": "f9d53265b82c86502439fea1759e256973865853",
+  "commit": "9b1bb0f53078afd7d3430cc7e8388cf2807ed8b7",
   "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
-  "run": "https://github.com/ComlineProject/core/actions/runs/43067555519",
+  "run": "https://github.com/ComlineProject/core/actions/runs/43113791210",
   "benches": {
     "parse/complex": {
       "instructions": {
-        "value": 3043996
+        "value": 3034971
       },
       "wall_ns": {
-        "value": 188590.8,
-        "spread": 0.0084,
+        "value": 206584.1,
+        "spread": 0.0055,
         "runner": "github-hosted"
       }
     },
     "parse/large/10": {
       "instructions": {
-        "value": 3734150
+        "value": 3724254
       },
       "wall_ns": {
-        "value": 241821.9,
-        "spread": 0.0706,
+        "value": 257039.4,
+        "spread": 0.0066,
         "runner": "github-hosted"
       }
     },
     "parse/large/100": {
       "instructions": {
-        "value": 36800043
+        "value": 36708318
       },
       "wall_ns": {
-        "value": 2046881.0,
-        "spread": 0.0037,
+        "value": 2449420.9,
+        "spread": 0.0121,
         "runner": "github-hosted"
       }
     },
     "parse/large/50": {
       "instructions": {
-        "value": 18425194
+        "value": 18379749
       },
       "wall_ns": {
-        "value": 1069593.3,
-        "spread": 0.014,
+        "value": 1265652.2,
+        "spread": 0.022,
         "runner": "github-hosted"
       }
     },
     "parse/simple": {
       "instructions": {
-        "value": 275539
+        "value": 274472
       },
       "wall_ns": {
-        "value": 16286.7,
-        "spread": 0.0148,
+        "value": 18180.2,
+        "spread": 0.0159,
         "runner": "github-hosted"
       }
     }
