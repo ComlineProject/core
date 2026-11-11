@@ -107,7 +107,13 @@ mod vocabulary_tests {
                     let bytes = (bits / 8) as u64;
                     assert_eq!((got.min, got.max), (bytes, Some(bytes)), "{}", p.name)
                 }
-                None => assert_eq!(got.max, None, "{}", p.name),
+                // What isn't at one width isn't fixed, and a `string` has no bound.
+                None => {
+                    assert!(!got.is_fixed(), "{}", p.name);
+                    if p.name == "string" {
+                        assert_eq!(got.max, None);
+                    }
+                }
             }
         }
     }

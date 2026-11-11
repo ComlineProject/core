@@ -272,7 +272,13 @@ mod tests {
                     let bytes = (bits / 8) as u64;
                     assert_eq!(got, range(bytes, Some(bytes)), "type {}", p.name)
                 }
-                None => assert_eq!(got.map(|r| r.max), Some(None), "type {}", p.name),
+                // What isn't at one width isn't fixed, and a `string` has no bound.
+                None => {
+                    assert!(got.is_some_and(|r| !r.is_fixed()), "type {}", p.name);
+                    if p.name == "string" {
+                        assert_eq!(got.map(|r| r.max), Some(None));
+                    }
+                }
             }
         }
     }

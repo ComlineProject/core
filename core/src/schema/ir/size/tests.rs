@@ -433,10 +433,12 @@ fn witnesses_are_the_least_and_the_most_value() {
     let got = witness(&array(prim(P::Bool), Some(2), None), json(), vec![]);
     assert_eq!(got.min, json!({ "tuple": [{ "bool": true }, { "bool": true }] }));
     assert_eq!(got.max, Some(json!({ "tuple": [{ "bool": false }, { "bool": false }] })));
-    // Index to the last variant.
-    let got = witness(&named("E"), packed(), vec![unit_enum("E", &["A", "B", "C"])]);
-    assert_eq!(got.min, json!({ "unit_variant": { "enum": "E", "index": 0, "variant": "A" } }));
-    assert_eq!(got.max, Some(json!({ "unit_variant": { "enum": "E", "index": 2, "variant": "C" } })));
+    // An index to the last variant is the longest where it takes another byte.
+    let many: Vec<String> = (0..129).map(|i| format!("v{i:03}")).collect();
+    let many: Vec<&str> = many.iter().map(String::as_str).collect();
+    let got = witness(&named("E"), packed(), vec![unit_enum("E", &many)]);
+    assert_eq!(got.min, json!({ "unit_variant": { "enum": "E", "index": 0, "variant": "v000" } }));
+    assert_eq!(got.max, Some(json!({ "unit_variant": { "enum": "E", "index": 128, "variant": "v128" } })));
 }
 
 #[test]

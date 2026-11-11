@@ -37,7 +37,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v3
-      - run: core/tests/spec/vendor.sh --check
+      - run: bash core/tests/spec/vendor.sh --check
 
   # The IR alone (`default-features = false`): what a generator depends on.
   # It has no parser, so unlike the default build it compiles for WASI and
