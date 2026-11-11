@@ -17,7 +17,12 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-comline-core = { path = ".." }
+# `deps`: the unverified_oracle target builds graphs of packages, which
+# resolves their dependencies.
+comline-core = { path = "..", features = ["deps"] }
+# The oracle and the graphs it is checked over (core#223); no dependency on core.
+comline-core-oracle = { path = "../oracle", features = ["arbitrary"] }
+tempfile = "3.8"
 
 [[bin]]
 name = "ids_parse"
@@ -36,6 +41,13 @@ bench = false
 [[bin]]
 name = "idp_parse"
 path = "fuzz_targets/idp_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "unverified_oracle"
+path = "fuzz_targets/unverified_oracle.rs"
 test = false
 doc = false
 bench = false

@@ -1,0 +1,25 @@
+[package]
+name = "comline-core-oracle"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Package graphs, rendered to disk, and an independent oracle for the guarantee-safety invariant (core#223)"
+
+# Internal, never published. A description of a package graph (`Spec`, then the
+# concrete `Model`), what it renders to (`config.idp` and `.ids` files), an
+# oracle that predicts what core must do with it, and the generators that draw
+# one: `proptest` strategies for core's property test, `arbitrary` for the fuzz
+# target. It has no dependency on `comline-core`: that is the point of an
+# independent oracle. Building the files with core is each caller's side
+# (`harness.rs`). See src/lib.rs.
+
+[features]
+# The strategies core/tests/package/unverified_oracle.rs draws from.
+proptest = ["dep:proptest"]
+# `Spec: Arbitrary`, for core/fuzz's `unverified_oracle` target.
+arbitrary = ["dep:arbitrary"]
+
+[dependencies]
+proptest = { version = "=1.5.0", optional = true }
+arbitrary = { version = "1", optional = true }
