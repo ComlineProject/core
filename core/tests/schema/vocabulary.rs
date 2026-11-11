@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use comline_core::schema::idl::grammar::{self, Declaration, Type};
-use comline_core::schema::idl::size::{self, SizeLookup, SizeTarget, WireSize};
+use comline_core::schema::idl::size::{self, SizeLookup, SizeTarget};
 use comline_core::schema::idl::vocabulary;
 
 #[cfg(test)]
@@ -94,18 +94,20 @@ mod vocabulary_tests {
     }
 
     /// Binds `vocabulary` and `size` without refactoring either: a
-    /// primitive's declared bit width must agree with what the wire-size
-    /// estimator actually computes for it.
+    /// primitive's declared bit width must agree with what `packed@1`, the
+    /// format that writes each at its own width, says for it.
     #[test]
-    fn primitive_bits_agree_with_size_of_type() {
+    fn primitive_bits_agree_with_packed() {
+        let packed = size::rules("packed@1").expect("packed@1 has size rules");
         for p in vocabulary::PRIMITIVES {
             let ty = first_field_type(&format!("struct S {{ f: {} }}", p.name));
-            let got = size::size_of_type(&ty, &NoLookup);
+            let got = size::range_of_type(&ty, packed, &NoLookup, &|_| None).expect(p.name);
             match p.bits {
                 Some(bits) => {
-                    assert_eq!(got, WireSize::Fixed((bits / 8) as u32), "{}", p.name)
+                    let bytes = (bits / 8) as u64;
+                    assert_eq!((got.min, got.max), (bytes, Some(bytes)), "{}", p.name)
                 }
-                None => assert_eq!(got, WireSize::Variable, "{}", p.name),
+                None => assert_eq!(got.max, None, "{}", p.name),
             }
         }
     }

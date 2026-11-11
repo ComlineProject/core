@@ -58,6 +58,7 @@ use crate::schema::ir::diff::{
 };
 use crate::schema::ir::snippet;
 use crate::schema::ir::frozen::types::TypeRef;
+use crate::schema::ir::size::{self, FrozenLookup};
 use crate::schema::ir::frozen::unit::{DeprecatedValue, FrozenUnit};
 use crate::settings::{SettingsDict, SettingsValue};
 
@@ -157,6 +158,25 @@ pub struct Annotation {
     pub value: Option<String>,
 }
 
+/// How many bytes a type takes in one data format: at least `min` and at
+/// most `max`, from the format's size rules in the specification
+/// ([`crate::schema::ir::size`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+pub struct SizeRange {
+    /// The format, by its wire name (`packed@1`).
+    pub format: String,
+    /// The fewest bytes any value takes.
+    pub min: u64,
+    /// The most. Absent where there is no bound: a `string` or a `T[]` with
+    /// no maximum, or a type that contains itself with no `@max_depth`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max: Option<u64>,
+    /// `max` is only a bound that no value is known to reach (none of the
+    /// official formats has one). Absent otherwise.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub upper_bound: bool,
+}
+
 /// A declared unit.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "kind", rename_all = "snake_case")]
@@ -166,11 +186,20 @@ pub enum Unit {
         docs: Option<Doc>,
         annotations: Vec<Annotation>,
         fields: Vec<Field>,
+        /// What it takes in each format its package's protocols use, those
+        /// with size rules (the official ones). Absent where it can't be told
+        /// (a `union` in it) and in a model of a built version, which keeps no
+        /// protocol to say which formats.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sizes: Vec<SizeRange>,
     },
     Enum {
         name: String,
         docs: Option<Doc>,
         variants: Vec<String>,
+        /// As for a struct.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sizes: Vec<SizeRange>,
     },
     Protocol {
         name: String,
@@ -213,6 +242,9 @@ pub enum Unit {
         docs: Option<Doc>,
         annotations: Vec<Annotation>,
         target: Type,
+        /// What the type it names takes; as for a struct.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        sizes: Vec<SizeRange>,
     },
     Settings {
         /// `None` for the schema's unnamed block.
@@ -243,6 +275,9 @@ pub struct Function {
     pub arguments: Vec<Argument>,
     /// `None` when the function has no reply at all; [`Type::Unit`] for `()`.
     pub returns: Option<Type>,
+    /// What the reply takes, as a struct's `sizes`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub returns_sizes: Vec<SizeRange>,
     /// The errors it declares with `!`, each a reference to the error.
     pub throws: Vec<Type>,
 }
@@ -252,6 +287,9 @@ pub struct Argument {
     pub name: String,
     #[serde(rename = "type")]
     pub ty: Type,
+    /// What it takes, as a struct's `sizes`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sizes: Vec<SizeRange>,
 }
 
 /// One `assert(condition, message)` of a validator.
@@ -520,6 +558,18 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
         .filter(|p| !p.dependency)
         .collect::<Vec<_>>();
 
+    // Every compiled schema, the package's and what it reaches: a type's
+    // names resolve into a dependency's or `std`'s.
+    let compiled: Vec<Vec<FrozenUnit>> = context
+        .schema_contexts
+        .iter()
+        .filter_map(|schema| schema.borrow().frozen_schema.borrow().clone())
+        .collect();
+    let sizing = Sizing {
+        formats: size_formats(context, &protocols),
+        lookup: FrozenLookup::new(compiled.iter().map(Vec::as_slice)),
+    };
+
     let mut modules = vec![];
     for schema in &context.schema_contexts {
         let schema = schema.borrow();
@@ -533,6 +583,7 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
             index: &index,
             namespace: path.clone(),
             units,
+            sizing: Some(&sizing),
         };
         let units = units
             .iter()
@@ -602,6 +653,7 @@ fn dependencies(
                     index,
                     namespace: namespace.join("::"),
                     units,
+                    sizing: None,
                 };
                 let units: Vec<Unit> = units.iter().filter_map(|u| scope.unit(u)).collect();
                 if units.is_empty() {
@@ -711,6 +763,7 @@ pub fn model_frozen(
                 index: &index,
                 namespace: path.clone(),
                 units,
+                sizing: None,
             };
             Some(Module {
                 docs: headers.modules.remove(&path),
@@ -875,9 +928,71 @@ struct Scope<'a> {
     /// The schema's namespace, `::`-joined.
     namespace: String,
     units: &'a [FrozenUnit],
+    /// What the package's types take in its formats, where the model has it:
+    /// not for a dependency's modules or a built version's.
+    sizing: Option<&'a Sizing<'a>>,
+}
+
+/// The formats the documented package's protocols use that have size rules,
+/// and the names its types resolve through, for [`SizeRange`].
+struct Sizing<'a> {
+    formats: Vec<(&'static str, &'static size::Sizes)>,
+    lookup: FrozenLookup<'a>,
+}
+
+impl Sizing<'_> {
+    /// What `ty`, written in the schema `namespace`, takes in each format.
+    fn of(&self, ty: &TypeRef, namespace: &str) -> Vec<SizeRange> {
+        let Some(scope) = self.lookup.scope_of(namespace) else {
+            return vec![];
+        };
+        self.formats
+            .iter()
+            .filter_map(|(format, rules)| {
+                let range = size::range(ty, rules, &self.lookup, scope)?;
+                Some(SizeRange {
+                    format: format.to_string(),
+                    min: range.min,
+                    max: range.max,
+                    upper_bound: range.upper_bound,
+                })
+            })
+            .collect()
+    }
+}
+
+/// The official formats with size rules that the package's own protocols use,
+/// in the order they are first used; the package's default format where it
+/// has no protocol.
+fn size_formats(
+    context: &ProjectContext,
+    protocols: &[ProtocolSummary],
+) -> Vec<(&'static str, &'static size::Sizes)> {
+    let mut names: Vec<&str> = protocols.iter().map(|p| p.format.value.as_str()).collect();
+    if names.is_empty() {
+        let config = context.config_frozen.as_deref().unwrap_or(&[]);
+        names.push(crate::package::config::ir::frozen::wire_format(config));
+    }
+    let mut formats: Vec<(&'static str, &'static size::Sizes)> = vec![];
+    for name in names {
+        let Some(encoding) = comline_catalog::resolve(name) else {
+            continue;
+        };
+        if let Some(rules) = encoding.sizes {
+            if !formats.iter().any(|(id, _)| *id == encoding.id) {
+                formats.push((encoding.id, rules));
+            }
+        }
+    }
+    formats
 }
 
 impl Scope<'_> {
+    /// What `ty` takes in each of the package's formats.
+    fn sizes(&self, ty: &TypeRef) -> Vec<SizeRange> {
+        self.sizing.map(|s| s.of(ty, &self.namespace)).unwrap_or_default()
+    }
+
     /// What `name`, written in this schema, names.
     fn resolve(&self, name: &str) -> Option<UnitRef> {
         if name.contains("::") {
@@ -992,6 +1107,7 @@ impl Scope<'_> {
                 docs: doc(docstring),
                 annotations: annotations(parameters),
                 fields: self.fields(fields),
+                sizes: self.sizes(&TypeRef::Named(name.clone())),
             },
             FrozenUnit::Enum {
                 docstring,
@@ -1008,6 +1124,7 @@ impl Scope<'_> {
                         _ => None,
                     })
                     .collect(),
+                sizes: self.sizes(&TypeRef::Named(name.clone())),
             },
             FrozenUnit::Protocol {
                 docstring,
@@ -1043,9 +1160,11 @@ impl Scope<'_> {
                                 .map(|a| Argument {
                                     name: a.name.clone(),
                                     ty: self.ty(&a.ty),
+                                    sizes: self.sizes(&a.ty),
                                 })
                                 .collect(),
                             returns: _return.as_ref().map(|t| self.ty(t)),
+                            returns_sizes: _return.as_ref().map(|t| self.sizes(t)).unwrap_or_default(),
                             throws: throws.iter().map(|o| self.thrown(*o)).collect(),
                         })
                     })
@@ -1121,6 +1240,7 @@ impl Scope<'_> {
                 docs: doc(docstring),
                 annotations: annotations(parameters),
                 target: self.ty(target),
+                sizes: self.sizes(&TypeRef::Named(name.clone())),
             },
             FrozenUnit::Settings {
                 docstring,
@@ -1386,6 +1506,78 @@ mod tests {
         assert!(json["modules"][0]["units"][0]["kind"].is_string());
         let back: DocModel = serde_json::from_value(json).unwrap();
         assert_eq!(back, model);
+    }
+
+    fn range(format: &str, min: u64, max: u64) -> Vec<SizeRange> {
+        vec![SizeRange {
+            format: format.into(),
+            min,
+            max: Some(max),
+            upper_bound: false,
+        }]
+    }
+
+    fn sizes_of<'a>(model: &'a DocModel, module: &str, name: &str) -> &'a [SizeRange] {
+        match unit(model, module, name) {
+            Unit::Struct { sizes, .. }
+            | Unit::Enum { sizes, .. }
+            | Unit::TypeAlias { sizes, .. } => sizes,
+            other => panic!("{other:?} has no sizes"),
+        }
+    }
+
+    #[test]
+    fn documents_what_each_type_takes_in_the_packages_format() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = package(&tmp.path().join("shop"), TYPES);
+        let context = crate::package::build::compile_package(&dir).unwrap();
+        let packed = model(&context, None);
+
+        // `packed@1`, the default: `Customer` is a `u64`, a string of at most
+        // 256 characters (1 to 1026 bytes) and an optional one (1 to 1027).
+        assert_eq!(sizes_of(&packed, "types", "Customer"), range("packed@1", 10, 2061));
+        assert_eq!(sizes_of(&packed, "types", "Payment"), range("packed@1", 1, 1));
+        assert_eq!(sizes_of(&packed, "types", "CustomerId"), range("packed@1", 8, 8));
+        // An order holds a `union`, which no format says the size of.
+        assert!(sizes_of(&packed, "api", "Order").is_empty());
+
+        let Unit::Protocol { functions, .. } = unit(&packed, "api", "Orders") else {
+            panic!()
+        };
+        let [place, ping] = functions.as_slice() else {
+            panic!()
+        };
+        assert!(place.arguments[0].sizes.is_empty());
+        assert_eq!(place.returns_sizes, range("packed@1", 8, 8));
+        assert!(ping.returns_sizes.is_empty());
+
+        // The format the package's protocols use is the one shown.
+        let config = format!("{CONFIG}wire = {{ format = \"json@1\" }}\n");
+        let json = tmp.path().join("json").join("shop");
+        std::fs::create_dir_all(json.join("src")).unwrap();
+        std::fs::write(json.join("config.idp"), config).unwrap();
+        std::fs::write(json.join("src/types.ids"), TYPES).unwrap();
+        std::fs::write(json.join("src/api.ids"), API).unwrap();
+        let context = crate::package::build::compile_package(&json).unwrap();
+        let json_model = model(&context, None);
+        assert_eq!(sizes_of(&json_model, "types", "Customer"), range("json@1", 29, 3120));
+
+        // In the JSON, a size has its format, least and most; a type with none
+        // has no `sizes` at all.
+        let value = serde_json::to_value(&json_model).unwrap();
+        let customer = &value["modules"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["path"] == "types")
+            .unwrap()["units"][0];
+        assert_eq!(customer["sizes"][0], serde_json::json!({ "format": "json@1", "min": 29, "max": 3120 }));
+        let order = &value["modules"].as_array().unwrap().iter().find(|m| m["path"] == "api").unwrap()["units"];
+        assert!(order
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|u| u["name"] == "Order" && u.get("sizes").is_none()));
     }
 
     #[test]

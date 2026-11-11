@@ -28,7 +28,7 @@ pub struct PrimitiveInfo {
     pub name: &'static str,
     pub class: PrimitiveClass,
     /// Bit width for a fixed-size primitive (including `bool`, sized at 8
-    /// — `size_of_type` packs it with `s8`/`u8`); `None` only for `string`
+    /// — the sizer packs it with `s8`/`u8`); `None` only for `string`
     /// (genuinely unbounded).
     pub bits: Option<u16>,
     pub description: &'static str,
