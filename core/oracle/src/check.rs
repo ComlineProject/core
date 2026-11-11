@@ -76,11 +76,32 @@ impl Stats {
     }
 }
 
+/// What core's error says for each kind of reason the oracle gives: the codes
+/// of its diagnostics, as the build renders them (`[unverified::missing-marker]`),
+/// and the dependency check's text, which has none.
+const KINDS: &[(&str, &[&str])] = &[
+    ("gate", &["settings::forbidden"]),
+    ("package-unverified", &["unverified::wrong-scope", "unverified::unknown-guarantee"]),
+    ("bounds", &["bounds::unbounded", "unverified::missing-guarantee"]),
+    ("marker", &["unverified::missing-marker", "unverified::missing-guarantee", "unverified::unknown-guarantee"]),
+    ("acceptance", &["is unverified, giving up", "now gives up"]),
+];
+
 /// Whether `observed` is what the oracle predicts for `m`'s root.
 pub fn agrees(m: &Model, observed: &Observed) -> Result<(), String> {
     let prediction = predict(m, m.root());
     match (&prediction, observed) {
-        (Prediction::Fails(_), Observed::Failed(_)) => Ok(()),
+        (Prediction::Fails(reasons), Observed::Failed(error)) => {
+            // Refused, and for a reason the oracle has: an error that is
+            // none of these is something else wrong with the graph.
+            let says = |kind: &str| reasons.iter().any(|r| r.starts_with(&format!("[{kind}]")));
+            let explained = KINDS.iter().any(|(kind, signs)| says(kind) && signs.iter().any(|sign| error.contains(sign)));
+            if explained {
+                Ok(())
+            } else {
+                Err(format!("core refused it, but not for what the oracle says:\n  {}\ncore said:\n{error}", reasons.join("\n  ")))
+            }
+        }
         (Prediction::Fails(reasons), Observed::Built(_)) => {
             Err(format!("core built it; the oracle says it can't, because:\n  {}", reasons.join("\n  ")))
         }

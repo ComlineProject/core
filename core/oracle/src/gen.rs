@@ -21,19 +21,23 @@ fn handshake() -> impl Strategy<Value = Handshake> {
 /// A marker or a package's `unverified`.
 fn ack() -> impl Strategy<Value = AckSpec> {
     prop_oneof![
-        3 => Just(AckSpec::Nothing),
-        4 => Just(AckSpec::Plain),
-        4 => Just(AckSpec::Needed),
+        2 => Just(AckSpec::Nothing),
+        3 => Just(AckSpec::Plain),
+        2 => Just(AckSpec::Needed),
+        8 => Just(AckSpec::Auto),
         // Any keys, a misspelt one among them.
         1 => (0u8..64).prop_map(AckSpec::Keys),
     ]
 }
 
+/// A field or an argument: mostly bounded, mostly a plain struct where one
+/// can be named, a list of it (which closes cycles) less often.
 fn ty() -> impl Strategy<Value = TySpec> {
     let kind = prop_oneof![
         4 => Just(TyKind::Str { bounded: true }),
         3 => Just(TyKind::Bytes { bounded: true }),
-        4 => any::<bool>().prop_map(|array| TyKind::Struct { array }),
+        5 => Just(TyKind::Struct { array: false }),
+        2 => Just(TyKind::Struct { array: true }),
         1 => Just(TyKind::Str { bounded: false }),
         1 => Just(TyKind::Bytes { bounded: false }),
     ];
@@ -55,20 +59,20 @@ fn dep() -> impl Strategy<Value = DepSpec> {
 }
 
 fn structure() -> impl Strategy<Value = StructSpec> {
-    (prop_oneof![1 => Just(false), 1 => Just(true)], vec(ty(), 1..4)).prop_map(|(max_depth, fields)| StructSpec { max_depth, fields })
+    (prop_oneof![1 => Just(false), 2 => Just(true)], vec(ty(), 1..4)).prop_map(|(max_depth, fields)| StructSpec { max_depth, fields })
 }
 
 fn protocol() -> impl Strategy<Value = ProtocolSpec> {
-    (handshake(), ack(), vec(ty(), 0..3)).prop_map(|(handshake, marker, args)| ProtocolSpec { handshake, marker, args })
+    (handshake(), ack(), vec(ty(), 1..3)).prop_map(|(handshake, marker, args)| ProtocolSpec { handshake, marker, args })
 }
 
 fn schema() -> impl Strategy<Value = SchemaSpec> {
-    (vec(structure(), 1..4), vec(protocol(), 0..3)).prop_map(|(structs, protocols)| SchemaSpec { structs, protocols })
+    (vec(structure(), 1..4), vec(protocol(), 1..3)).prop_map(|(structs, protocols)| SchemaSpec { structs, protocols })
 }
 
 fn package() -> impl Strategy<Value = PackageSpec> {
     (
-        prop_oneof![5 => Just(true), 1 => Just(false)],
+        prop_oneof![9 => Just(true), 1 => Just(false)],
         handshake(),
         ack(),
         vec(schema(), 1..3),

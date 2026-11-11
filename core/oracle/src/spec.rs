@@ -23,8 +23,12 @@ pub enum AckSpec {
     Plain,
     /// Keyed, with exactly the keys that are needed (the guarantees given up,
     /// minus what the package covers; for a package, what its protocols give
-    /// up through its settings).
+    /// up through its settings). A plain one where nothing is needed: the
+    /// marker that gives nothing up.
     Needed,
+    /// Nothing where nothing is needed, else as `Needed`: what an author
+    /// who got it right writes.
+    Auto,
     /// Keyed, with the keys whose bit is set: one per guarantee, then
     /// `bounded_sise`.
     Keys(u8),
@@ -238,7 +242,7 @@ impl Spec {
                 AckSpec::Nothing => None,
                 AckSpec::Plain => Some(Ack::Plain),
                 AckSpec::Keys(mask) => Some(keyed(keys(mask))),
-                AckSpec::Needed => {
+                AckSpec::Needed | AckSpec::Auto => {
                     // What the handshake gives up, for the protocols that take it.
                     let takes = m.packages[pkg].schemas.iter().flat_map(|s| &s.protocols).any(|q| q.handshake == Handshake::Default);
                     let needed = if takes && m.packages[pkg].handshake == Handshake::None {
@@ -258,11 +262,11 @@ impl Spec {
                         AckSpec::Nothing => None,
                         AckSpec::Plain => Some(Ack::Plain),
                         AckSpec::Keys(mask) => Some(keyed(keys(mask))),
-                        AckSpec::Needed => {
+                        AckSpec::Needed | AckSpec::Auto => {
                             let covered = oracle::covered_by_package(&m, id);
                             let needed: BTreeSet<Key> =
                                 oracle::given_up(&m, id).difference(&covered).map(|g| Key::Guarantee(*g)).collect();
-                            Some(keyed(needed))
+                            (!needed.is_empty() || q.marker == AckSpec::Needed).then(|| keyed(needed))
                         }
                     };
                 }

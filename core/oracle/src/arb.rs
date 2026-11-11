@@ -24,20 +24,22 @@ fn handshake(u: &mut Unstructured) -> Result<Handshake> {
 }
 
 fn ack(u: &mut Unstructured) -> Result<AckSpec> {
-    Ok(match below(u, 12)? {
-        0..=2 => AckSpec::Nothing,
-        3..=6 => AckSpec::Plain,
-        7..=10 => AckSpec::Needed,
+    Ok(match below(u, 16)? {
+        0 | 1 => AckSpec::Nothing,
+        2..=4 => AckSpec::Plain,
+        5 | 6 => AckSpec::Needed,
+        7..=14 => AckSpec::Auto,
         _ => AckSpec::Keys(below(u, 64)?),
     })
 }
 
 fn ty(u: &mut Unstructured) -> Result<TySpec> {
-    let kind = match below(u, 13)? {
+    let kind = match below(u, 16)? {
         0..=3 => TyKind::Str { bounded: true },
         4..=6 => TyKind::Bytes { bounded: true },
-        7..=10 => TyKind::Struct { array: u.arbitrary()? },
-        11 => TyKind::Str { bounded: false },
+        7..=11 => TyKind::Struct { array: false },
+        12 | 13 => TyKind::Struct { array: true },
+        14 => TyKind::Str { bounded: false },
         _ => TyKind::Bytes { bounded: false },
     };
     Ok(TySpec { kind, pick: u.arbitrary()? })
@@ -62,22 +64,22 @@ fn dep(u: &mut Unstructured) -> Result<DepSpec> {
 }
 
 fn structure(u: &mut Unstructured) -> Result<StructSpec> {
-    Ok(StructSpec { max_depth: u.arbitrary()?, fields: tys(u, 1, 3)? })
+    Ok(StructSpec { max_depth: below(u, 3)? != 0, fields: tys(u, 1, 3)? })
 }
 
 fn protocol(u: &mut Unstructured) -> Result<ProtocolSpec> {
-    Ok(ProtocolSpec { handshake: handshake(u)?, marker: ack(u)?, args: tys(u, 0, 2)? })
+    Ok(ProtocolSpec { handshake: handshake(u)?, marker: ack(u)?, args: tys(u, 1, 2)? })
 }
 
 fn schema(u: &mut Unstructured) -> Result<SchemaSpec> {
     let structs = (0..count(u, 1, 3)?).map(|_| structure(u)).collect::<Result<_>>()?;
-    let protocols = (0..count(u, 0, 2)?).map(|_| protocol(u)).collect::<Result<_>>()?;
+    let protocols = (0..count(u, 1, 2)?).map(|_| protocol(u)).collect::<Result<_>>()?;
     Ok(SchemaSpec { structs, protocols })
 }
 
 fn package(u: &mut Unstructured) -> Result<PackageSpec> {
     Ok(PackageSpec {
-        gate: below(u, 6)? != 0,
+        gate: below(u, 10)? != 0,
         handshake: handshake(u)?,
         unverified: ack(u)?,
         schemas: (0..count(u, 1, 2)?).map(|_| schema(u)).collect::<Result<_>>()?,
