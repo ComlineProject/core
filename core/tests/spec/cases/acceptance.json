@@ -1,0 +1,270 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "acceptance",
+    "cases": [
+        {
+            "id": "acceptance/not-accepted",
+            "description": "an unverified protocol of a dependency has to be accepted",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Billing` is unverified, giving up schema agreement and encoding agreement",
+                    "the 2009 gateway"
+                ]
+            }
+        },
+        {
+            "id": "acceptance/accepted",
+            "description": "accepted for exactly what it gives up, it builds",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n        accept_unverified = { Billing = [\"schema_agreement\", \"encoding_agreement\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing",
+                            "accept_unverified": {
+                                "Billing": [
+                                    "schema_agreement",
+                                    "encoding_agreement"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "acceptance/accepted-for-less",
+            "description": "accepted for less than it gives up, it stops again",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n        accept_unverified = { Billing = [\"schema_agreement\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing",
+                            "accept_unverified": {
+                                "Billing": [
+                                    "schema_agreement"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Billing` now gives up schema agreement and encoding agreement",
+                    "it was accepted for schema agreement"
+                ]
+            }
+        },
+        {
+            "id": "acceptance/accepted-for-more",
+            "description": "accepted for more than it gives up, it stops too: the set has to match exactly",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n        accept_unverified = { Billing = [\"schema_agreement\", \"encoding_agreement\", \"bounded_size\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing",
+                            "accept_unverified": {
+                                "Billing": [
+                                    "schema_agreement",
+                                    "encoding_agreement",
+                                    "bounded_size"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Billing` now gives up schema agreement and encoding agreement"
+                ]
+            }
+        },
+        {
+            "id": "acceptance/package-reasons-shown",
+            "description": "what the package said once is what the consumer is shown to accept",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nhandshake = \"none\"\nunverified = {\n    schema_agreement = \"the gateway pins schemas by contract\"\n    encoding_agreement = \"the gateway only speaks one encoding\"\n}\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "protocol `Billing` is unverified, giving up schema agreement and encoding agreement",
+                    "schema agreement \"the gateway pins schemas by contract\"",
+                    "encoding agreement \"the gateway only speaks one encoding\""
+                ]
+            }
+        },
+        {
+            "id": "acceptance/judged-by-its-own-package",
+            "description": "a dependency is judged by its own package's settings and default handshake, not the consumer's",
+            "packages": [
+                {
+                    "name": "billing",
+                    "config": "congregation billing\nspecification_version = 1\nhandshake = \"none\"\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@unverified = \"the 2009 gateway\"\nprotocol Billing {\n    function charge();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    billing = {\n        path = \"../billing\"\n        accept_unverified = { Billing = [\"schema_agreement\", \"encoding_agreement\"] }\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct A {\n    x: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "billing",
+                            "accept_unverified": {
+                                "Billing": [
+                                    "schema_agreement",
+                                    "encoding_agreement"
+                                ]
+                            }
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        }
+    ]
+}

@@ -1,0 +1,183 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "keyed",
+    "cases": [
+        {
+            "id": "keyed/exact-set",
+            "description": "a reason for each guarantee given up, and no others",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"the gateway predates Comline\",\n    encoding_agreement = \"the gateway only speaks one encoding\"\n}\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "schema_agreement",
+                                "scope": "protocol",
+                                "reason": "the gateway predates Comline"
+                            },
+                            {
+                                "guarantee": "encoding_agreement",
+                                "scope": "protocol",
+                                "reason": "the gateway only speaks one encoding"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "keyed/unknown-guarantee",
+            "description": "a key that is no guarantee's id is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"the gateway predates Comline\",\n    encoding_agreement = \"the gateway only speaks one encoding\",\n    bounded_sise = \"a typo\"\n}\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::unknown-guarantee",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "keyed/missing-guarantee",
+            "description": "a guarantee given up and not listed is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = { schema_agreement = \"the gateway predates Comline\" }\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::missing-guarantee",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "keyed/not-given-up",
+            "description": "a guarantee listed and not given up is a warning, and not frozen",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"the gateway predates Comline\",\n    encoding_agreement = \"the gateway only speaks one encoding\",\n    version_honesty = \"just in case\"\n}\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "P",
+                        "given_up": [
+                            "schema_agreement",
+                            "encoding_agreement"
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::not-given-up",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::schema-agreement",
+                        "severity": "warning"
+                    },
+                    {
+                        "code": "unverified::encoding-agreement",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "keyed/duplicate-guarantee",
+            "description": "a guarantee listed twice is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"the gateway predates Comline\",\n    encoding_agreement = \"the gateway only speaks one encoding\",\n    schema_agreement = \"again\"\n}\nprotocol P {\n    function f();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "unverified::duplicate-guarantee",
+                        "severity": "error"
+                    }
+                ]
+            }
+        }
+    ]
+}
