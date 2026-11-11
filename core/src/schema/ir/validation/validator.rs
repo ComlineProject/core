@@ -1338,7 +1338,7 @@ fn check_unverified(
         }
         let cause = unverified::cause(parameters, encodings);
         let why = |guarantee: Guarantee| match guarantee {
-            Guarantee::BoundedSize => "a string, list or nesting it reaches has no maximum".to_string(),
+            Guarantee::BoundedSize => unverified::UNBOUNDED_CAUSE.to_string(),
             _ => unverified::cause_of(parameters, encodings, guarantee),
         };
         // What the package's `unverified` already says why of, for this
