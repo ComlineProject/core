@@ -230,6 +230,10 @@ pub fn framing<'a>(parameters: &'a [FrozenUnit], encodings: &Encodings<'a>) -> &
         .unwrap_or(IMPLICIT_FRAMING)
 }
 
+/// Why `bounded_size` is given up: worked out from the types a protocol
+/// reaches, so [`causes`] doesn't say; only the frozen set does.
+pub const UNBOUNDED_CAUSE: &str = "a string, list or nesting it reaches has no maximum";
+
 /// One reason a guarantee is given up.
 struct Cause {
     guarantee: Guarantee,

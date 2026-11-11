@@ -304,12 +304,19 @@ fn summarize(p: Protocol) -> ProtocolSummary {
     };
 
     let causes = unverified::causes(p.parameters, p.encodings);
+    let frozen = unverified::frozen_set(p.parameters);
     let guarantees = Guarantee::ALL
         .into_iter()
         .map(|guarantee| {
-            let why: Vec<String> =
+            let mut why: Vec<String> =
                 causes.iter().filter(|(g, _)| *g == guarantee).map(|(_, c)| c.clone()).collect();
-            let held = why.is_empty();
+            // The frozen set is what the protocol gave up, and the one place
+            // `bounded_size` is: `causes` never says it.
+            let given_up = frozen.contains(&guarantee);
+            if given_up && why.is_empty() && guarantee == Guarantee::BoundedSize {
+                why.push(unverified::UNBOUNDED_CAUSE.to_string());
+            }
+            let held = !given_up && why.is_empty();
             let acceptance = if held {
                 Acceptance::NotNeeded
             } else {
@@ -342,7 +349,7 @@ fn summarize(p: Protocol) -> ProtocolSummary {
         // What's given up, not who says why: a protocol only the package's
         // `unverified` covers has no marker. `bounded_size` is in the frozen
         // set alone.
-        unverified: !unverified::frozen_set(p.parameters).is_empty() || !causes.is_empty(),
+        unverified: !frozen.is_empty() || !causes.is_empty(),
         guarantees,
     }
 }
@@ -627,5 +634,55 @@ mod tests {
         assert_eq!(row(&gateway, Guarantee::SchemaAgreement).reason.as_deref(), Some("pinned by contract"));
         assert_eq!(row(&gateway, Guarantee::EncodingAgreement).reason.as_deref(), Some("one encoding only"));
         assert!(row(&gateway, Guarantee::VersionHonesty).held);
+    }
+
+    #[test]
+    fn a_protocol_that_gave_up_bounded_size_doesnt_hold_it() {
+        let tmp = tempfile::tempdir().unwrap();
+        let app = tmp.path().join("app");
+        package(
+            &app,
+            "settings = { annotations = { unverified = { allowed = true } } }\n",
+            "struct Blob {\n    data: string\n}\n\n\
+             @unverified = \"free-form upload\"\nprotocol Upload {\n    function put(b: Blob);\n}\n",
+        );
+        let context = crate::package::build::compile_package(&app).unwrap();
+        let [upload] = protocols(&context).try_into().unwrap();
+        assert!(upload.unverified);
+        let size = row(&upload, Guarantee::BoundedSize);
+        assert!(!size.held);
+        assert_eq!(size.causes, [unverified::UNBOUNDED_CAUSE]);
+        assert_eq!(size.reason.as_deref(), Some("free-form upload"));
+        assert_eq!(size.acceptance, Acceptance::Unknown);
+        // Only what the frozen set lists is given up.
+        for row in upload.guarantees.iter().filter(|r| r.guarantee != Guarantee::BoundedSize) {
+            assert!(row.held, "{row:?}");
+        }
+    }
+
+    #[cfg(feature = "deps")]
+    #[test]
+    fn a_dependencys_given_up_bounded_size_is_accepted_not_unneeded() {
+        let tmp = tempfile::tempdir().unwrap();
+        let upload = tmp.path().join("upload");
+        package(
+            &upload,
+            "settings = { annotations = { unverified = { allowed = true } } }\n",
+            "struct Blob {\n    data: string\n}\n\n\
+             @unverified = \"free-form upload\"\nprotocol Upload {\n    function put(b: Blob);\n}\n",
+        );
+        let app = tmp.path().join("app");
+        package(
+            &app,
+            "dependencies = {\n    upload = {\n        path = \"../upload\"\n        \
+             accept_unverified = { Upload = [\"bounded_size\"] }\n    }\n}\n",
+            "protocol Mine {\n    function ping();\n}\n",
+        );
+        let context = crate::package::build::compile_package(&app).unwrap();
+        let upload = protocol(&context, "upload::api", "Upload").unwrap();
+        let size = row(&upload, Guarantee::BoundedSize);
+        assert!(!size.held);
+        assert_eq!(size.causes, [unverified::UNBOUNDED_CAUSE]);
+        assert_eq!(size.acceptance, Acceptance::Accepted("app".to_string()));
     }
 }
