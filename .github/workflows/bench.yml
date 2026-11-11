@@ -12,9 +12,11 @@ name: Benchmarks
 # by .github/scripts/bench-report.py; on a pull request it's an artifact.
 #
 # The jobs are the shared reusable workflow's (ComlineProject/.github,
-# bench.yml), run in the bench CI image (valgrind and iai-callgrind-runner in
-# it, nothing installed here). What is core's is the report script, the ledger
-# and the inputs below.
+# bench.yml) with core's values, kept local only because valgrind needs the
+# container started with `--security-opt seccomp=unconfined` (`setarch: failed
+# to set personality`) and the reusable workflow has no input for container
+# options. Back to a call of it when it has one. They run in the bench CI image
+# (valgrind and iai-callgrind-runner in it, nothing installed here).
 #
 # Accepting a regression: a benchmark that grows past the limit fails, unless
 # the pull request appends an `[[accepted]]` entry for it to the ledger,
@@ -51,23 +53,212 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  CARGO_TERM_COLOR: always
+  # A benchmark fails when its instruction count grows by more than this many
+  # percent, unless the ledger accepts it (see the top). With one codegen
+  # unit (`[profile.bench]` in Cargo.toml) a change to one function leaves
+  # the others' counts alone.
+  BENCH_LIMIT_PERCENT: 1
+  LEDGER: core/benches/accepted-regressions.toml
+  REPORT: reports/core.bench.json
+  WALL_TIME_COMMAND: cargo bench -p comline-core --bench parser_benchmark
+
 jobs:
-  bench:
-    name: bench
-    # `contents: write` is the ceiling for the reusable workflow's publish job,
-    # the only one that asks for it, and it never runs on a pull request.
+  pull-request:
+    name: instruction-count gate
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/comlineproject/ci-bench@sha256:0b1226fbc0867f4042a9af87b57311a259f12c5308a62469c4efd24fc0f78382
+      options: --security-opt seccomp=unconfined
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Settings
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global --add safe.directory "$RUNNER_TEMP/base"
+          # Base and head build into separate target directories (in a shared
+          # one, the head's older source mtimes can make Cargo reuse the
+          # base's build), on paths of the same length: a bench binary's path
+          # is in its arguments, and its length moves the heap, which moves
+          # some counts. They share iai-callgrind's output directory, where
+          # it keeps the base's counts for the head to compare with.
+          echo "IAI_CALLGRIND_HOME=$GITHUB_WORKSPACE/target-iai" >> "$GITHUB_ENV"
+      - name: Toolchain
+        id: toolchain
+        # `rust-toolchain.toml` picks it; base and head build with the same one.
+        run: echo "version=$(rustc --version)" >> "$GITHUB_OUTPUT"
+      - name: Bench the base
+        id: base
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        run: |
+          git worktree add "$RUNNER_TEMP/base" "$BASE_SHA"
+          cd "$RUNNER_TEMP/base"
+          # The base's own targets; a base from before this workflow has none.
+          if ! python3 .github/scripts/bench-report.py --targets > "$RUNNER_TEMP/base-targets" 2>/dev/null; then
+            : > "$RUNNER_TEMP/base-targets"
+          fi
+          if [ ! -s "$RUNNER_TEMP/base-targets" ]; then
+            echo "The base ($BASE_SHA) has no instruction-count benches; recording head only."
+            echo "compare=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          mapfile -t targets < "$RUNNER_TEMP/base-targets"
+          for target in "${targets[@]}"; do
+            read -r package bench <<< "$target"
+            echo "::group::Base: $package --bench $bench"
+            CARGO_TARGET_DIR="$RUNNER_TEMP/base-target" cargo bench -p "$package" --bench "$bench" -- \
+              --save-baseline=base --save-summary=json
+            echo "::endgroup::"
+          done
+          # The base's own summaries, kept apart from the head's: they say
+          # which benchmarks the base had, so one the head drops or renames
+          # is noticed, and give a renamed one its old count.
+          mkdir -p "$RUNNER_TEMP/base-iai"
+          (cd "$IAI_CALLGRIND_HOME" && find . -name summary.json -exec cp --parents {} "$RUNNER_TEMP/base-iai" \;)
+          echo "compare=true" >> "$GITHUB_OUTPUT"
+      - name: Bench the head
+        env:
+          COMPARE: ${{ steps.base.outputs.compare }}
+          CARGO_TARGET_DIR: ${{ runner.temp }}/head-target
+        run: |
+          find "$IAI_CALLGRIND_HOME" -name summary.json -delete 2>/dev/null || true
+          # No --callgrind-limits: the gate is the Report step's, which knows
+          # the ledger. So this step fails only when a benchmark can't run.
+          listed=$(python3 .github/scripts/bench-report.py --targets)
+          mapfile -t targets <<< "$listed"
+          for target in "${targets[@]}"; do
+            read -r package bench <<< "$target"
+            echo "::group::Head: $package --bench $bench"
+            if [ "$COMPARE" = "true" ] && grep -qxF "$target" "$RUNNER_TEMP/base-targets"; then
+              cargo bench -p "$package" --bench "$bench" -- --baseline=base --save-summary=json
+            else
+              echo "The base doesn't have this target; recording head only."
+              cargo bench -p "$package" --bench "$bench" -- --save-summary=json
+            fi
+            echo "::endgroup::"
+          done
+      - name: Wall time (not gated)
+        env:
+          CARGO_TARGET_DIR: ${{ runner.temp }}/head-target
+        run: eval "$WALL_TIME_COMMAND"
+      - name: Report and gate
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR: ${{ github.event.pull_request.number }}
+          TOOLCHAIN: ${{ steps.toolchain.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          # The base's ledger tells this pull request's entries from history;
+          # a base without one has none. The script's exit status is the
+          # verdict, given after the summary is written.
+          set +e
+          python3 .github/scripts/bench-report.py \
+            --home "$IAI_CALLGRIND_HOME" \
+            --criterion "$RUNNER_TEMP/head-target/criterion" \
+            --commit "$HEAD_SHA" \
+            --toolchain "$TOOLCHAIN" \
+            --run "$RUN_URL" \
+            --limit "$BENCH_LIMIT_PERCENT" \
+            --pr "$PR" \
+            --base-home "$RUNNER_TEMP/base-iai" \
+            --ledger "$LEDGER" \
+            --base-ledger "$RUNNER_TEMP/base/$LEDGER" \
+            --report "$REPORT" \
+            --markdown "$RUNNER_TEMP/bench.md"
+          verdict=$?
+          cat "$RUNNER_TEMP/bench.md" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$verdict" != 0 ]; then
+            echo "::error::The instruction-count gate failed; see the job summary."
+          fi
+          exit "$verdict"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: always() && hashFiles('reports/core.bench.json') != ''
+        with:
+          name: core.bench.json
+          path: reports/core.bench.json
+
+  master:
+    name: publish the bench report
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/comlineproject/ci-bench@sha256:0b1226fbc0867f4042a9af87b57311a259f12c5308a62469c4efd24fc0f78382
+      options: --security-opt seccomp=unconfined
+    defaults:
+      run:
+        shell: bash
     permissions:
       contents: write
-    uses: ComlineProject/.github/.github/workflows/bench.yml@6bfbbcc9bccd25b44c06dbf41408885bb29aafe6 # main, no release tag yet
-    with:
-      image: ghcr.io/comlineproject/ci-bench@sha256:0b1226fbc0867f4042a9af87b57311a259f12c5308a62469c4efd24fc0f78382
-      ledger: core/benches/accepted-regressions.toml
-      report-path: reports/core.bench.json
-      # A benchmark fails when its instruction count grows by more than this
-      # many percent, unless the ledger accepts it (see the top). With one
-      # codegen unit (`[profile.bench]` in Cargo.toml) a change to one
-      # function leaves the others' counts alone.
-      limit-percent: '1'
-      wall-time-command: cargo bench -p comline-core --bench parser_benchmark
-      publish: true
-      default-branch: master
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The publish checks the report is newer than the published one.
+          fetch-depth: 0
+          # The checkout keeps no credentials; the publish pushes with the
+          # job's token, handed to git through the environment only (below).
+          persist-credentials: false
+      - name: Settings
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          echo "IAI_CALLGRIND_HOME=$GITHUB_WORKSPACE/target-iai" >> "$GITHUB_ENV"
+      - name: Toolchain
+        id: toolchain
+        run: echo "version=$(rustc --version)" >> "$GITHUB_OUTPUT"
+      - name: Instruction counts
+        run: |
+          listed=$(python3 .github/scripts/bench-report.py --targets)
+          mapfile -t targets <<< "$listed"
+          for target in "${targets[@]}"; do
+            read -r package bench <<< "$target"
+            echo "::group::$package --bench $bench"
+            cargo bench -p "$package" --bench "$bench" -- --save-summary=json
+            echo "::endgroup::"
+          done
+      - name: Wall time
+        run: eval "$WALL_TIME_COMMAND"
+      - name: Report
+        env:
+          TOOLCHAIN: ${{ steps.toolchain.outputs.version }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 .github/scripts/bench-report.py \
+            --home "$IAI_CALLGRIND_HOME" \
+            --criterion target/criterion \
+            --commit "$GITHUB_SHA" \
+            --toolchain "$TOOLCHAIN" \
+            --run "$RUN_URL" \
+            --report "$REPORT" \
+            --markdown "$RUNNER_TEMP/bench.md"
+          cat "$RUNNER_TEMP/bench.md" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: core.bench.json
+          path: reports/core.bench.json
+      - name: Let git push to this repository
+        env:
+          TOKEN: ${{ github.token }}
+        run: |
+          header=$(printf 'x-access-token:%s' "$TOKEN" | base64 | tr -d '\n')
+          echo "::add-mask::$header"
+          {
+            echo "GIT_CONFIG_COUNT=1"
+            echo "GIT_CONFIG_KEY_0=http.${GITHUB_SERVER_URL}/.extraheader"
+            echo "GIT_CONFIG_VALUE_0=AUTHORIZATION: basic $header"
+          } >> "$GITHUB_ENV"
+      - name: Publish to the reports branch
+        uses: ComlineProject/observatory/.github/actions/publish-report@8d21b1fbe68f8b639676153ce1a308eaafdcc6a7 # v1
+        with:
+          reports: reports/core.bench.json
+          readme: .github/reports-branch.md
+          dry-run: ${{ github.ref != 'refs/heads/master' }}
