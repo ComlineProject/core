@@ -82,7 +82,7 @@ pub enum StoreError {
 /// engine and `comline store`. Until then the message says so and tells
 /// the user what to do by hand; 1.3 changes this one text.
 const RESET_HINT: &str = "To start a new history, `comline store reset` will move `.comline/` aside \
-     (to `.comline.format-N.bak/`) and keep `deps-cache/`, but that command is not in this \
+     (to `.comline.format-<its format>.bak/`) and keep `deps-cache/`, but that command is not in this \
      release yet: until it is, move `.comline/` aside yourself.";
 
 impl std::fmt::Display for StoreError {
