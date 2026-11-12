@@ -694,7 +694,11 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        written is its scope, and each guarantee allows the scopes the \
                        specification's catalog gives it: `bounded_size` down to a function, \
                        argument, field or type, where the marker acknowledges only what is \
-                       reached through that element.",
+                       reached through that element. An outer marker covers what is inside \
+                       it, and core hints at the narrower placement \
+                       (`unverified::narrower-placement`); `annotations.unverified.strict = \
+                       true` requires the keyed form and each guarantee at the innermost scope \
+                       its cause allows.",
         default: "nothing given up",
         value: unverified_value(),
         consumed_by: &["core's validation pass", "the consumer's `accept_unverified`"],

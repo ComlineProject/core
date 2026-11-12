@@ -12,6 +12,7 @@ mod package_wire;
 mod provider;
 mod unverified;
 mod unverified_inner;
+mod unverified_strict;
 #[cfg(feature = "deps")]
 mod unverified_oracle;
 mod wire;
