@@ -295,6 +295,53 @@ fn bounded_size_has_to_be_listed_where_a_string_has_no_maximum() {
     assert!(err.contains("bounded size") && err.contains("add `bounded_size = \"...\"`"), "{err}");
 }
 
+#[test]
+fn the_frozen_reasons_are_what_the_build_recorded() {
+    let reasons = |schema: &str| {
+        let (units, _) = compile(&config(ALLOW), schema).unwrap();
+        unverified::frozen_reasons(protocol_params(&units, "P"))
+    };
+    let some = |g, why: &str| (g, Some(why.to_string()));
+
+    // Given up only for `bounded_size`: its reason, never a handshake's.
+    let bounded = "@unverified = \"the uploader streams whatever it's given\"\n\
+                   protocol P {\n    function put(s: string);\n}\n";
+    assert_eq!(reasons(bounded), [some(Guarantee::BoundedSize, "the uploader streams whatever it's given")]);
+
+    // The plain form's one reason covers everything given up.
+    assert_eq!(
+        reasons(NONE_MARKED),
+        [
+            some(Guarantee::SchemaAgreement, "the gateway predates Comline"),
+            some(Guarantee::EncodingAgreement, "the gateway predates Comline"),
+        ]
+    );
+
+    // The keyed form gives each key's own.
+    assert_eq!(
+        reasons(NONE_KEYED),
+        [
+            some(Guarantee::SchemaAgreement, "the gateway predates Comline"),
+            some(Guarantee::EncodingAgreement, "the gateway only speaks one encoding"),
+        ]
+    );
+
+    // Nothing given up, nothing to say, marked or not.
+    let unmarked = "protocol P {\n    function f();\n}\n";
+    assert!(reasons(unmarked).is_empty());
+    assert!(reasons("@unverified = \"just in case\"\nprotocol P {\n    function f();\n}\n").is_empty());
+}
+
+#[test]
+fn a_bounded_size_the_build_recorded_no_reason_for_reads_as_inspect_shows_it() {
+    // A frozen set with no reason beside it (an older or hand-built version).
+    let params = [FrozenUnit::Unverified(vec![Guarantee::BoundedSize, Guarantee::SchemaAgreement])];
+    assert_eq!(
+        unverified::frozen_reasons(&params),
+        [(Guarantee::BoundedSize, Some(unverified::UNBOUNDED_CAUSE.to_string())), (Guarantee::SchemaAgreement, None)]
+    );
+}
+
 // Bounded size across schemas: a type another schema declares may hold a
 // value without a maximum that only that schema's marked protocols reach.
 // Wherever it's used, it's held to the same rule.

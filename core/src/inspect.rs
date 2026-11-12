@@ -313,8 +313,8 @@ fn summarize(p: Protocol) -> ProtocolSummary {
             // The frozen set is what the protocol gave up, and the one place
             // `bounded_size` is: `causes` never says it.
             let given_up = frozen.contains(&guarantee);
-            if given_up && why.is_empty() && guarantee == Guarantee::BoundedSize {
-                why.push(unverified::UNBOUNDED_CAUSE.to_string());
+            if let Some(cause) = unverified::unrecorded_cause(guarantee).filter(|_| given_up && why.is_empty()) {
+                why.push(cause.to_string());
             }
             let held = !given_up && why.is_empty();
             let acceptance = if held {

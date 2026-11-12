@@ -323,6 +323,29 @@ fn compile_protocol(
     Ok((set, warnings))
 }
 
+/// What the compiled protocol `P` says why it gives up each guarantee.
+fn frozen_reasons_of(config: &str, schema: &str, files: &[(&str, &str)]) -> Vec<(Guarantee, Option<String>)> {
+    let tmp = tempfile::tempdir().unwrap();
+    write_package(tmp.path(), "app", config, schema, files);
+    let context = compile_package(tmp.path()).unwrap();
+    let schema = context.schema_contexts[0].borrow();
+    let units = schema.frozen_schema.borrow().clone().unwrap();
+    units
+        .iter()
+        .find_map(|u| match u {
+            FrozenUnit::Protocol { name, parameters, .. } if name == "P" => Some(unverified::frozen_reasons(parameters)),
+            _ => None,
+        })
+        .unwrap()
+}
+
+#[test]
+fn encoding_conformance_reads_back_its_reason_not_a_handshake() {
+    let marked = "@framing = \"com.acme.lines@1\"\n@unverified = \"lines has no vectors yet\"\nprotocol P {\n    function f();\n}\n";
+    let reasons = frozen_reasons_of(LINES, marked, &[("profiles/lines.json", FRAMING_PROFILE)]);
+    assert_eq!(reasons, [(Guarantee::EncodingConformance, Some("lines has no vectors yet".to_string()))]);
+}
+
 const HELLO_P: &str = "@handshake = \"com.acme.hello@1\"\nprotocol P {\n    function f();\n}\n";
 const HELLO_P_MARKED: &str =
     "@handshake = \"com.acme.hello@1\"\n@unverified = \"hello checks the schema out of band\"\nprotocol P {\n    function f();\n}\n";

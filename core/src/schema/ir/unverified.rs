@@ -348,6 +348,14 @@ pub fn given_up(parameters: &[FrozenUnit], encodings: &Encodings) -> Vec<Guarant
 
 /// Why the given-up set is what it is, for a diagnostic: `handshake
 /// `none``, or each cause, joined. With nothing given up, the handshake.
+///
+/// This **recomputes** the causes from the encodings it is given, so it is only
+/// as good as that view: with [`Encodings::default`] it can't see a
+/// dependency's or the package's declarations, and it never says
+/// `bounded_size` (see [`UNBOUNDED_CAUSE`]). It is for a build judging a
+/// protocol it is compiling. Anything that renders what a protocol was frozen
+/// as giving up, a generator or a tool reading a stored version, takes
+/// [`frozen_reasons`] instead.
 pub fn cause(parameters: &[FrozenUnit], encodings: &Encodings) -> String {
     let mut why: Vec<String> = vec![];
     for (_, cause) in causes(parameters, encodings) {
@@ -423,6 +431,31 @@ pub fn package_scope(parameters: &[FrozenUnit]) -> Option<&ConfigValue> {
 /// covers it there.
 pub fn package_reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&str> {
     package_scope(parameters).and_then(|scope| reason_in(scope, guarantee))
+}
+
+/// Why the build recorded a guarantee as given up, when it recorded no reason
+/// for it: what's known about it without the encodings. `bounded_size` is
+/// worked out from the types a protocol reaches and is only in the frozen set,
+/// so the one cause there is for it is [`UNBOUNDED_CAUSE`]. The others'
+/// causes depend on declarations the frozen protocol doesn't hold.
+pub fn unrecorded_cause(guarantee: Guarantee) -> Option<&'static str> {
+    (guarantee == Guarantee::BoundedSize).then_some(UNBOUNDED_CAUSE)
+}
+
+/// What the frozen protocol says why it gives up each guarantee in its
+/// frozen set ([`frozen_set`]), in that order: the reason the build recorded
+/// for it ([`reason_for`]: the plain form's, the keyed form's entry or the
+/// package's), else [`unrecorded_cause`], else `None`. Nothing here is
+/// recomputed from the encodings: the same protocol reads the same wherever
+/// it's read. An empty set gives an empty list.
+pub fn frozen_reasons(parameters: &[FrozenUnit]) -> Vec<(Guarantee, Option<String>)> {
+    frozen_set(parameters)
+        .iter()
+        .map(|&g| {
+            let why = reason_for(parameters, g).or_else(|| unrecorded_cause(g));
+            (g, why.map(str::to_string))
+        })
+        .collect()
 }
 
 /// The reason for a diagnostic or an acceptance prompt about `set`: the plain
