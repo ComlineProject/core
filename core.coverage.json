@@ -1,28 +1,28 @@
 {
-  "commit": "7a1a0502560589ac895ab119d554af500b942514",
+  "commit": "965e781511181168cf223e3e5420a58a1f3522af",
   "format": 1,
-  "run": "https://github.com/ComlineProject/core/actions/runs/43148306734",
+  "run": "https://github.com/ComlineProject/core/actions/runs/43150703361",
   "tool": "cargo-llvm-cov 0.9.1",
   "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
   "totals": {
     "functions": {
-      "covered": 2154,
-      "total": 2524
+      "covered": 2157,
+      "total": 2538
     },
     "lines": {
-      "covered": 16617,
-      "total": 18938
+      "covered": 16657,
+      "total": 19047
     }
   },
   "units": {
     "comline-core": {
       "functions": {
-        "covered": 2154,
-        "total": 2401
+        "covered": 2157,
+        "total": 2415
       },
       "lines": {
-        "covered": 16617,
-        "total": 18235
+        "covered": 16657,
+        "total": 18344
       }
     },
     "comline-core-oracle": {

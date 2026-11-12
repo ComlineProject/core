@@ -1,20 +1,20 @@
 {
-  "commit": "7a1a0502560589ac895ab119d554af500b942514",
+  "commit": "965e781511181168cf223e3e5420a58a1f3522af",
   "format": 1,
   "profile": "release",
-  "run": "https://github.com/ComlineProject/core/actions/runs/43148306734",
+  "run": "https://github.com/ComlineProject/core/actions/runs/43150703361",
   "runner": "github-hosted",
   "toolchain": "rustc 1.99.1 (58cf8f9c3 2026-10-13)",
-  "total_seconds": 53.27,
+  "total_seconds": 57.4,
   "units": {
     "comline-core": {
-      "seconds": 22.5
+      "seconds": 23.29
     },
     "comline-core-oracle": {
-      "seconds": 2.9
+      "seconds": 3.32
     },
     "comline-core-stdlib": {
-      "seconds": 0.11
+      "seconds": 0.05
     }
   }
 }
