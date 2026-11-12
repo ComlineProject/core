@@ -140,6 +140,17 @@ struct Message {
 }
 ```
 
+A dictionary value can also be written as a call, `@key(name = value, ...)`,
+which is the same as `@key = { name = value, ... }` (writing both on one
+annotation is an error). An argument takes annotations like a field does,
+before its name:
+
+```idl
+protocol Billing {
+    function upload(@unverified(bounded_size = "legacy blob") data: u8[]);
+}
+```
+
 Annotations are captured into the IR (as `FrozenUnit::Property` on the
 declaration, list values normalised to text) but nothing acts on them yet -
 they don't affect validation or generated code. `@validators` in particular is
