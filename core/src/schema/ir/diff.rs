@@ -1641,7 +1641,7 @@ fn compare_protocol_functions(
             let arguments: Vec<FrozenArgument> = f
                 .arguments
                 .iter()
-                .map(|a| FrozenArgument { name: a.name.clone(), ty: side.resolve(&a.ty), span: (0, 0) })
+                .map(|a| FrozenArgument { name: a.name.clone(), ty: side.resolve(&a.ty), span: (0, 0), parameters: vec![] })
                 .collect();
             format_function_signature(&arguments, &f.ret.as_ref().map(|t| side.resolve(t)))
         };

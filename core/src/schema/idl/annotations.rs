@@ -51,6 +51,8 @@ pub enum AnnotationScope {
     Field,
     /// Inside a `protocol` body, before a function.
     Function,
+    /// Inside a function's parentheses, before an argument.
+    Argument,
     /// Valid everywhere the grammar permits an annotation at all - matches
     /// every [`for_scope`] query regardless of which specific scope is
     /// asked for (`@settings` is the only entry using this today).
@@ -673,7 +675,13 @@ fn known_annotations() -> Vec<AnnotationInfo> {
     },
     AnnotationInfo {
         key: "unverified",
-        scopes: &[AnnotationScope::Leading],
+        scopes: &[
+            AnnotationScope::Leading,
+            AnnotationScope::TypeAlias,
+            AnnotationScope::Field,
+            AnnotationScope::Function,
+            AnnotationScope::Argument,
+        ],
         authority: AnnotationAuthority::Core,
         description: "Gives up guarantees Comline otherwise gives this protocol's peers, with \
                        the reason why. Core works out which (a `none` handshake gives up schema \
@@ -681,7 +689,12 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        where something is given up; off by default \
                        (`annotations.unverified.allowed`). One reason for all of it, or a \
                        dictionary with a reason for each guarantee given up, by its id: \
-                       `{ bounded_size = \"the uploader streams whatever it's given\" }`.",
+                       `{ bounded_size = \"the uploader streams whatever it's given\" }`, \
+                       written `@unverified(bounded_size = \"...\")` as well. Where it's \
+                       written is its scope, and each guarantee allows the scopes the \
+                       specification's catalog gives it: `bounded_size` down to a function, \
+                       argument, field or type, where the marker acknowledges only what is \
+                       reached through that element.",
         default: "nothing given up",
         value: unverified_value(),
         consumed_by: &["core's validation pass", "the consumer's `accept_unverified`"],
@@ -780,15 +793,20 @@ mod tests {
         assert!(lookup("validators").is_some());
         assert!(lookup("deprecated").is_some());
         assert!(lookup("nope").is_none());
-        // id, timeout_ms, idempotent (all Function), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Function).count(), 4);
+        // id, timeout_ms, idempotent, unverified (all Function), plus settings
+        // (Universal).
+        assert_eq!(for_scope(AnnotationScope::Function).count(), 5);
+        // unverified, plus settings (Universal).
+        let mut argument: Vec<_> = for_scope(AnnotationScope::Argument).map(|a| a.key).collect();
+        argument.sort();
+        assert_eq!(argument, ["settings", "unverified"]);
         // id, max_depth, framing, provider, consumer, handshake, unverified,
         // deprecated (all Leading), plus settings (Universal).
         assert_eq!(for_scope(AnnotationScope::Leading).count(), 9);
         // validators, deprecated, max_depth, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();
-        assert_eq!(alias, ["deprecated", "max_depth", "settings", "validators"]);
+        assert_eq!(alias, ["deprecated", "max_depth", "settings", "unverified", "validators"]);
     }
 
     #[test]
@@ -893,6 +911,7 @@ mod tests {
             AnnotationScope::TypeAlias,
             AnnotationScope::Field,
             AnnotationScope::Function,
+            AnnotationScope::Argument,
         ] {
             assert!(for_scope(scope).any(|a| a.key == "settings"));
         }

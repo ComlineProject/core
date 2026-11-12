@@ -385,6 +385,11 @@ pub struct  FrozenArgument {
     pub name: String,
     pub ty: TypeRef,
     pub span: (usize, usize),
+    /// The argument's annotations (`@unverified`), frozen as a field's
+    /// are. Left out when there are none, so an argument without any freezes
+    /// to the same bytes as before they could be written.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub parameters: Vec<FrozenUnit>,
 }
 
 

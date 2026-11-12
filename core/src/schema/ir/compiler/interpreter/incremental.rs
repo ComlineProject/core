@@ -217,6 +217,7 @@ impl IncrementalInterpreter {
                                             .unwrap_or_else(|| "arg0".to_string()),
                                         ty: TypeRef::from_grammar_sized(first_arg.arg_type(), &size),
                                         span: first_arg.arg_type_span(),
+                                        parameters: annotation_units(&first_arg.annotations()),
                                     }];
 
                                 for (i, comma_arg) in rest_args.iter().enumerate() {
@@ -228,6 +229,7 @@ impl IncrementalInterpreter {
                                             .unwrap_or_else(|| format!("arg{}", i + 1)),
                                         ty: TypeRef::from_grammar_sized(arg.arg_type(), &size),
                                         span: arg.arg_type_span(),
+                                        parameters: annotation_units(&arg.annotations()),
                                     });
                                 }
                                 args
@@ -554,6 +556,16 @@ pub(crate) fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
     for a in annotations {
         if a.key() == "deprecated" {
             units.push(FrozenUnit::Deprecated(deprecated_value(a)));
+            continue;
+        }
+        // `@key(name = value, ...)` freezes as `@key = { name = value, ... }`.
+        if let (None, Some(entries)) = (&a.assignment, a.keyed()) {
+            units.push(FrozenUnit::Property {
+                name: a.key(),
+                value: ConfigValue::Dict(
+                    entries.iter().map(|e| (e.name.text.clone(), config_value_of(&e.value))).collect(),
+                ),
+            });
             continue;
         }
         let Some(assignment) = &a.assignment else {
