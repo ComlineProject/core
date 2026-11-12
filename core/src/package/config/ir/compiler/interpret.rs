@@ -15,7 +15,9 @@ use crate::schema::ir::compiler::settings::enforcement::check_settings_enforceme
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
 use crate::schema::ir::context::SchemaContext;
+use crate::schema::ir::compiler::bounds::Foreign;
 use crate::schema::ir::frozen::unit::FrozenUnit;
+use crate::schema::ir::unverified::Acknowledgement;
 use crate::schema::ir::validation;
 use crate::schema::ir::package_wire::PackageWire;
 use crate::settings::effective::package_settings;
@@ -62,6 +64,14 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         check_package_unverified(package_unverified, &own_settings)?;
     }
     let mut package_covered = vec![];
+    // The schemas this package compiles: only a marker in one of them covers
+    // a type another of them uses.
+    let own_namespaces: HashSet<Vec<String>> = project_context
+        .schema_contexts
+        .iter()
+        .filter(|s| !s.borrow().compile_state.borrow().complete)
+        .map(|s| s.borrow().namespace.clone())
+        .collect();
     let mut first_own: Option<Rc<RefCell<SchemaContext>>> = None;
     // Package-level (`.idp`) settings origins aren't span-tracked yet
     // (only schema-level `settings { ... }` blocks are) - a malformed
@@ -102,6 +112,24 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
                 "Schema '{}' failed alias resolution:\n{}",
                 namespace.join("::"),
                 rendered.join("\n\n")
+            ));
+            continue;
+        }
+
+        if let Err(errors) =
+            crate::schema::ir::compiler::annotation_forms::check_annotation_forms(&declarations)
+        {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| schema_context.borrow().render(error))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' has invalid annotations:
+{}",
+                namespace.join("::"),
+                rendered.join("
+
+")
             ));
             continue;
         }
@@ -163,13 +191,30 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         // Default bounds, from the package's settings and the schema's
         // (core#98), stored resolved at each position.
         crate::schema::ir::compiler::bounds::apply_default_bounds(&mut frozen_units, &own_settings);
-        let imported =
-            |name: &str| imports_unbounded(name, &declarations, &namespace, project_context);
-        let unbounded =
-            crate::schema::ir::compiler::bounds::check_bounded(&mut frozen_units, &imported);
-        let exported =
-            crate::schema::ir::compiler::bounds::unbounded_declarations(&frozen_units, &imported);
+        use crate::schema::ir::compiler::bounds::{self, Foreign};
+        let foreign = |name: &str| {
+            imports_foreign(name, &declarations, &namespace, project_context, &own_namespaces)
+        };
+        let imported = |name: &str| !matches!(foreign(name), Foreign::Bounded);
+        let bounded = bounds::check_bounded_in(&mut frozen_units, &foreign);
+        let unbounded = bounded.errors;
+        let exported = bounds::unbounded_declarations(&frozen_units, &imported);
         *schema_context.borrow().unbounded.borrow_mut() = Some(exported);
+        *schema_context.borrow().acknowledged.borrow_mut() =
+            Some(bounds::acknowledged_declarations(&frozen_units, &foreign));
+        let (warnings, fatal) = resolve_diagnostic_overrides(
+            &frozen_units, bounded.warnings, &own_settings, &package_settings_spans,
+        );
+        schema_context.borrow().warnings.borrow_mut().extend(warnings);
+        if !fatal.is_empty() {
+            let rendered: Vec<String> =
+                fatal.iter().map(|error| schema_context.borrow().render(error)).collect();
+            schema_errors.push(format!(
+                "Schema '{}' has a diagnostic escalated to a build failure:\n{}",
+                namespace_joined,
+                rendered.join("\n\n")
+            ));
+        }
         if !unbounded.is_empty() {
             let rendered: Vec<String> =
                 unbounded.iter().map(|error| schema_context.borrow().render(error)).collect();
@@ -333,34 +378,54 @@ fn check_package_unverified(
     bail!("config.idp's `unverified` is invalid:\n{}", rendered.join("\n\n"))
 }
 
-/// Whether `name`, as a schema with these `declarations` uses it, is a
-/// type another schema declares that holds a value without a maximum
-/// ([`SchemaContext::unbounded`]). Every schema a `use` could bring it in
-/// from is asked, and one not yet compiled answers yes: it fails closed.
+/// What a schema with these `declarations` knows of `name`, as it uses it,
+/// that another schema declares ([`SchemaContext::unbounded`]): a type that
+/// holds a value without a maximum is [`Foreign::Unbounded`], or
+/// [`Foreign::Acknowledged`] where a schema of this package (one of
+/// `own`) marked the type, or what's under it, to give bounded size up
+/// ([`SchemaContext::acknowledged`]). Every schema a `use` could bring it in
+/// from is asked, and one not yet compiled answers unbounded: it fails
+/// closed. Of several answers, the strictest.
 ///
 /// [`SchemaContext::unbounded`]: crate::schema::ir::context::SchemaContext::unbounded
-fn imports_unbounded(
+/// [`SchemaContext::acknowledged`]: crate::schema::ir::context::SchemaContext::acknowledged
+fn imports_foreign(
     name: &str,
     declarations: &[rust_sitter::Spanned<Declaration>],
     namespace: &[String],
     project_context: &ProjectContext,
-) -> bool {
+    own: &HashSet<Vec<String>>,
+) -> Foreign {
     let resolver = ImportResolver::new(vec![], Default::default(), None);
     let (qualifier, bare) = match name.rsplit_once("::") {
         Some((qualifier, bare)) => (Some(qualifier), bare),
         None => (None, name),
     };
-    let declares = |schema: &Rc<RefCell<SchemaContext>>, symbol: &str| {
+    let mut answers: Vec<Foreign> = vec![];
+    let mut declares = |schema: &Rc<RefCell<SchemaContext>>, symbol: &str| {
         let schema = schema.borrow();
         if schema.namespace == namespace {
-            return false;
+            return;
         }
-        let known = schema
-            .unbounded
-            .borrow()
-            .as_ref()
-            .map(|unbounded| unbounded.contains(symbol));
-        known.unwrap_or(true)
+        let known = schema.unbounded.borrow().as_ref().map(|unbounded| unbounded.contains(symbol));
+        if !known.unwrap_or(true) {
+            return;
+        }
+        // Only this package's own markers cover a use in this package.
+        let acknowledged = own.contains(&schema.namespace)
+            .then(|| schema.acknowledged.borrow().as_ref().and_then(|a| a.get(symbol).cloned()))
+            .flatten();
+        answers.push(match acknowledged {
+            Some(acks) => Foreign::Acknowledged(
+                acks.into_iter()
+                    .map(|mut ack| {
+                        ack.path = format!("{}::{}", schema.namespace_joined(), ack.path);
+                        ack
+                    })
+                    .collect(),
+            ),
+            None => Foreign::Unbounded,
+        });
     };
 
     // A qualified name may name its schema outright.
@@ -369,34 +434,51 @@ fn imports_unbounded(
         if let Some((schema, remaining)) =
             project_context.find_schema_by_import_namespace_parts(&parts)
         {
-            if remaining.is_empty() && declares(&schema, bare) {
-                return true;
+            if remaining.is_empty() {
+                declares(&schema, bare);
             }
         }
     }
-    declarations.iter().any(|decl| {
+    for decl in declarations {
         let Declaration::Use(use_stmt) = &decl.value else {
-            return false;
+            continue;
         };
         let Ok(target) =
             resolve_use_to_schema(project_context, &resolver, namespace, &use_stmt.path)
         else {
-            return false;
+            continue;
         };
         let Some(schema) = &target.schema else {
-            return false;
+            continue;
         };
         let alias = use_stmt.alias.as_ref().map(|a| a.name.text.as_str());
         if !use_brings_into_scope(&target.resolved, &target.remaining, alias, bare) {
-            return false;
+            continue;
         }
         // `use ns::Name as X` brings `Name` in as `X`.
         let symbol = match (alias, target.remaining.last()) {
             (Some(alias), Some(symbol)) if alias == bare => symbol.as_str(),
             _ => bare,
         };
-        declares(schema, symbol)
-    })
+        declares(schema, symbol);
+    }
+
+    if answers.iter().any(|a| matches!(a, Foreign::Unbounded)) {
+        return Foreign::Unbounded;
+    }
+    let mut acks: Vec<Acknowledgement> = vec![];
+    let mut any = false;
+    for answer in answers {
+        if let Foreign::Acknowledged(more) = answer {
+            any = true;
+            for ack in more {
+                if !acks.contains(&ack) {
+                    acks.push(ack);
+                }
+            }
+        }
+    }
+    if any { Foreign::Acknowledged(acks) } else { Foreign::Bounded }
 }
 
 /// The schemas to compile, each after the ones it imports, otherwise in

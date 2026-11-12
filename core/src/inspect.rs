@@ -332,7 +332,7 @@ fn summarize(p: Protocol) -> ProtocolSummary {
                 guarantee,
                 held,
                 causes: why,
-                reason: if held { None } else { unverified::reason_for(p.parameters, guarantee).map(str::to_string) },
+                reason: if held { None } else { unverified::reason_of(p.parameters, guarantee) },
                 acceptance,
             }
         })

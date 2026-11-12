@@ -634,6 +634,10 @@ fn deprecated_value(annotation: &Annotation) -> crate::schema::ir::frozen::unit:
     use crate::schema::idl::grammar::{BoolLiteral, Expression};
     use crate::schema::ir::frozen::unit::DeprecatedValue;
 
+    // `@deprecated(...)` is not a form it has.
+    if annotation.keyed().is_some() {
+        return DeprecatedValue::Malformed(annotation.value().unwrap_or_default());
+    }
     let Some(assignment) = &annotation.assignment else {
         return DeprecatedValue::True; // bare marker
     };

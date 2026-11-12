@@ -1294,7 +1294,7 @@ fn check_annotation_values(units: &[FrozenUnit], imports: &dyn ImportLookup, err
             FrozenUnit::Protocol { name, parameters, functions, span, .. } => {
                 check_params(parameters, &format!("protocol '{name}'"), Some(*span), imports, errors);
                 for function in functions {
-                    if let FrozenUnit::Function { name: fname, parameters, span, .. } = function {
+                    if let FrozenUnit::Function { name: fname, parameters, arguments, span, .. } = function {
                         check_params(
                             parameters,
                             &format!("protocol '{name}', function '{fname}'"),
@@ -1302,6 +1302,15 @@ fn check_annotation_values(units: &[FrozenUnit], imports: &dyn ImportLookup, err
                             imports,
                             errors,
                         );
+                        for argument in arguments {
+                            check_params(
+                                &argument.parameters,
+                                &format!("protocol '{name}', function '{fname}', argument '{}'", argument.name),
+                                Some(argument.span),
+                                imports,
+                                errors,
+                            );
+                        }
                     }
                 }
             }
@@ -1326,6 +1335,7 @@ fn check_unverified(
     use crate::schema::ir::frozen::unit::Guarantee;
     use crate::schema::ir::unverified;
 
+    check_inner_markers(units, errors);
     for unit in units {
         let FrozenUnit::Protocol { name, parameters, span, .. } = unit else {
             continue;
@@ -1344,7 +1354,13 @@ fn check_unverified(
         // What the package's `unverified` already says why of, for this
         // protocol: frozen beside it, only for what comes from a package
         // setting it takes.
-        let by_package = |guarantee: &Guarantee| unverified::package_reason_for(parameters, *guarantee).is_some();
+        // Or what the build recorded as acknowledged: by markers at inner
+        // scopes, which the protocol's own needn't repeat.
+        let acknowledged = unverified::acknowledgements(parameters);
+        let by_package = |guarantee: &Guarantee| {
+            unverified::package_reason_for(parameters, *guarantee).is_some()
+                || acknowledged.iter().any(|a| a.guarantee == *guarantee)
+        };
         let Some(marker) = unverified::marker(parameters) else {
             let uncovered: Vec<Guarantee> = given_up.iter().copied().filter(|g| !by_package(g)).collect();
             if !uncovered.is_empty() {
@@ -1410,6 +1426,10 @@ fn check_unverified(
                     continue;
                 }
                 listed.push(guarantee);
+                if !guarantee.entry().allows_scope(comline_catalog::Scope::Protocol) {
+                    errors.push(wrong_scope(&format!("protocol `{name}`"), key, comline_catalog::Scope::Protocol).maybe_span(Some(*span)));
+                    continue;
+                }
                 if !matches!(value, ConfigValue::Str(reason) if !reason.trim().is_empty()) {
                     errors.push(
                         Diagnostic::new(
@@ -1460,6 +1480,149 @@ fn check_unverified(
             );
         }
         give_up_warnings(name, *span, &given_up, &why, warnings);
+    }
+}
+
+/// `key` at `scope`, which its guarantee doesn't allow: the scopes the
+/// catalog gives it are what's said.
+fn wrong_scope(subject: &str, key: &str, scope: comline_catalog::Scope) -> Diagnostic {
+    use crate::schema::ir::frozen::unit::Guarantee;
+
+    let allowed: Vec<&str> = Guarantee::from_name(key)
+        .map(|g| g.entry().scopes.iter().map(|s| s.as_str()).collect())
+        .unwrap_or_default();
+    Diagnostic::new(
+        UNVERIFIED_WRONG_SCOPE,
+        format!(
+            "`@unverified` on {subject}: `{key}` can't be acknowledged at {} scope; the scopes it allows are {}",
+            scope.as_str(),
+            allowed.join(", ")
+        ),
+    )
+    .with_help(format!("acknowledge `{key}` at one of those, where it's given up"))
+}
+
+/// The `@unverified` markers below the protocol: on a function, an argument,
+/// a struct or error field, a struct, an error or a type alias. Each key has
+/// to be a guarantee that allows the marker's scope, as the catalog says
+/// (`schema_agreement` on an argument is an error), with a reason; a plain
+/// marker covers only the guarantees that allow its scope, so at a scope none
+/// allows it covers nothing, which is an error. Whether what it covers is
+/// given up is the bounds pass's.
+fn check_inner_markers(units: &[FrozenUnit], errors: &mut Vec<Diagnostic>) {
+    use comline_catalog::Scope;
+
+    let mut at = |parameters: &[FrozenUnit], scope: Scope, subject: String, span: Option<(usize, usize)>| {
+        let Some(value) = crate::schema::ir::unverified::marker(parameters) else { return };
+        check_marker(value, scope, &subject, span, errors);
+    };
+    for unit in units {
+        match unit {
+            FrozenUnit::Struct { name, parameters, fields, span, .. } => {
+                at(parameters, Scope::Type, format!("struct `{name}`"), Some(*span));
+                for field in fields {
+                    if let FrozenUnit::Field { name: f, parameters, span, .. } = field {
+                        at(parameters, Scope::Field, format!("field `{f}` of `{name}`"), Some(*span));
+                    }
+                }
+            }
+            FrozenUnit::Error { name, parameters, fields, span, imported_from: None, .. } => {
+                at(parameters, Scope::Type, format!("error `{name}`"), *span);
+                for field in fields {
+                    if let FrozenUnit::Field { name: f, parameters, span, .. } = field {
+                        at(parameters, Scope::Field, format!("field `{f}` of `{name}`"), Some(*span));
+                    }
+                }
+            }
+            FrozenUnit::TypeAlias { name, parameters, span, .. } => {
+                at(parameters, Scope::Type, format!("type `{name}`"), Some(*span));
+            }
+            FrozenUnit::Protocol { name, functions, .. } => {
+                for function in functions {
+                    let FrozenUnit::Function { name: f, parameters, arguments, span, .. } = function else { continue };
+                    at(parameters, Scope::Function, format!("function `{name}.{f}`"), Some(*span));
+                    for argument in arguments {
+                        at(
+                            &argument.parameters,
+                            Scope::Argument,
+                            format!("argument `{}` of `{name}.{f}`", argument.name),
+                            Some(argument.span),
+                        );
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
+fn check_marker(
+    value: &ConfigValue,
+    scope: comline_catalog::Scope,
+    subject: &str,
+    span: Option<(usize, usize)>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    use crate::schema::ir::frozen::unit::Guarantee;
+
+    match value {
+        ConfigValue::Str(reason) => {
+            if reason.trim().is_empty() {
+                errors.push(
+                    Diagnostic::new(UNVERIFIED_MISSING_REASON, format!("`@unverified` on {subject} needs a reason"))
+                        .with_help("every consumer is shown it: say what replaces the check".to_string())
+                        .maybe_span(span),
+                );
+            }
+            if !Guarantee::ALL.iter().any(|g| g.entry().allows_scope(scope)) {
+                errors.push(
+                    Diagnostic::new(
+                        UNVERIFIED_WRONG_SCOPE,
+                        format!(
+                            "`@unverified` on {subject}: no guarantee can be acknowledged at {} scope, so it covers nothing",
+                            scope.as_str()
+                        ),
+                    )
+                    .with_help("write it on the protocol".to_string())
+                    .maybe_span(span),
+                );
+            }
+        }
+        ConfigValue::Dict(entries) => {
+            let mut listed: Vec<Guarantee> = vec![];
+            for (key, value) in entries {
+                let Some(guarantee) = Guarantee::from_name(key) else {
+                    errors.push(unknown_guarantee(&format!("`@unverified` on {subject}"), key).maybe_span(span));
+                    continue;
+                };
+                if listed.contains(&guarantee) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_DUPLICATE_GUARANTEE,
+                            format!("`@unverified` on {subject} gives a reason for `{key}` twice"),
+                        )
+                        .maybe_span(span),
+                    );
+                    continue;
+                }
+                listed.push(guarantee);
+                if !guarantee.entry().allows_scope(scope) {
+                    errors.push(wrong_scope(subject, key, scope).maybe_span(span));
+                    continue;
+                }
+                if !matches!(value, ConfigValue::Str(reason) if !reason.trim().is_empty()) {
+                    errors.push(
+                        Diagnostic::new(
+                            UNVERIFIED_MISSING_REASON,
+                            format!("`@unverified` on {subject} needs a reason for `{key}`, as a string"),
+                        )
+                        .with_help("every consumer is shown it: say what replaces the check".to_string())
+                        .maybe_span(span),
+                    );
+                }
+            }
+        }
+        _ => {}
     }
 }
 
