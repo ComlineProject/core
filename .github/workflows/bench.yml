@@ -59,7 +59,7 @@ jobs:
     # the only one that asks for it, and it never runs on a pull request.
     permissions:
       contents: write
-    uses: ComlineProject/.github/.github/workflows/bench.yml@797d473553d7f2fc50895bb2573acb83ac63c7cb # main, no release tag yet
+    uses: ComlineProject/.github/.github/workflows/bench.yml@807dd25bcbf848275f5f2bc5dcdd15070dcc321b # main, no release tag yet
     with:
       image: ghcr.io/comlineproject/ci-bench@sha256:235555448c3c6027960cd95c0b2974014484e0c4f2808f064eb4cb3df91cebc0
       ledger: core/benches/accepted-regressions.toml
