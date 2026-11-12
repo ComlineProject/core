@@ -649,6 +649,35 @@ pub fn package_covered(
     covered
 }
 
+/// Whether `marker` (a plain reason or the keyed form) acknowledges
+/// `guarantee`.
+pub fn acknowledges(marker: &ConfigValue, guarantee: Guarantee) -> bool {
+    reason_in(marker, guarantee).is_some()
+}
+
+/// The guarantees a protocol with these parameters gives up only because of
+/// package settings it takes (`inherits`), each with why: where the package's
+/// own acknowledgement belongs ([`package_covered`]), the innermost scope of
+/// what a package setting gives up. Sorted by guarantee.
+pub fn package_caused(parameters: &[FrozenUnit], encodings: &Encodings, inherits: Inherits) -> Vec<(Guarantee, String)> {
+    let causes = causes_from(parameters, encodings, inherits);
+    let mut found: Vec<(Guarantee, String)> = vec![];
+    for Cause { guarantee, .. } in &causes {
+        let own: Vec<&Cause> = causes.iter().filter(|c| c.guarantee == *guarantee).collect();
+        if !own.iter().all(|c| c.package) || found.iter().any(|(g, _)| g == guarantee) {
+            continue;
+        }
+        let mut why: Vec<&str> = vec![];
+        for cause in own {
+            if !why.contains(&cause.why.as_str()) {
+                why.push(&cause.why);
+            }
+        }
+        found.push((*guarantee, why.join("; ")));
+    }
+    found
+}
+
 /// Every guarantee the package covers for some protocol in `units`.
 pub fn package_covered_by(units: &[FrozenUnit]) -> Vec<Guarantee> {
     let mut covered = vec![];

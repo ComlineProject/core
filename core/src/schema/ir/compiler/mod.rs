@@ -6,6 +6,7 @@ pub mod alias_resolution;
 pub mod annotation_forms;
 pub mod bounds;
 pub mod settings;
+pub mod strict;
 
 // Standard Uses
 
