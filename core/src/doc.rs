@@ -1292,6 +1292,8 @@ fn annotations(parameters: &[FrozenUnit]) -> Vec<Annotation> {
     parameters
         .iter()
         .filter_map(|p| match p {
+            // Where each guarantee was acknowledged is the protocol's `wire`'s.
+            FrozenUnit::Property { name, .. } if name == crate::schema::ir::unverified::SCOPES_KEY => None,
             FrozenUnit::Property { name, value } => Some(Annotation {
                 key: name.clone(),
                 value: (!value.is_marker()).then(|| value.source_text()),

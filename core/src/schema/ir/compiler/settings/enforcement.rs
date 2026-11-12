@@ -66,19 +66,64 @@ pub fn check_settings_enforcement(
                     &format!("protocol '{name}'"), Some(*span), &mut errors,
                 );
                 for function in functions {
-                    if let FrozenUnit::Function { name: fname, parameters: fp, span: fs, .. } = function {
+                    if let FrozenUnit::Function { name: fname, parameters: fp, arguments, span: fs, .. } = function {
                         check_declaration(
                             &schema_effective, &schema_effective_spans, &schema, DeclPath::ProtocolFunction, fp,
                             &format!("protocol '{name}', function '{fname}'"), Some(*fs), &mut errors,
                         );
+                        // An argument's `@unverified` is held to the gate its
+                        // function's annotations are under.
+                        for argument in arguments {
+                            check_unverified_gate(
+                                &schema_effective, &schema_effective_spans, &schema, DeclPath::ProtocolFunction,
+                                &argument.parameters,
+                                &format!("protocol '{name}', function '{fname}', argument '{}'", argument.name),
+                                Some(argument.span), &mut errors,
+                            );
+                        }
                     }
                 }
+            }
+            // A type alias carries no other governed annotation here (its
+            // validators are checked where they're used), but a marker on one
+            // is held to the gate a struct's annotations are under.
+            FrozenUnit::TypeAlias { name, parameters, span, .. } => {
+                check_unverified_gate(
+                    &schema_effective, &schema_effective_spans, &schema, DeclPath::Struct, parameters,
+                    &format!("type alias '{name}'"), Some(*span), &mut errors,
+                );
             }
             _ => {}
         }
     }
 
     if errors.is_empty() { Ok(()) } else { Err(errors) }
+}
+
+/// Only the `@unverified` among `parameters`, held to `annotations.unverified.allowed`
+/// at `decl`, for a site (an argument, a type alias) that has no other
+/// governed annotation checked.
+#[allow(clippy::too_many_arguments)]
+fn check_unverified_gate(
+    schema_effective: &SettingsDict,
+    schema_effective_spans: &SettingsSpans,
+    schema: &SchemaSettings,
+    decl: DeclPath,
+    parameters: &[FrozenUnit],
+    decl_label: &str,
+    span: Option<(usize, usize)>,
+    errors: &mut Vec<Diagnostic>,
+) {
+    if !parameters.iter().any(|p| matches!(p, FrozenUnit::Property { name, .. } if name == crate::schema::ir::unverified::KEY)) {
+        return;
+    }
+    let settings_name = settings_annotation_of(parameters);
+    let effective = effective_declaration_settings(schema_effective, schema, settings_name);
+    let effective_spans = effective_declaration_settings_spans(schema_effective_spans, schema, settings_name);
+    check_governed(
+        keys::annotations_allowed(), &effective, &effective_spans, decl, crate::schema::ir::unverified::KEY,
+        decl_label, span, errors,
+    );
 }
 
 /// A package-level use of an annotation's name, such as `config.idp`'s
@@ -157,6 +202,8 @@ fn check_declaration(
             // Written by the compiler for what the package's `unverified`
             // covers, which is gated where the package says it.
             FrozenUnit::Property { name, .. } if name == crate::schema::ir::unverified::PACKAGE_KEY => {}
+            // Written by the compiler: where each guarantee was acknowledged.
+            FrozenUnit::Property { name, .. } if name == crate::schema::ir::unverified::SCOPES_KEY => {}
             FrozenUnit::Property { name, .. } => {
                 check_governed(
                     keys::annotations_allowed(), &effective, &effective_spans, decl, name,

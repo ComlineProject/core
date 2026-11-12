@@ -11,6 +11,7 @@ mod handshake;
 mod package_wire;
 mod provider;
 mod unverified;
+mod unverified_inner;
 #[cfg(feature = "deps")]
 mod unverified_oracle;
 mod wire;

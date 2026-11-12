@@ -1641,7 +1641,7 @@ fn compare_protocol_functions(
             let arguments: Vec<FrozenArgument> = f
                 .arguments
                 .iter()
-                .map(|a| FrozenArgument { name: a.name.clone(), ty: side.resolve(&a.ty), span: (0, 0) })
+                .map(|a| FrozenArgument { name: a.name.clone(), ty: side.resolve(&a.ty), span: (0, 0), parameters: vec![] })
                 .collect();
             format_function_signature(&arguments, &f.ret.as_ref().map(|t| side.resolve(t)))
         };
@@ -1864,6 +1864,11 @@ fn compare_parameters_with(
         match key {
             // Build-time only: it never reaches a peer or generated code.
             "settings" => {}
+            // Where each guarantee was acknowledged, written by the compiler.
+            // What's given up is judged below; comparing the scopes, so that
+            // narrowing a marker is a patch and widening one is major, is
+            // for the release that freezes chains (core#222).
+            unverified::SCOPES_KEY => {}
             // A wire number: judged by `compare_id`, which knows the framing.
             "id" => {}
             // Adding or removing the marker is judged by the set it freezes,

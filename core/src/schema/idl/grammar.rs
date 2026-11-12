@@ -687,14 +687,22 @@ pub mod grammar {
     // ===== Annotation Definition =====
     /// `@key = value`, or a bare `@key` marker with no value at all (e.g.
     /// `@idempotent`) — [`assignment`](Annotation::value) is `None` for
-    /// the latter.
+    /// the latter. `@key(name = value, ...)` is the keyed form, the same as
+    /// `@key = { name = value, ... }` ([`Annotation::keyed`]); writing both
+    /// is an error, found by [`Annotation::both_forms`].
+    ///
+    /// `prec_right`: after a function's `(`, `@key (` could be the keyed form
+    /// or a bare marker on an argument of unit type `()`; the keyed form wins.
     #[derive(Debug, Clone)]
+    #[rust_sitter::prec_right(1)]
     pub struct Annotation {
         #[rust_sitter::leaf(text = "@")]
         _at: (),
         pub key: Identifier,
         #[rust_sitter::repeat(non_empty = false)]
         pub assignment: Option<AnnotationAssignment>,
+        #[rust_sitter::repeat(non_empty = false)]
+        pub call: Option<AnnotationCallArgs>,
     }
 
     /// The `= value` half of an annotation, factored out so `Annotation`
@@ -895,10 +903,13 @@ pub mod grammar {
         _colon: (),
     }
 
-    /// Function argument: an optional `name:` prefix, then the type -
-    /// e.g. `string` (bare) or `value: string` (named).
+    /// Function argument: optional annotations, an optional `name:` prefix,
+    /// then the type - e.g. `string` (bare), `value: string` (named) or
+    /// `@unverified(bounded_size = "legacy blob") data: u8[]` (annotated).
     #[derive(Debug, Clone)]
     pub struct Argument {
+        #[rust_sitter::repeat(non_empty = false)]
+        pub annotations: Option<Annotations>,
         #[rust_sitter::repeat(non_empty = false)]
         pub name: Option<ArgumentName>,
         pub arg_type: rust_sitter::Spanned<Type>,
@@ -1661,6 +1672,12 @@ pub mod grammar {
     }
 
     impl Argument {
+        pub fn annotations(&self) -> Vec<&Annotation> {
+            self.annotations
+                .as_ref()
+                .map(|a| a.iter().collect())
+                .unwrap_or_default()
+        }
         pub fn arg_type(&self) -> &Type {
             &self.arg_type.value
         }
@@ -1714,7 +1731,30 @@ pub mod grammar {
         /// has one — `None` for a bare marker (`@idempotent`, no
         /// `=value`).
         pub fn value(&self) -> Option<String> {
-            self.assignment.as_ref().map(|a| a.value.render())
+            match (&self.assignment, &self.call) {
+                (Some(a), _) => Some(a.value.render()),
+                (None, Some(call)) => Some(call.render()),
+                (None, None) => None,
+            }
+        }
+        /// The entries of the keyed form `@key(name = value, ...)`, if
+        /// that's how this was written.
+        pub fn keyed(&self) -> Option<&[AnnotationArg]> {
+            self.call.as_ref().map(|c| c.args.as_slice())
+        }
+        /// Whether this writes both `= value` and `(...)`, which says
+        /// nothing a reader could trust.
+        pub fn both_forms(&self) -> bool {
+            self.assignment.is_some() && self.call.is_some()
+        }
+    }
+
+    impl AnnotationCallArgs {
+        /// `{ name = value, ... }`, as the same entries after `=` render.
+        fn render(&self) -> String {
+            let entries: Vec<String> =
+                self.args.iter().map(|e| format!("{} = {}", e.name.text, e.value.as_text())).collect();
+            format!("{{ {} }}", entries.join(", "))
         }
     }
 

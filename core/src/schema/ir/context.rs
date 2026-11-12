@@ -55,6 +55,12 @@ pub struct SchemaContext {
     /// to the same rule (`bounds::check_bounded`). `None` until it's
     /// compiled; a dependency's schemas carry their own package's.
     pub unbounded: RefCell<Option<HashSet<String>>>,
+    /// Of those, the ones whose every such value a marker on the type, or
+    /// under it, acknowledges (`@unverified(bounded_size = "...")`), with
+    /// where, so the package's other schemas using them are covered by it
+    /// (`bounds::check_bounded_in`). Another package's marker is no use to
+    /// this one, and doesn't count there.
+    pub acknowledged: RefCell<Option<std::collections::HashMap<String, Vec<crate::schema::ir::unverified::Acknowledgement>>>>,
 }
 
 impl SchemaContext {
@@ -63,6 +69,7 @@ impl SchemaContext {
             namespace, declarations, frozen_schema: RefCell::new(None), codemap,
             compile_state: Default::default(), warnings: RefCell::new(Vec::new()),
             unbounded: RefCell::new(None),
+            acknowledged: RefCell::new(None),
         }
     }
 

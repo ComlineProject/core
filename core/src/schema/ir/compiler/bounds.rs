@@ -15,6 +15,9 @@
 
 use std::collections::{HashMap, HashSet};
 
+mod coverage;
+pub use coverage::{acknowledged_declarations, Foreign};
+
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, SizeValue, Type};
@@ -475,177 +478,38 @@ const UNBOUNDED_DEPTH: DiagnosticCode = DiagnosticCode::error("bounds::unbounded
 /// schema declaring it); naming one is a position without a maximum here,
 /// held to the same rule.
 pub fn check_bounded(units: &mut [FrozenUnit], imported: &dyn Fn(&str) -> bool) -> Vec<Diagnostic> {
+    check_bounded_in(units, &|name| if imported(name) { Foreign::Unbounded } else { Foreign::Bounded }).errors
+}
+
+/// What [`check_bounded_in`] found.
+pub struct Bounded {
+    /// Each value without a maximum no marker covers, naming the path to it.
+    pub errors: Vec<Diagnostic>,
+    /// A marker below the protocol that covers nothing.
+    pub warnings: Vec<Diagnostic>,
+}
+
+/// [`check_bounded`], with what another schema's types hold said as
+/// [`Foreign`]: one a schema of this package acknowledged is covered by that.
+///
+/// A marker covers what's reached through the element it sits on: the
+/// protocol's, everything it reaches; a function's, an argument's or a
+/// field's, its own type and what that reaches; a type's, the type wherever
+/// the package uses it (`coverage`). A cause no marker covers is an error
+/// that names the path from the protocol, and a marker never takes one out of
+/// the set. Each protocol that gives up bounded size is frozen as such, with
+/// where each cause was acknowledged
+/// ([`unverified::SCOPES_KEY`]).
+pub fn check_bounded_in(units: &mut [FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Bounded {
     use crate::schema::ir::frozen::unit::Guarantee;
     use crate::schema::ir::unverified;
 
-    let recursive = self_containing_structs(units);
-    let local = local_names(units);
-    let foreign = |name: &str| !local.contains(name) && imported(name);
-
-    // Every unbounded position, by the declaration it's written in.
-    struct Position {
-        decl: String,
-        at: String,
-        ty: String,
-        span: Option<(usize, usize)>,
-        depth: bool,
-        foreign: bool,
-    }
-    let mut positions: Vec<Position> = Vec::new();
-    let mut depths: Vec<Position> = Vec::new();
-    let mut push = |decl: &str, at: String, ty: &TypeRef, span: Option<(usize, usize)>| {
-        if let Some(unbounded) = first_unbounded(ty, &foreign) {
-            let foreign = matches!(unbounded, TypeRef::Named(_));
-            positions.push(Position { decl: decl.to_string(), at, ty: unbounded.to_string(), span, depth: false, foreign });
-        }
-    };
-    for unit in units.iter() {
-        match unit {
-            FrozenUnit::Struct { name, fields, parameters, span, .. } => {
-                for field in fields {
-                    if let FrozenUnit::Field { name: f, ty, span: fs, .. } = field {
-                        push(name, format!("struct `{name}`, field `{f}`"), ty, Some(*fs));
-                    }
-                }
-                if recursive.contains(name.as_str()) && !has_max_depth(parameters) {
-                    depths.push(Position {
-                        decl: name.clone(),
-                        at: format!("struct `{name}`"),
-                        ty: String::new(),
-                        span: Some(*span),
-                        depth: true,
-                        foreign: false,
-                    });
-                }
-            }
-            FrozenUnit::Error { name, fields, imported_from: None, .. } => {
-                for field in fields {
-                    if let FrozenUnit::Field { name: f, ty, span: fs, .. } = field {
-                        push(name, format!("error `{name}`, field `{f}`"), ty, Some(*fs));
-                    }
-                }
-            }
-            FrozenUnit::TypeAlias { name, target, span, .. } => {
-                push(name, format!("type `{name}`"), target, Some(*span));
-            }
-            FrozenUnit::Protocol { name, functions, .. } => {
-                for function in functions {
-                    if let FrozenUnit::Function { name: f, arguments, _return, throws, span, .. } = function {
-                        for argument in arguments {
-                            push(name, format!("protocol `{name}`, function `{f}`, argument `{}`", argument.name), &argument.ty, Some(argument.span));
-                        }
-                        if let Some(ret) = _return {
-                            push(name, format!("protocol `{name}`, function `{f}`'s return"), ret, Some(*span));
-                        }
-                        // An error another schema declares travels in the
-                        // reply like a return.
-                        for error in imported_errors(units, throws) {
-                            let named = TypeRef::Named(error.to_string());
-                            push(name, format!("protocol `{name}`, function `{f}`, error `{error}`"), &named, Some(*span));
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-
-    positions.extend(depths);
-
-    // Which declarations each protocol reaches, itself included.
-    let declared: HashMap<&str, Vec<&TypeRef>> = units
-        .iter()
-        .filter_map(|u| match u {
-            FrozenUnit::Struct { name, fields, .. } | FrozenUnit::Error { name, fields, imported_from: None, .. } => {
-                let types = fields
-                    .iter()
-                    .filter_map(|f| match f {
-                        FrozenUnit::Field { ty, .. } => Some(ty),
-                        _ => None,
-                    })
-                    .collect();
-                Some((name.as_str(), types))
-            }
-            FrozenUnit::TypeAlias { name, target, .. } => Some((name.as_str(), vec![target])),
-            _ => None,
-        })
-        .collect();
-    let mut reached_by: HashMap<String, Vec<(String, bool)>> = HashMap::new();
-    for unit in units.iter() {
-        let FrozenUnit::Protocol { name, functions, parameters, .. } = unit else { continue };
-        let marked = unverified::marker(parameters).is_some();
-        let mut reached: HashSet<&str> = HashSet::from([name.as_str()]);
-        let mut work: Vec<&TypeRef> = functions
-            .iter()
-            .flat_map(|f| match f {
-                FrozenUnit::Function { arguments, _return, .. } => {
-                    arguments.iter().map(|a| &a.ty).chain(_return.iter()).collect::<Vec<_>>()
-                }
-                _ => vec![],
-            })
-            .collect();
-        while let Some(ty) = work.pop() {
-            let mut names = HashSet::new();
-            named(ty, &HashMap::new(), &mut names, 0);
-            for n in names {
-                if let Some((key, types)) = declared.get_key_value(n) {
-                    if reached.insert(key) {
-                        work.extend(types.iter().copied());
-                    }
-                }
-            }
-        }
-        for decl in reached {
-            reached_by.entry(decl.to_string()).or_default().push((name.clone(), marked));
-        }
-    }
-
-    let mut errors = Vec::new();
-    let mut giving_up: HashSet<String> = HashSet::new();
-    for p in &positions {
-        let reaching = reached_by.get(&p.decl).cloned().unwrap_or_default();
-        if !reaching.is_empty() && reaching.iter().all(|(_, marked)| *marked) {
-            giving_up.extend(reaching.into_iter().map(|(protocol, _)| protocol));
-            continue;
-        }
-        let verified: Vec<String> =
-            reaching.iter().filter(|(_, marked)| !marked).map(|(n, _)| format!("`{n}`")).collect();
-        let (code, message, help) = if p.depth {
-            (
-                UNBOUNDED_DEPTH,
-                format!("{} can contain itself, and has no depth limit", p.at),
-                "write `@max_depth = N` on it, or set `bounds.depth.max` in settings".to_string(),
-            )
-        } else if p.foreign {
-            (
-                UNBOUNDED,
-                format!("{}: `{}` holds a value without a maximum, where it's declared", p.at, p.ty),
-                format!("bound it where `{}` is declared", p.ty),
-            )
-        } else {
-            let kind = if p.ty == "string" || p.ty.starts_with("char") { "string" } else { "array" };
-            let written = if kind == "string" { "char[max N]".to_string() } else { format!("{}[max N]", p.ty.trim_end_matches("[]")) };
-            (
-                UNBOUNDED,
-                format!("{}: `{}` has no maximum", p.at, p.ty),
-                format!("write `{written}`, or set `bounds.{kind}.max` in settings"),
-            )
-        };
-        // Where protocols reach it, they could give bounded size up.
-        let help = if verified.is_empty() {
-            help
-        } else {
-            format!("{help}; or give up bounded size with `@unverified = \"…\"` on {}", verified.join(", "))
-        };
-        errors.push(Diagnostic::new(code, message).with_help(help).maybe_span(p.span));
-    }
+    let outcome = coverage::analyze(units, foreign);
 
     // Each protocol giving up bounded size says so, beside the rest.
     for unit in units.iter_mut() {
         let FrozenUnit::Protocol { name, parameters, .. } = unit else { continue };
-        if !giving_up.contains(name.as_str()) {
-            continue;
-        }
+        let Some(given) = outcome.protocols.get(name.as_str()) else { continue };
         match parameters.iter_mut().find_map(|p| match p {
             FrozenUnit::Unverified(set) => Some(set),
             _ => None,
@@ -654,8 +518,9 @@ pub fn check_bounded(units: &mut [FrozenUnit], imported: &dyn Fn(&str) -> bool) 
             Some(_) => {}
             None => parameters.push(FrozenUnit::Unverified(vec![Guarantee::BoundedSize])),
         }
+        unverified::acknowledge(parameters, given.acknowledgements.iter().cloned());
     }
-    errors
+    Bounded { errors: outcome.errors, warnings: outcome.warnings }
 }
 
 /// The first string or dynamic array in `ty` without a maximum, as it's

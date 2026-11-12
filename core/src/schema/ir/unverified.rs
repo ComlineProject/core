@@ -40,6 +40,16 @@
 //! acknowledged for what its own marker covers and what the package covers
 //! for it; the latter is frozen with it, restricted to those guarantees
 //! ([`PACKAGE_KEY`]), and the given-up set is still the one core works out.
+//!
+//! **At inner scopes.** `bounded_size` comes from types, so a marker for it
+//! can sit lower than the protocol: on a function, an argument, a struct or
+//! error field, or a type declaration. The scopes a guarantee allows are the
+//! specification's catalog's (`Guarantee::entry().scopes`); core holds none of
+//! its own. A marker at an inner scope acknowledges the unbounded causes
+//! reached *through that element only*, and never subtracts from what is
+//! computed: a cause no marker covers is still an error. Each acknowledgement
+//! is frozen with the scope path it was made at ([`SCOPES_KEY`],
+//! [`Acknowledgement`]), as additive data on the protocol.
 
 use crate::encodings::{official, EncodingKind};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
@@ -55,6 +65,100 @@ pub const KEY: &str = "unverified";
 /// dictionary from guarantee to reason, for the guarantees it covers for that
 /// protocol. A protocol it covers nothing for has none.
 pub const PACKAGE_KEY: &str = "unverified_package";
+
+/// The property a protocol carries, written by the compiler beside the
+/// given-up set: each acknowledged guarantee with the scope it was
+/// acknowledged at and the reason, as a dictionary from guarantee to a
+/// dictionary from `"<scope> <path>"` (`"argument Billing.upload(data)"`) to
+/// reason. Read it with [`acknowledgements`]. A `SCOPES_KEY` a schema writes
+/// itself is dropped: only the compiler says where something was acknowledged.
+pub const SCOPES_KEY: &str = "unverified_scopes";
+
+/// Where one guarantee given up was acknowledged, and why: the scope it was
+/// written at (the catalog's), the path to the element, and its reason.
+///
+/// Paths: a protocol `Billing`, a function `Billing.upload`, an argument
+/// `Billing.upload(data)`, a field `Upload.data`, a type `Blob` (a type of
+/// another schema of the package, by its schema: `models::Blob`), and the
+/// package itself an empty path.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Acknowledgement {
+    pub guarantee: Guarantee,
+    pub scope: comline_catalog::Scope,
+    pub path: String,
+    pub reason: String,
+}
+
+impl Acknowledgement {
+    fn key(&self) -> String {
+        format!("{} {}", self.scope.as_str(), self.path)
+    }
+
+    fn rank(&self) -> (Guarantee, u8, &str) {
+        use comline_catalog::Scope;
+        let scope = match self.scope {
+            Scope::Package => 0,
+            Scope::Protocol => 1,
+            Scope::Function => 2,
+            Scope::Argument => 3,
+            Scope::Field => 4,
+            Scope::Type => 5,
+        };
+        (self.guarantee, scope, self.path.as_str())
+    }
+}
+
+/// The catalog scope written `name`.
+pub fn scope_named(name: &str) -> Option<comline_catalog::Scope> {
+    use comline_catalog::Scope;
+    [Scope::Package, Scope::Protocol, Scope::Function, Scope::Argument, Scope::Field, Scope::Type]
+        .into_iter()
+        .find(|scope| scope.as_str() == name)
+}
+
+/// What the frozen protocol says was acknowledged, and where
+/// ([`SCOPES_KEY`]), sorted by guarantee, then outermost scope first.
+pub fn acknowledgements(parameters: &[FrozenUnit]) -> Vec<Acknowledgement> {
+    let mut found = vec![];
+    let record = parameters.iter().find_map(|p| match p {
+        FrozenUnit::Property { name, value: ConfigValue::Dict(entries) } if name == SCOPES_KEY => Some(entries),
+        _ => None,
+    });
+    for (guarantee, at) in record.into_iter().flatten() {
+        let (Some(guarantee), ConfigValue::Dict(at)) = (Guarantee::from_name(guarantee), at) else { continue };
+        for (key, reason) in at {
+            let (Some((scope, path)), ConfigValue::Str(reason)) = (key.split_once(' '), reason) else { continue };
+            let Some(scope) = scope_named(scope) else { continue };
+            found.push(Acknowledgement { guarantee, scope, path: path.to_string(), reason: reason.clone() });
+        }
+    }
+    found.sort_by(|a, b| a.rank().cmp(&b.rank()));
+    found
+}
+
+/// Add `more` to what the protocol's `parameters` record as acknowledged.
+pub fn acknowledge(parameters: &mut Vec<FrozenUnit>, more: impl IntoIterator<Item = Acknowledgement>) {
+    let mut all = acknowledgements(parameters);
+    for ack in more {
+        if !all.iter().any(|a| a.guarantee == ack.guarantee && a.scope == ack.scope && a.path == ack.path) {
+            all.push(ack);
+        }
+    }
+    parameters.retain(|p| !matches!(p, FrozenUnit::Property { name, .. } if name == SCOPES_KEY));
+    if all.is_empty() {
+        return;
+    }
+    all.sort_by(|a, b| a.rank().cmp(&b.rank()));
+    let mut record: Vec<(String, ConfigValue)> = vec![];
+    for ack in &all {
+        let entry = (ack.key(), ConfigValue::Str(ack.reason.clone()));
+        match record.iter_mut().find(|(g, _)| g == ack.guarantee.name()) {
+            Some((_, ConfigValue::Dict(at))) => at.push(entry),
+            _ => record.push((ack.guarantee.name().to_string(), ConfigValue::Dict(vec![entry]))),
+        }
+    }
+    parameters.push(FrozenUnit::Property { name: SCOPES_KEY.to_string(), value: ConfigValue::Dict(record) });
+}
 
 /// What a protocol takes from the package's settings rather than writing
 /// itself, decided before the package's handshake and framing are frozen into
@@ -405,6 +509,23 @@ pub fn reason_for(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<&st
         .or_else(|| package_reason_for(parameters, guarantee))
 }
 
+/// Why `guarantee` is given up, from wherever it was acknowledged: the
+/// protocol's own marker or the package's ([`reason_for`]), else the markers
+/// at inner scopes that acknowledged it ([`acknowledgements`]), their distinct
+/// reasons joined.
+pub fn reason_of(parameters: &[FrozenUnit], guarantee: Guarantee) -> Option<String> {
+    if let Some(reason) = reason_for(parameters, guarantee) {
+        return Some(reason.to_string());
+    }
+    let mut reasons: Vec<String> = vec![];
+    for ack in acknowledgements(parameters).into_iter().filter(|a| a.guarantee == guarantee) {
+        if !reasons.contains(&ack.reason) {
+            reasons.push(ack.reason);
+        }
+    }
+    (!reasons.is_empty()).then(|| reasons.join("; "))
+}
+
 /// `guarantee`'s reason in an acknowledgement as written: the plain form's, or
 /// the keyed form's entry for it.
 fn reason_in(value: &ConfigValue, guarantee: Guarantee) -> Option<&str> {
@@ -452,8 +573,8 @@ pub fn frozen_reasons(parameters: &[FrozenUnit]) -> Vec<(Guarantee, Option<Strin
     frozen_set(parameters)
         .iter()
         .map(|&g| {
-            let why = reason_for(parameters, g).or_else(|| unrecorded_cause(g));
-            (g, why.map(str::to_string))
+            let why = reason_of(parameters, g).or_else(|| unrecorded_cause(g).map(str::to_string));
+            (g, why)
         })
         .collect()
 }
@@ -467,7 +588,7 @@ pub fn reason_text(parameters: &[FrozenUnit], set: &[Guarantee]) -> Option<Strin
     }
     let each: Vec<String> = set
         .iter()
-        .filter_map(|g| reason_for(parameters, *g).map(|reason| format!("{} \"{reason}\"", g.describe())))
+        .filter_map(|g| reason_of(parameters, *g).map(|reason| format!("{} \"{reason}\"", g.describe())))
         .collect();
     (!each.is_empty()).then(|| each.join(", "))
 }
@@ -564,13 +685,13 @@ pub fn freeze_with(
 ) {
     let mut inherits = inherits.iter();
     for unit in units {
-        let FrozenUnit::Protocol { parameters, .. } = unit else {
+        let FrozenUnit::Protocol { name, parameters, .. } = unit else {
             continue;
         };
         let inherited = inherits.next().copied().unwrap_or_default();
         parameters.retain(|p| {
             !matches!(p, FrozenUnit::Unverified(_))
-                && !matches!(p, FrozenUnit::Property { name, .. } if name == PACKAGE_KEY)
+                && !matches!(p, FrozenUnit::Property { name, .. } if name == PACKAGE_KEY || name == SCOPES_KEY)
         });
         let covered = match package {
             Some(package) => package_covered(parameters, encodings, inherited, package),
@@ -581,8 +702,22 @@ pub fn freeze_with(
         }
         let set = given_up(parameters, encodings);
         if !set.is_empty() {
-            parameters.push(FrozenUnit::Unverified(set));
+            parameters.push(FrozenUnit::Unverified(set.clone()));
         }
+        // Where each guarantee was acknowledged, for what this knows: the
+        // protocol's own marker, else the package's. What the types give up
+        // is added by the bounds pass, which knows the scopes below.
+        let mut acks = vec![];
+        for guarantee in &set {
+            if let Some(reason) = marker(parameters).and_then(|marker| reason_in(marker, *guarantee)) {
+                let scope = comline_catalog::Scope::Protocol;
+                acks.push(Acknowledgement { guarantee: *guarantee, scope, path: name.clone(), reason: reason.to_string() });
+            } else if let Some((_, reason)) = covered.iter().find(|(g, _)| g == guarantee) {
+                let scope = comline_catalog::Scope::Package;
+                acks.push(Acknowledgement { guarantee: *guarantee, scope, path: String::new(), reason: reason.clone() });
+            }
+        }
+        acknowledge(parameters, acks);
         if !covered.is_empty() {
             let reasons = covered.into_iter().map(|(g, reason)| (g.name().to_string(), ConfigValue::Str(reason)));
             parameters.push(FrozenUnit::Property {
