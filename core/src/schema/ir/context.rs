@@ -50,6 +50,11 @@ pub struct SchemaContext {
     /// available here. Set by
     /// `package::config::ir::compiler::interpret::interpret_context`.
     pub warnings: RefCell<Vec<Diagnostic>>,
+    /// Advice that never judges the build, kept apart from `warnings`: what a
+    /// package could do better, such as a `@unverified` that could sit
+    /// narrower (`unverified::narrower-placement`). Structured like
+    /// `warnings`, and set with them.
+    pub hints: RefCell<Vec<Diagnostic>>,
     /// The types it declares that hold a value without a maximum, which
     /// only its own marked protocols may reach: a schema using one is held
     /// to the same rule (`bounds::check_bounded`). `None` until it's
@@ -68,6 +73,7 @@ impl SchemaContext {
         Self {
             namespace, declarations, frozen_schema: RefCell::new(None), codemap,
             compile_state: Default::default(), warnings: RefCell::new(Vec::new()),
+            hints: RefCell::new(Vec::new()),
             unbounded: RefCell::new(None),
             acknowledged: RefCell::new(None),
         }

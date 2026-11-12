@@ -45,6 +45,7 @@ mod tests {
             vec![
                 "mode",
                 "annotations.<name>.allowed",
+                "annotations.unverified.strict",
                 "validators.<name>.allowed",
                 "validators.allowed",
                 "bounds.<name>.max",

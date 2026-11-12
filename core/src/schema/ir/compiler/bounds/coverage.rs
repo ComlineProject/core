@@ -38,11 +38,16 @@ use super::{
 };
 use super::{UNBOUNDED, UNBOUNDED_DEPTH};
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
+use crate::schema::ir::compiler::strict::{Strict, STRICT_SCOPE};
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit, Guarantee};
 use crate::schema::ir::unverified::{self, Acknowledgement};
+use crate::settings::keys::DeclPath;
 
 const NOTHING_GIVEN_UP: DiagnosticCode = DiagnosticCode::warning("unverified::nothing-given-up");
+/// Advice, never a failure: an outer marker that could sit narrower. Strict
+/// mode makes the same finding an error ([`STRICT_SCOPE`]).
+const NARROWER_PLACEMENT: DiagnosticCode = DiagnosticCode::hint("unverified::narrower-placement");
 
 /// What a schema says of a name it uses that another schema declares.
 pub enum Foreign {
@@ -70,6 +75,12 @@ pub struct Given {
 pub struct Outcome {
     pub errors: Vec<Diagnostic>,
     pub warnings: Vec<Diagnostic>,
+    /// Strict mode's: a marker wider than the innermost scope its cause allows
+    /// (`unverified::strict-scope`).
+    pub strict: Vec<Diagnostic>,
+    /// A marker where strict isn't in force that could sit narrower
+    /// (`unverified::narrower-placement`).
+    pub hints: Vec<Diagnostic>,
     /// The protocols that give up bounded size: every one with a cause some
     /// marker covers.
     pub protocols: HashMap<String, Given>,
@@ -81,6 +92,20 @@ struct Mark {
     path: String,
     reason: String,
     span: Option<(usize, usize)>,
+    /// What it reads as in a diagnostic: `argument `data` of `P.f``.
+    label: String,
+    /// Whether strict mode is in force at its site.
+    strict: bool,
+}
+
+/// Somewhere a marker covering `bounded_size` may sit, by the catalog's
+/// scopes: the elements a path passes through, which the innermost of is where
+/// strict mode wants the marker.
+struct Slot {
+    /// `argument `data` of `P.f``.
+    label: String,
+    /// The marker on it that covers `bounded_size`, if there is one.
+    mark: Option<usize>,
 }
 
 /// Stands in a cover for a protocol marker that doesn't list `bounded_size`:
@@ -103,6 +128,9 @@ struct Elem {
     /// How a marker would be written for it.
     marker_on: String,
     mark: Option<usize>,
+    /// Where a marker for it sits, if the catalog gives its scope
+    /// `bounded_size` (an argument, a field).
+    slot: Option<usize>,
     cause: Option<Cause>,
     /// The names it refers to.
     names: Vec<String>,
@@ -111,17 +139,23 @@ struct Elem {
 
 struct Decl {
     mark: Option<usize>,
+    /// Where a type marker sits.
+    slot: Option<usize>,
     elems: Vec<usize>,
 }
 
 struct Func {
     mark: Option<usize>,
+    slot: Option<usize>,
     elems: Vec<usize>,
 }
 
 struct Protocol {
     name: String,
     mark: Option<usize>,
+    slot: Option<usize>,
+    /// Whether strict mode is in force on it.
+    strict: bool,
     /// Marked, but not for `bounded_size`.
     legacy: bool,
     functions: Vec<Func>,
@@ -129,7 +163,9 @@ struct Protocol {
 
 #[derive(Default)]
 struct Model {
+    strict: Strict,
     marks: Vec<Mark>,
+    slots: Vec<Slot>,
     elems: Vec<Elem>,
     decls: Vec<Decl>,
     index: HashMap<String, usize>,
@@ -158,21 +194,41 @@ fn covers(parameters: &[FrozenUnit], scope: Scope) -> Option<String> {
 }
 
 impl Model {
+    /// The marker among `parameters`, at `scope` and held to strict as the
+    /// `decl` site says, if it covers `bounded_size` there.
     fn mark(
         &mut self,
         parameters: &[FrozenUnit],
         scope: Scope,
+        decl: DeclPath,
         path: String,
+        label: &str,
         span: Option<(usize, usize)>,
     ) -> Option<usize> {
         let reason = covers(parameters, scope)?;
+        let strict = self.strict.at(parameters, decl);
         self.marks.push(Mark {
             scope,
             path,
             reason,
             span,
+            label: label.to_string(),
+            strict,
         });
         Some(self.marks.len() - 1)
+    }
+
+    /// The place for a marker at `scope`, where the catalog allows `bounded_size`
+    /// there, holding `mark`.
+    fn slot(&mut self, scope: Scope, label: &str, mark: Option<usize>) -> Option<usize> {
+        if !Guarantee::BoundedSize.entry().allows_scope(scope) {
+            return None;
+        }
+        self.slots.push(Slot {
+            label: label.to_string(),
+            mark,
+        });
+        Some(self.slots.len() - 1)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -199,6 +255,7 @@ impl Model {
             segment,
             marker_on,
             mark,
+            slot: None,
             cause,
             names,
             span,
@@ -206,8 +263,8 @@ impl Model {
         self.elems.len() - 1
     }
 
-    fn build(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Model {
-        let mut model = Model::default();
+    fn build(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign, strict: &Strict) -> Model {
+        let mut model = Model { strict: strict.clone(), ..Model::default() };
         let recursive = self_containing_structs(units);
         let local = local_names(units);
         let is_foreign =
@@ -228,6 +285,7 @@ impl Model {
             model.index.insert(name.clone(), model.decls.len());
             model.decls.push(Decl {
                 mark: None,
+                slot: None,
                 elems: vec![],
             });
         }
@@ -242,8 +300,10 @@ impl Model {
                     ..
                 } => {
                     let decl = model.index[name];
-                    let mark = model.mark(parameters, Scope::Type, name.clone(), Some(*span));
+                    let label = format!("struct `{name}`");
+                    let mark = model.mark(parameters, Scope::Type, DeclPath::Struct, name.clone(), &label, Some(*span));
                     model.decls[decl].mark = mark;
+                    model.decls[decl].slot = model.slot(Scope::Type, &label, mark);
                     model.fields(&is_foreign, decl, "struct", name, fields);
                     if recursive.contains(name.as_str()) && !has_max_depth(parameters) {
                         let at = format!("struct `{name}`");
@@ -253,6 +313,7 @@ impl Model {
                             segment: name.clone(),
                             marker_on: format!("struct `{name}`"),
                             mark: None,
+                            slot: None,
                             cause: Some(Cause::Depth),
                             names: vec![],
                             span: Some(*span),
@@ -270,8 +331,10 @@ impl Model {
                     ..
                 } => {
                     let decl = model.index[name];
-                    let mark = model.mark(parameters, Scope::Type, name.clone(), *span);
+                    let label = format!("error `{name}`");
+                    let mark = model.mark(parameters, Scope::Type, DeclPath::Error, name.clone(), &label, *span);
                     model.decls[decl].mark = mark;
+                    model.decls[decl].slot = model.slot(Scope::Type, &label, mark);
                     model.fields(&is_foreign, decl, "error", name, fields);
                 }
                 FrozenUnit::TypeAlias {
@@ -282,8 +345,10 @@ impl Model {
                     ..
                 } => {
                     let decl = model.index[name];
-                    let mark = model.mark(parameters, Scope::Type, name.clone(), Some(*span));
+                    let label = format!("type `{name}`");
+                    let mark = model.mark(parameters, Scope::Type, DeclPath::Struct, name.clone(), &label, Some(*span));
                     model.decls[decl].mark = mark;
+                    model.decls[decl].slot = model.slot(Scope::Type, &label, mark);
                     let id = model.elem(
                         &is_foreign,
                         format!("type `{name}`"),
@@ -300,13 +365,19 @@ impl Model {
                     name,
                     functions,
                     parameters,
+                    span: protocol_span,
                     ..
                 } => {
-                    let mark = model.mark(parameters, Scope::Protocol, name.clone(), None);
+                    let label = format!("protocol `{name}`");
+                    let mark = model.mark(parameters, Scope::Protocol, DeclPath::Protocol, name.clone(), &label, Some(*protocol_span));
+                    let slot = model.slot(Scope::Protocol, &label, mark);
                     let legacy = mark.is_none() && unverified::marker(parameters).is_some();
+                    let strict = model.strict.at(parameters, DeclPath::Protocol);
                     let mut protocol = Protocol {
                         name: name.clone(),
                         mark,
+                        slot,
+                        strict,
                         legacy,
                         functions: vec![],
                     };
@@ -324,18 +395,30 @@ impl Model {
                             continue;
                         };
                         let path = format!("{name}.{f}");
-                        let mark =
-                            model.mark(parameters, Scope::Function, path.clone(), Some(*span));
+                        let label = format!("function `{path}`");
+                        let mark = model.mark(
+                            parameters,
+                            Scope::Function,
+                            DeclPath::ProtocolFunction,
+                            path.clone(),
+                            &label,
+                            Some(*span),
+                        );
+                        let slot = model.slot(Scope::Function, &label, mark);
                         let mut elems = vec![];
                         for argument in arguments {
                             let segment = format!("{path}({})", argument.name);
+                            let label = format!("argument `{}` of `{path}`", argument.name);
                             let mark = model.mark(
                                 &argument.parameters,
                                 Scope::Argument,
+                                DeclPath::ProtocolFunction,
                                 segment.clone(),
+                                &label,
                                 Some(argument.span),
                             );
-                            elems.push(model.elem(
+                            let slot = model.slot(Scope::Argument, &label, mark);
+                            let id = model.elem(
                                 &is_foreign,
                                 format!(
                                     "protocol `{name}`, function `{f}`, argument `{}`",
@@ -346,7 +429,9 @@ impl Model {
                                 mark,
                                 &argument.ty,
                                 Some(argument.span),
-                            ));
+                            );
+                            model.elems[id].slot = slot;
+                            elems.push(id);
                         }
                         if let Some(ret) = _return {
                             elems.push(model.elem(
@@ -373,7 +458,7 @@ impl Model {
                                 Some(*span),
                             ));
                         }
-                        protocol.functions.push(Func { mark, elems });
+                        protocol.functions.push(Func { mark, slot, elems });
                     }
                     model.protocols.push(protocol);
                 }
@@ -403,7 +488,10 @@ impl Model {
                 continue;
             };
             let path = format!("{name}.{f}");
-            let mark = self.mark(parameters, Scope::Field, path.clone(), Some(*span));
+            let label = format!("field `{f}` of `{name}`");
+            let decl_path = if kind == "error" { DeclPath::ErrorField } else { DeclPath::StructField };
+            let mark = self.mark(parameters, Scope::Field, decl_path, path.clone(), &label, Some(*span));
+            let slot = self.slot(Scope::Field, &label, mark);
             let id = self.elem(
                 is_foreign,
                 format!("{kind} `{name}`, field `{f}`"),
@@ -413,6 +501,7 @@ impl Model {
                 ty,
                 Some(*span),
             );
+            self.elems[id].slot = slot;
             self.decls[decl].elems.push(id);
             self.owner.insert(id, decl);
         }
@@ -425,6 +514,10 @@ struct Found {
     path: String,
     /// The markers the path passes through, outermost first.
     cover: Vec<usize>,
+    /// The innermost place on the path a marker covering `bounded_size` could
+    /// sit, whether or not one does: the narrowest scope that covers the cause
+    /// itself.
+    innermost: Option<usize>,
 }
 
 struct Walk<'m> {
@@ -442,34 +535,37 @@ impl<'m> Walk<'m> {
         }
     }
 
-    fn decl(&mut self, decl: usize, path: &mut Vec<String>, cover: &[usize]) {
+    fn decl(&mut self, decl: usize, path: &mut Vec<String>, cover: &[usize], innermost: Option<usize>) {
         let mut cover = cover.to_vec();
         cover.extend(self.model.decls[decl].mark);
         if !self.visited.insert((decl, cover.clone())) {
             return;
         }
+        let innermost = self.model.decls[decl].slot.or(innermost);
         let elems = self.model.decls[decl].elems.clone();
         for elem in elems {
-            self.elem(elem, path, &cover);
+            self.elem(elem, path, &cover, innermost);
         }
     }
 
-    fn elem(&mut self, elem: usize, path: &mut Vec<String>, cover: &[usize]) {
+    fn elem(&mut self, elem: usize, path: &mut Vec<String>, cover: &[usize], innermost: Option<usize>) {
         let model: &'m Model = self.model;
         let e = &model.elems[elem];
         let mut cover = cover.to_vec();
         cover.extend(e.mark);
+        let innermost = e.slot.or(innermost);
         path.push(e.segment.clone());
         if e.cause.is_some() {
             self.found.push(Found {
                 elem,
                 path: path.join(" -> "),
                 cover: cover.clone(),
+                innermost,
             });
         }
         for name in &e.names {
             if let Some(&decl) = model.index.get(name) {
-                self.decl(decl, path, &cover);
+                self.decl(decl, path, &cover, innermost);
             }
         }
         path.pop();
@@ -484,8 +580,9 @@ impl<'m> Walk<'m> {
         for function in &protocol.functions {
             let mut cover = cover.clone();
             cover.extend(function.mark);
+            let innermost = function.slot.or(protocol.slot);
             for &elem in &function.elems {
-                self.elem(elem, &mut vec![], &cover);
+                self.elem(elem, &mut vec![], &cover, innermost);
             }
         }
     }
@@ -523,6 +620,37 @@ fn classify(model: &Model, found: &Found, foreign: &dyn Fn(&str) -> Foreign) -> 
     }
 }
 
+/// The marker a cause is credited to, where that is a marker on its path
+/// rather than what another schema acknowledged, or a protocol marker that
+/// doesn't list `bounded_size`: the innermost of the markers it passes through.
+fn credited(model: &Model, found: &Found, foreign: &dyn Fn(&str) -> Foreign) -> Option<usize> {
+    if let Some(Cause::Foreign(name)) = &model.elems[found.elem].cause {
+        if let Foreign::Acknowledged(_) = foreign(name) {
+            return None;
+        }
+    }
+    found.cover.last().copied().filter(|&mark| mark != LEGACY)
+}
+
+/// The causes some marker covers from further out than the narrowest place
+/// one could sit: by marker, the places it could move to (each once) with the
+/// path to the cause there.
+#[derive(Default)]
+struct Wide(std::collections::BTreeMap<usize, Vec<(usize, String)>>);
+
+impl Wide {
+    fn note(&mut self, model: &Model, found: &Found, foreign: &dyn Fn(&str) -> Foreign) {
+        let (Some(mark), Some(slot)) = (credited(model, found, foreign), found.innermost) else { return };
+        if model.slots[slot].mark == Some(mark) {
+            return;
+        }
+        let moves = self.0.entry(mark).or_default();
+        if !moves.iter().any(|(s, _)| *s == slot) {
+            moves.push((slot, found.path.clone()));
+        }
+    }
+}
+
 fn push_unique(acks: &mut Vec<Acknowledgement>, more: Vec<Acknowledgement>) {
     for ack in more {
         if !acks.contains(&ack) {
@@ -535,10 +663,11 @@ fn push_unique(acks: &mut Vec<Acknowledgement>, more: Vec<Acknowledgement>) {
 /// bounded size and where it's acknowledged, what no marker covers (errors),
 /// and the markers that cover nothing (warnings). `foreign` says what another
 /// schema's types hold.
-pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Outcome {
-    let model = Model::build(units, foreign);
+pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign, strict: &Strict) -> Outcome {
+    let model = Model::build(units, foreign, strict);
     let mut outcome = Outcome::default();
     let mut touched: HashSet<usize> = HashSet::new();
+    let mut wide = Wide::default();
 
     // Per position: the protocols that reach it by a path no marker covers
     // (with that path), and whether any protocol reaches it at all.
@@ -553,6 +682,7 @@ pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Outco
         for found in &walk.found {
             reached.insert(found.elem);
             touched.extend(found.cover.iter().copied().filter(|m| *m != LEGACY));
+            wide.note(&model, found, foreign);
             match classify(&model, found, foreign) {
                 Class::Uncovered => {
                     let at = uncovered.entry(found.elem).or_default();
@@ -584,10 +714,13 @@ pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Outco
     let mut unreached: HashMap<usize, String> = HashMap::new();
     for decl in 0..model.decls.len() {
         let mut walk = Walk::new(&model);
-        walk.decl(decl, &mut vec![], &[]);
+        walk.decl(decl, &mut vec![], &[], None);
         for found in &walk.found {
             touched.extend(found.cover.iter().copied());
             let own = model.owner.get(&found.elem) == Some(&decl);
+            if own {
+                wide.note(&model, found, foreign);
+            }
             if own
                 && !reached.contains(&found.elem)
                 && matches!(classify(&model, found, foreign), Class::Uncovered)
@@ -652,8 +785,14 @@ pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Outco
         let message = format!("{message} (reached through `{path}`)");
         // Where it's reached, bounded size could be given up: by the
         // protocol, or only where it's given up.
+        let strict_here = by.into_iter().flatten().any(|(p, _)| {
+            model.protocols.iter().any(|protocol| protocol.name == *p && protocol.strict)
+        });
         let help = if protocols.is_empty() {
             help
+        } else if strict_here {
+            // The plain form is an error under strict.
+            format!("{help}; or give up bounded size with `@unverified(bounded_size = \"…\")` on {}", elem.marker_on)
         } else {
             format!(
                 "{help}; or give up bounded size with `@unverified = \"…\"` on {}, or \
@@ -667,6 +806,46 @@ pub fn analyze(units: &[FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Outco
                 .with_help(help)
                 .maybe_span(elem.span),
         );
+    }
+
+    // A marker wider than where its cause sits: an error under strict, a hint
+    // otherwise.
+    for (&id, moves) in &wide.0 {
+        let mark = &model.marks[id];
+        let to: Vec<String> = moves.iter().map(|(slot, _)| model.slots[*slot].label.clone()).collect();
+        let reached: Vec<String> = moves.iter().map(|(slot, path)| {
+            format!("{} (reached through `{path}`)", model.slots[*slot].label)
+        }).collect();
+        if mark.strict {
+            outcome.strict.push(
+                Diagnostic::new(
+                    STRICT_SCOPE,
+                    format!(
+                        "`bounded_size` is acknowledged on {}, wider than `annotations.unverified.strict` allows: the value without a maximum is held by {}",
+                        mark.label,
+                        reached.join(", ")
+                    ),
+                )
+                .with_help(format!("move it to {}: `@unverified(bounded_size = \"…\")`", to.join(", ")))
+                .maybe_span(mark.span),
+            );
+        } else {
+            outcome.hints.push(
+                Diagnostic::new(
+                    NARROWER_PLACEMENT,
+                    format!(
+                        "`bounded_size` is acknowledged on {}, and could be narrower: the value without a maximum is held by {}",
+                        mark.label,
+                        reached.join(", ")
+                    ),
+                )
+                .with_help(format!(
+                    "move it to {} to say where the size is given up; `annotations.unverified.strict = true` requires it",
+                    to.join(", ")
+                ))
+                .maybe_span(mark.span),
+            );
+        }
     }
 
     // A marker below the protocol that no cause is reached through.
@@ -696,11 +875,11 @@ pub fn acknowledged_declarations(
     units: &[FrozenUnit],
     foreign: &dyn Fn(&str) -> Foreign,
 ) -> HashMap<String, Vec<Acknowledgement>> {
-    let model = Model::build(units, foreign);
+    let model = Model::build(units, foreign, &Strict::default());
     let mut acknowledged = HashMap::new();
     for (name, &decl) in &model.index {
         let mut walk = Walk::new(&model);
-        walk.decl(decl, &mut vec![], &[]);
+        walk.decl(decl, &mut vec![], &[], None);
         let mut acks = vec![];
         let mut all = !walk.found.is_empty();
         for found in &walk.found {

@@ -17,6 +17,7 @@ use std::collections::{HashMap, HashSet};
 
 mod coverage;
 pub use coverage::{acknowledged_declarations, Foreign};
+pub use super::strict::Strict;
 
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 use crate::package::config::ir::context::ProjectContext;
@@ -487,6 +488,12 @@ pub struct Bounded {
     pub errors: Vec<Diagnostic>,
     /// A marker below the protocol that covers nothing.
     pub warnings: Vec<Diagnostic>,
+    /// Strict mode: a `bounded_size` acknowledgement wider than the innermost
+    /// scope its cause allows (`unverified::strict-scope`).
+    pub strict: Vec<Diagnostic>,
+    /// Where strict isn't in force, the same finding as advice
+    /// (`unverified::narrower-placement`): it never fails a build.
+    pub hints: Vec<Diagnostic>,
 }
 
 /// [`check_bounded`], with what another schema's types hold said as
@@ -501,10 +508,19 @@ pub struct Bounded {
 /// where each cause was acknowledged
 /// ([`unverified::SCOPES_KEY`]).
 pub fn check_bounded_in(units: &mut [FrozenUnit], foreign: &dyn Fn(&str) -> Foreign) -> Bounded {
+    check_bounded_with(units, foreign, &Strict::default())
+}
+
+/// [`check_bounded_in`], with where strict mode is in force
+/// (`annotations.unverified.strict`, [`Strict::of`]): there a `bounded_size`
+/// marker has to sit at the innermost scope the catalog allows on the path to
+/// its cause, and one that doesn't is `unverified::strict-scope`. Where it
+/// isn't, the same marker only draws the hint `unverified::narrower-placement`.
+pub fn check_bounded_with(units: &mut [FrozenUnit], foreign: &dyn Fn(&str) -> Foreign, strict: &Strict) -> Bounded {
     use crate::schema::ir::frozen::unit::Guarantee;
     use crate::schema::ir::unverified;
 
-    let outcome = coverage::analyze(units, foreign);
+    let outcome = coverage::analyze(units, foreign, strict);
 
     // Each protocol giving up bounded size says so, beside the rest.
     for unit in units.iter_mut() {
@@ -520,7 +536,7 @@ pub fn check_bounded_in(units: &mut [FrozenUnit], foreign: &dyn Fn(&str) -> Fore
         }
         unverified::acknowledge(parameters, given.acknowledgements.iter().cloned());
     }
-    Bounded { errors: outcome.errors, warnings: outcome.warnings }
+    Bounded { errors: outcome.errors, warnings: outcome.warnings, strict: outcome.strict, hints: outcome.hints }
 }
 
 /// The first string or dynamic array in `ty` without a maximum, as it's

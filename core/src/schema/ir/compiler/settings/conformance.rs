@@ -189,7 +189,10 @@ fn suggestion(segments: &[&str]) -> Option<String> {
             Shape::Path(p) => {
                 let scope = decl.filter(|_| p.scoping != keys::Scoping::GlobalOnly);
                 // Whatever sits where this shape's name segment would go.
-                let name = rest.get(1).copied().unwrap_or("name");
+                let name = match p.only {
+                    [only] => only,
+                    _ => rest.get(1).copied().unwrap_or("name"),
+                };
                 candidates.push(p.key(scope, Some(name)));
                 if p.coarse {
                     candidates.push(p.key(scope, None));

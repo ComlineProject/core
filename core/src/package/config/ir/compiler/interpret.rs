@@ -183,6 +183,15 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             &inherits,
         );
         package_covered.extend(crate::schema::ir::unverified::package_covered_by(&frozen_units));
+        // Strict mode (`annotations.unverified.strict`): where it applies, what
+        // a package setting gives up is acknowledged beside the setting.
+        let strict = crate::schema::ir::compiler::strict::Strict::of(&frozen_units, &own_settings);
+        let mut strict_errors = crate::schema::ir::compiler::strict::check_package_default(
+            &frozen_units,
+            &strict,
+            &crate::schema::ir::unverified::Encodings::of(project_context),
+            &inherits,
+        );
         // Settings gate what the schema's author wrote; the package's
         // framing is the package's choice, so it's added after the snapshot
         // enforcement checks.
@@ -196,8 +205,18 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             imports_foreign(name, &declarations, &namespace, project_context, &own_namespaces)
         };
         let imported = |name: &str| !matches!(foreign(name), Foreign::Bounded);
-        let bounded = bounds::check_bounded_in(&mut frozen_units, &foreign);
+        let bounded = bounds::check_bounded_with(&mut frozen_units, &foreign, &strict);
         let unbounded = bounded.errors;
+        strict_errors.extend(bounded.strict);
+        strict_errors.extend(crate::schema::ir::compiler::strict::check_keyed(&frozen_units, &strict));
+        // Advice on where a marker could sit narrower: not a warning, which the
+        // build's own outcome is read from, but it can be silenced or raised
+        // like one (`diagnostics."unverified::narrower-placement".level`).
+        let (hints, escalated) = resolve_diagnostic_overrides(
+            &frozen_units, bounded.hints, &own_settings, &package_settings_spans,
+        );
+        schema_context.borrow().hints.borrow_mut().extend(hints);
+        strict_errors.extend(escalated);
         let exported = bounds::unbounded_declarations(&frozen_units, &imported);
         *schema_context.borrow().unbounded.borrow_mut() = Some(exported);
         *schema_context.borrow().acknowledged.borrow_mut() =
@@ -211,6 +230,15 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
                 fatal.iter().map(|error| schema_context.borrow().render(error)).collect();
             schema_errors.push(format!(
                 "Schema '{}' has a diagnostic escalated to a build failure:\n{}",
+                namespace_joined,
+                rendered.join("\n\n")
+            ));
+        }
+        if !strict_errors.is_empty() {
+            let rendered: Vec<String> =
+                strict_errors.iter().map(|error| schema_context.borrow().render(error)).collect();
+            schema_errors.push(format!(
+                "Schema '{}' breaks strict mode for `@unverified` (`annotations.unverified.strict`):\n{}",
                 namespace_joined,
                 rendered.join("\n\n")
             ));
@@ -308,6 +336,18 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         *schema_context.borrow().frozen_schema.borrow_mut() = Some(frozen_units);
         schema_context.borrow().compile_state.borrow_mut().complete = true;
         first_own.get_or_insert_with(|| schema_context.clone());
+    }
+
+    // Under a strict package, its `unverified` is keyed too.
+    if let Some(package_unverified) = package_unverified {
+        if crate::schema::ir::compiler::strict::package_strict(&own_settings) {
+            let mut covered = package_covered.clone();
+            covered.sort();
+            covered.dedup();
+            if let Some(error) = crate::schema::ir::compiler::strict::check_package_keyed(package_unverified, &covered) {
+                schema_errors.push(crate::diagnostics::render(&error, "config.idp", ""));
+            }
+        }
     }
 
     // The package's `unverified` lists what none of its protocols give up
