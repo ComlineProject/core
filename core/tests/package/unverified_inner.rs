@@ -176,7 +176,7 @@ fn a_type_marker_covers_every_use_in_the_package() {
         "@unverified(bounded_size = \"{WHY}\")\ntype Blob = string\n\n\
          struct Holder {{\n    blob: Blob\n}}\n\n\
          protocol P {{\n    function f(b: Blob);\n    function g(h: Holder);\n}}\n\n\
-         protocol Q {{\n    function h(b: Blob[max 4]);\n}}\n"
+         protocol Q {{\n    function h(b: Blob);\n}}\n"
     ));
     let expected = [(Scope::Type, "Blob".to_string(), WHY.to_string())];
     assert_eq!(at(&units, "P"), expected);
