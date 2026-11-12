@@ -49,7 +49,7 @@ jobs:
     permissions:
       contents: write
       issues: write
-    uses: ComlineProject/.github/.github/workflows/fuzz.yml@797d473553d7f2fc50895bb2573acb83ac63c7cb # main, no release tag yet
+    uses: ComlineProject/.github/.github/workflows/fuzz.yml@807dd25bcbf848275f5f2bc5dcdd15070dcc321b # main, no release tag yet
     with:
       image: ghcr.io/comlineproject/ci-fuzz@sha256:d18222e3007d318c73b1df500d997222ff6dca536b4b0e89e6ab7e55fc81326a
       # One minute per target on a pull request, ten (on every core) nightly.
