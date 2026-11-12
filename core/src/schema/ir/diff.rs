@@ -8,7 +8,7 @@ use crate::schema::ir::unverified;
 use crate::encodings::{official, EncodingKind, Profile};
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
 use crate::schema::idl::annotations::{DEFAULT_FORMAT, DEFAULT_FRAMING, IMPLICIT_FRAMING};
-use crate::schema::ir::unverified::{default_format, Encodings};
+use crate::schema::ir::unverified::{default_format_known, Encodings};
 use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet};
 
 use comline_catalog::fact;
@@ -400,22 +400,30 @@ pub struct WireFacts {
     pub numbers: BTreeMap<String, u16>,
 }
 
+/// One version of a package, for [`WireFacts::of`]: its schemas, its own
+/// frozen config (its `wire` defaults; empty for none), and the encoding
+/// declarations it sees ([`Encodings`]: its own and its dependencies', as
+/// `comline_core::inspect` sees them).
+pub type Version<'a> = (&'a [Vec<FrozenUnit>], &'a [ConfigUnit], &'a Encodings<'a>);
+
 impl WireFacts {
-    /// The facts of both versions of a package: each version's schemas and
-    /// frozen config (its `wire` defaults; empty for none). Each protocol's
-    /// framing is its frozen `@framing`, else the package's, else core's;
-    /// its format the package's, else its framing's default (as
-    /// `comline_core::inspect` resolves them). A package with no protocol
-    /// has its default format and framing in play. Facts come from the
-    /// official profiles; any other encoding reads as the strictest.
-    pub fn of(
-        old: (&[Vec<FrozenUnit>], &[ConfigUnit]),
-        new: (&[Vec<FrozenUnit>], &[ConfigUnit]),
-    ) -> Self {
+    /// The facts of both versions of a package. Each protocol's framing is
+    /// its frozen `@framing`, else the package's, else core's; its format
+    /// the package's, else its framing's default (as `comline_core::inspect`
+    /// resolves them). A package with no protocol has its default format and
+    /// framing in play. Facts come from the official profiles; any other
+    /// encoding reads as the strictest.
+    ///
+    /// A framing that no official profile and none of the declarations seen
+    /// states, in encodings that aren't [`complete`](Encodings::complete),
+    /// leaves the format unknown, which is the strictest too: a dependency
+    /// whose config wasn't kept may be the one declaring it, and what it
+    /// writes can't be assumed.
+    pub fn of(old: Version<'_>, new: Version<'_>) -> Self {
         let mut formats: Vec<Option<&Profile>> = vec![];
         let mut framings: Vec<Option<&Profile>> = vec![];
         let mut calls: BTreeMap<String, Vec<Option<&Profile>>> = BTreeMap::new();
-        for (schemas, config) in [old, new] {
+        for (schemas, config, encodings) in [old, new] {
             let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
             let mut any = false;
             for units in schemas {
@@ -429,9 +437,8 @@ impl WireFacts {
                         .or(wire_framing)
                         .unwrap_or(IMPLICIT_FRAMING);
                     let framing_profile = official::profile(EncodingKind::Framing, framing);
-                    let encodings = Encodings { declared: config.iter().collect(), ..Default::default() };
-                    let format = wire_format.unwrap_or_else(|| default_format(framing, &encodings));
-                    formats.push(official::profile(EncodingKind::Format, format));
+                    let format = wire_format.or_else(|| default_format_known(framing, encodings));
+                    formats.push(format.and_then(|f| official::profile(EncodingKind::Format, f)));
                     framings.push(framing_profile);
                     calls.entry(protocol_key(namespace, name)).or_default().push(framing_profile);
                 }
@@ -813,7 +820,10 @@ pub fn analyze_package_changes(
     old_schemas: &[Vec<FrozenUnit>],
     new_schemas: &[Vec<FrozenUnit>],
 ) -> SchemaChanges {
-    let facts = WireFacts::of((old_schemas, &[]), (new_schemas, &[]));
+    // No config to read: the encodings are the ones the protocols name, and
+    // what a framing nothing here declares writes isn't known.
+    let unseen = Encodings::default();
+    let facts = WireFacts::of((old_schemas, &[], &unseen), (new_schemas, &[], &unseen));
     analyze_package_changes_with(old_schemas, new_schemas, &facts)
 }
 
@@ -896,9 +906,10 @@ pub fn analyze_schema_changes(
     old_schema: &[FrozenUnit],
     new_schema: &[FrozenUnit],
 ) -> SchemaChanges {
+    let unseen = Encodings::default();
     let facts = WireFacts::of(
-        (std::slice::from_ref(&old_schema.to_vec()), &[]),
-        (std::slice::from_ref(&new_schema.to_vec()), &[]),
+        (std::slice::from_ref(&old_schema.to_vec()), &[], &unseen),
+        (std::slice::from_ref(&new_schema.to_vec()), &[], &unseen),
     );
     let context = Context {
         old: Side::of(&[old_schema]),

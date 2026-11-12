@@ -54,7 +54,7 @@ use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
 use crate::schema::idl::module_docs::module_docs;
 use crate::schema::ir::diff::{
     analyze_package_changes_with, reached_by, within_reach, BreakingChange, Modification,
-    NewFeature, WireFacts,
+    NewFeature, Version, WireFacts,
 };
 use crate::schema::ir::snippet;
 use crate::schema::ir::frozen::types::TypeRef;
@@ -410,20 +410,28 @@ impl<C> ChangelogEntry<C> {
 /// What changed between two versions of a package, each given as its frozen
 /// schemas (a commit's, loaded with
 /// [`crate::schema::ir::frozen::cas::blob::load_schema_from_tree`], or a
-/// compiled context's, [`frozen_schemas`]) and its frozen config (a commit's,
-/// or [`frozen_config`]). `from` and `to` label them.
+/// compiled context's, [`frozen_schemas`]), its frozen config (a commit's,
+/// or [`frozen_config`]) and the encodings it sees (a commit's configs,
+/// [`StoredConfigs::encodings`](crate::package::config::ir::frozen::cas::blob::StoredConfigs::encodings),
+/// or a compiled context's,
+/// [`Encodings::of`](crate::schema::ir::unverified::Encodings::of)). `from` and `to` label them.
 ///
 /// The config's `wire` decides which format-dependent rules apply, as
 /// `comline diff` applies them: under `json@1` an optional field added is a
 /// feature, under core's default format a break. An empty config means
-/// core's defaults.
+/// core's defaults. Where the package sets no `wire.format`, its framing
+/// decides, and a framing a dependency declares is read from the encodings
+/// (as `comline inspect` reads it): ones that aren't
+/// [complete](crate::schema::ir::unverified::Encodings::complete) leave what a framing they don't hold
+/// writes unknown, which is the strictest reading.
 pub fn changelog(
     from: &str,
-    (old_schemas, old_config): (&[Vec<FrozenUnit>], &[ConfigUnit]),
+    old: Version<'_>,
     to: &str,
-    (new_schemas, new_config): (&[Vec<FrozenUnit>], &[ConfigUnit]),
+    new: Version<'_>,
 ) -> Changelog {
-    let facts = WireFacts::of((old_schemas, old_config), (new_schemas, new_config));
+    let (old_schemas, new_schemas) = (old.0, new.0);
+    let facts = WireFacts::of(old, new);
     let changes = analyze_package_changes_with(old_schemas, new_schemas, &facts);
     Changelog {
         from: from.to_string(),
@@ -1320,6 +1328,7 @@ fn annotations(parameters: &[FrozenUnit]) -> Vec<Annotation> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::schema::ir::unverified::Encodings;
     use std::path::{Path, PathBuf};
 
     const CONFIG: &str = "//! A small package for testing the documentation model.\n\
@@ -1597,9 +1606,9 @@ mod tests {
 
         let log = changelog(
             "0.1.0",
-            (&frozen_schemas(&old), &frozen_config(&old)),
+            (&frozen_schemas(&old), &frozen_config(&old), &Encodings::of(&old)),
             "0.2.0",
-            (&frozen_schemas(&new), &frozen_config(&new)),
+            (&frozen_schemas(&new), &frozen_config(&new), &Encodings::of(&new)),
         );
         assert_eq!((log.from.as_str(), log.to.as_str()), ("0.1.0", "0.2.0"));
         // Under core's default format (`packed@1`: fields by position, an
@@ -1669,9 +1678,9 @@ mod tests {
         );
         let log = changelog(
             "0.1.0",
-            (&frozen_schemas(&old), &frozen_config(&old)),
+            (&frozen_schemas(&old), &frozen_config(&old), &Encodings::of(&old)),
             "0.2.0",
-            (&frozen_schemas(&new), &frozen_config(&new)),
+            (&frozen_schemas(&new), &frozen_config(&new), &Encodings::of(&new)),
         );
         assert!(log.breaking.is_empty(), "{:?}", log.breaking);
         assert!(
@@ -1687,9 +1696,9 @@ mod tests {
         // Without the config, core's default format makes it a break.
         let defaults = changelog(
             "0.1.0",
-            (&frozen_schemas(&old), &[]),
+            (&frozen_schemas(&old), &[], &Encodings::default()),
             "0.2.0",
-            (&frozen_schemas(&new), &[]),
+            (&frozen_schemas(&new), &[], &Encodings::default()),
         );
         assert!(defaults
             .breaking
@@ -1789,9 +1798,9 @@ mod tests {
         let new = crate::package::build::compile_package(&dir).unwrap();
         let log = changelog(
             "0.1.0",
-            (&frozen_schemas(&old), &frozen_config(&old)),
+            (&frozen_schemas(&old), &frozen_config(&old), &Encodings::of(&old)),
             "0.2.0",
-            (&frozen_schemas(&new), &frozen_config(&new)),
+            (&frozen_schemas(&new), &frozen_config(&new), &Encodings::of(&new)),
         );
         let all: Vec<(String, Option<String>, Option<String>)> = log
             .breaking

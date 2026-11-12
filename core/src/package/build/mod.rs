@@ -250,6 +250,7 @@ pub fn build_with(
         schema_changes: build_info.schema_changes,
         dependency_changes: build_info.dependency_changes,
         config_changes: build_info.config_changes,
+        unseen: build_info.unseen,
         version_bump: build_info.version_bump,
         release_bump: build_info.release_bump,
         last_release: build_info.last_release,
@@ -500,6 +501,11 @@ pub struct BuildResult {
     pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     /// Detected congregation changes that moved the version (empty if none / initial build)
     pub config_changes: crate::package::config::ir::diff::ConfigChanges,
+    /// Configs the comparison against the build before couldn't see: a
+    /// version stored before dependencies' configs were kept holds none, so
+    /// whether what they declare changed is unknown (empty if none / initial
+    /// build). It's already in `version_bump`, at least a patch.
+    pub unseen: Vec<crate::package::build::cas::build::UnseenConfig>,
     /// The bump this build's own changes call for, against the build before
     pub version_bump: VersionBump,
     /// The bump everything since the last release calls for: what

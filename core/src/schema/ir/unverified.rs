@@ -90,25 +90,42 @@ pub struct Encodings<'a> {
 }
 
 impl<'a> Encodings<'a> {
+    /// What the frozen configs say: `own`'s declarations and wire, and the
+    /// declarations of `dependencies`' (each one's whole frozen config).
+    /// `complete` is whether those are every config the package has: pass
+    /// `false` where one couldn't be had (a stored version that didn't keep
+    /// it, core#251), and a name that isn't found reads as unknown, never as
+    /// undeclared. `framing` is `own`'s `wire.framing` as written, `None`
+    /// where it states none.
+    pub fn from_config(
+        own: &'a [ConfigUnit],
+        dependencies: impl IntoIterator<Item = &'a [ConfigUnit]>,
+        complete: bool,
+    ) -> Self {
+        let (format, framing) = crate::package::config::ir::frozen::wire(own);
+        Encodings {
+            declared: own.iter().chain(dependencies.into_iter().flatten()).collect(),
+            format,
+            framing,
+            complete,
+        }
+    }
+
     /// What a package's context sees: its config's declarations and wire,
     /// and its dependencies' declarations.
     #[cfg(feature = "compiler")]
     pub fn of(context: &'a crate::package::config::ir::context::ProjectContext) -> Self {
         let own = context.config_frozen.as_deref().unwrap_or(&[]);
-        let dependencies = context.dependency_configs.iter().flat_map(|(_, units)| units);
-        let (format, framing) = crate::package::config::ir::frozen::wire(own);
-        Encodings {
-            declared: own.iter().chain(dependencies).collect(),
-            format,
-            // What the package compiles to: core's default where it states none.
-            framing: Some(framing.unwrap_or(DEFAULT_FRAMING)),
-            complete: true,
-        }
+        let dependencies = context.dependency_configs.iter().map(|(_, units)| units.as_slice());
+        let mut encodings = Self::from_config(own, dependencies, true);
+        // What the package compiles to: core's default where it states none.
+        encodings.framing = Some(encodings.framing.unwrap_or(DEFAULT_FRAMING));
+        encodings
     }
 
     /// The declaration of `name` as a `kind`: the package's, a
     /// dependency's, or an official one.
-    fn find(&self, kind: EncodingKind, name: &str) -> Option<&'a ConfigUnit> {
+    pub fn find(&self, kind: EncodingKind, name: &str) -> Option<&'a ConfigUnit> {
         let declares = |unit: &&ConfigUnit| {
             matches!(unit, ConfigUnit::Encoding { name: n, kind: k, .. } if n == name && *k == kind)
         };
@@ -172,6 +189,16 @@ pub fn default_format(name: &str, encodings: &Encodings) -> &'static str {
         Some("json") => FORMAT_JSON,
         _ => DEFAULT_FORMAT,
     }
+}
+
+/// [`default_format`], or `None` where it can't be told: the framing `name`
+/// isn't one of the official ones and these encodings don't hold its
+/// declaration, and they aren't complete, so a declaration that writes JSON
+/// may be where they can't see it.
+pub fn default_format_known(name: &str, encodings: &Encodings) -> Option<&'static str> {
+    let known = official::profile(EncodingKind::Framing, name).is_some()
+        || encodings.find(EncodingKind::Framing, name).is_some();
+    (known || encodings.complete).then(|| default_format(name, encodings))
 }
 
 /// The framing, the grammar it writes payloads into and the format of a

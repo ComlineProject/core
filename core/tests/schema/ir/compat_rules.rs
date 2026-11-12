@@ -10,6 +10,7 @@ use comline_core::schema::ir::diff::{
     WireFacts,
 };
 use comline_core::schema::ir::frozen::unit::FrozenUnit;
+use comline_core::schema::ir::unverified::Encodings;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Bump {
@@ -60,7 +61,8 @@ fn under(facts: &WireFacts, old: &str, new: &str) -> SchemaChanges {
 /// What `json@1` with `jsonrpc@1` states, from their profiles.
 fn json() -> WireFacts {
     let jsonrpc = units("@framing = \"jsonrpc\"\nprotocol P {\n    function f();\n}\n");
-    WireFacts::of((std::slice::from_ref(&jsonrpc), &[]), (std::slice::from_ref(&jsonrpc), &[]))
+    let seen = Encodings::default();
+    WireFacts::of((std::slice::from_ref(&jsonrpc), &[], &seen), (std::slice::from_ref(&jsonrpc), &[], &seen))
 }
 
 fn check(rows: &[(&str, SchemaChanges, Bump, &str)]) {
@@ -79,7 +81,8 @@ const BOUNDS: &str = "validator Bounds for string {\n    max: u32 = 10\n    vali
 
 #[test]
 fn the_profiles_give_the_facts() {
-    let default = WireFacts::of((&[units("")], &[]), (&[units("")], &[]));
+    let seen = Encodings::default();
+    let default = WireFacts::of((&[units("")], &[], &seen), (&[units("")], &[], &seen));
     assert_eq!(default, WireFacts::default(), "packed@1 is the strictest");
     let json = json();
     assert!(json.fields_by_name && json.optional_fields_tolerated && json.variants_by_name);
@@ -87,7 +90,7 @@ fn the_profiles_give_the_facts() {
     assert_eq!(json.calls_stable.get("pkg::api::P"), Some(&true));
     // A framing with no profile core can read is the strictest.
     let unknown = units("@framing = \"com.acme.frames@1\"\nprotocol P {\n    function f();\n}\n");
-    let facts = WireFacts::of((std::slice::from_ref(&unknown), &[]), (std::slice::from_ref(&unknown), &[]));
+    let facts = WireFacts::of((std::slice::from_ref(&unknown), &[], &seen), (std::slice::from_ref(&unknown), &[], &seen));
     assert_eq!(facts.calls_stable.get("pkg::api::P"), Some(&false));
 }
 
@@ -111,7 +114,8 @@ fn a_declared_framing_with_a_grammar_gets_that_grammars_format() {
         }]
     };
     let facts = |config: &[ConfigUnit]| {
-        WireFacts::of((std::slice::from_ref(&lines), config), (std::slice::from_ref(&lines), config))
+        let seen = Encodings::from_config(config, [], true);
+        WireFacts::of((std::slice::from_ref(&lines), config, &seen), (std::slice::from_ref(&lines), config, &seen))
     };
     assert!(facts(&declared(Some("json"))).fields_by_name, "under json@1");
     assert!(!facts(&declared(None)).fields_by_name, "under packed@1");

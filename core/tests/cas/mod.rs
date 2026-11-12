@@ -12,6 +12,8 @@ pub mod schema_ir_hash_tests;
 pub mod ir_roundtrip_tests;
 #[cfg(feature = "deps")]
 pub mod dependency_vendoring_tests;
+#[cfg(feature = "deps")]
+pub mod dependency_configs_tests;
 pub mod release_tests;
 pub mod compat_tests;
 pub mod reconcile_tests;

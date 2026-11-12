@@ -29,7 +29,12 @@ use std::path::{Path, PathBuf};
 ///
 /// Additions that needed no bump: the root tree's `docs` blob (the `//!`
 /// headers, `crate::doc::FrozenDocs`, core#145) is a new entry that older
-/// readers skip and newer ones treat as absent on older versions.
+/// readers skip and newer ones treat as absent on older versions. So are a
+/// vendored dependency's `config` and `dependency_configs` blobs, in its
+/// `dep_<name>` tree (core#251): a tree without them reads as having not
+/// kept the dependency's config
+/// ([`StoredConfigs`](crate::package::config::ir::frozen::cas::blob::StoredConfigs)),
+/// and bumping this would have wiped every store's history to say so.
 pub const CURRENT_IR_FORMAT_VERSION: u32 = 3;
 
 fn format_version_path(project_root: &Path) -> PathBuf {
