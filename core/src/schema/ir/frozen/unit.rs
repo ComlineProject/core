@@ -25,8 +25,8 @@ pub type FrozenContextWhole = (SchemaContext, Vec<FrozenUnit>);
 /// the whole decode rather than skipping it. That case needs
 /// `package::build::cas::object_store::CURRENT_IR_FORMAT_VERSION` bumped by
 /// hand, same as *renaming* or *removing* an existing field - the bump makes
-/// any `.comline/` built under the old shape get wiped and rebuilt instead of
-/// misread.
+/// any `.comline/` built under the old shape get refused (and left as it
+/// is) instead of misread.
 #[derive(Deserialize, Serialize)]
 #[derive(Debug, Eq, PartialEq, Clone)]
 pub enum FrozenUnit {

@@ -11,7 +11,7 @@ use std::path::Path;
 
 // Crate Uses
 use super::build::{compare, last_release, Comparison};
-use super::object_store::ObjectStore;
+use super::object_store::{ensure_compatible_store, ObjectStore};
 use super::objects::{Commit, Release, Tree};
 use super::refs::{main_ref, read_ref, ref_exists, update_ref};
 use super::version::{next_release, VersionBump};
@@ -46,6 +46,7 @@ pub struct ReleaseInfo {
 
 /// The latest release in the package's history, if any.
 pub fn latest_release(project_path: &Path) -> Result<Option<Commit>> {
+    ensure_compatible_store(project_path)?;
     if !ref_exists(project_path, main_ref()) {
         return Ok(None);
     }
@@ -62,6 +63,7 @@ pub fn release(project_path: &Path, request: &ReleaseRequest) -> Result<ReleaseI
     if request.raise.is_some() && request.stable {
         bail!("a release to 1.0.0 can't also raise the bump: 1.0.0 is the version it makes");
     }
+    ensure_compatible_store(project_path)?;
     if !ref_exists(project_path, main_ref()) {
         bail!("nothing built yet: run `comline build` first");
     }

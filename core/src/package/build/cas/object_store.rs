@@ -14,9 +14,11 @@ use std::path::{Path, PathBuf};
 /// reordering `FrozenUnit` needs no bump here - only *renaming* or
 /// *removing* an existing field/variant does, since that's the one case a
 /// self-describing format can't absorb for free. Bump this by hand when you
-/// do one of those; [`ensure_compatible_store`] then wipes any `.comline/`
+/// do one of those; [`ensure_compatible_store`] then refuses any `.comline/`
 /// stamped with a different value instead of trying (and likely failing,
-/// or in the worst case silently misreading) to decode it.
+/// or in the worst case silently misreading) to decode it. It refuses and
+/// changes nothing: no store is deleted, moved or rewritten to change its
+/// format (core#268, `docs/proposals/ir-migrations`).
 ///
 /// History:
 /// - 1: CBOR, replacing bincode's position-based encoding.
@@ -34,41 +36,140 @@ use std::path::{Path, PathBuf};
 /// `dep_<name>` tree (core#251): a tree without them reads as having not
 /// kept the dependency's config
 /// ([`StoredConfigs`](crate::package::config::ir::frozen::cas::blob::StoredConfigs)),
-/// and bumping this would have wiped every store's history to say so.
+/// and bumping this would have refused every older store to say so.
 pub const CURRENT_IR_FORMAT_VERSION: u32 = 3;
 
 fn format_version_path(project_root: &Path) -> PathBuf {
     project_root.join(".comline/FORMAT_VERSION")
 }
 
-/// Call before trusting anything already in `.comline/` (i.e. before
-/// deciding whether a previous commit exists to diff against). A missing
-/// or mismatched stamp - including every `.comline/` that predates this
-/// stamp existing at all - means the store's content can't be trusted, so
-/// it's wiped wholesale rather than partially trusted. This doesn't
-/// conflict with the CAS's own "objects are never deleted" design
-/// philosophy (see `cas/mod.rs`) - that's about normal operation within one
-/// format; content in an incompatible format was never buildable to begin
-/// with, so there's nothing of value to preserve.
-pub fn ensure_compatible_store(project_root: &Path) -> Result<()> {
+/// What [`ensure_compatible_store`] found, when the store can be used.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StoreState {
+    /// No `.comline/`, or one with no history in it yet (a dependency's
+    /// `deps-cache/` is fetched into `.comline/` before anything is built):
+    /// the next build is the first and stamps it.
+    Fresh,
+    /// Stamped with [`CURRENT_IR_FORMAT_VERSION`].
+    Current,
+}
+
+/// Why a `.comline/` can't be used as it is. **Nothing was changed** in any
+/// of these cases, and nothing in core changes it afterwards: the store is
+/// not deleted, moved or rewritten to change its format. Core is a library,
+/// so the caller decides how to show this: a CLI prints it, the language
+/// server makes it a diagnostic.
+///
+/// It is a `std::error::Error`, so it travels in an `eyre::Report` and is
+/// recovered with `downcast_ref::<StoreError>()`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum StoreError {
+    /// Stamped with an older format than this binary writes, and no
+    /// migration from it exists (there are no steps yet).
+    Older { found: u32 },
+    /// Stamped with a newer format than this binary reads: a newer comline
+    /// wrote it.
+    Newer { found: u32 },
+    /// A `.comline/` with history in it and no `FORMAT_VERSION`.
+    Unstamped,
+    /// `FORMAT_VERSION` exists and can't be read.
+    UnreadableStamp { reason: String },
+    /// `FORMAT_VERSION` doesn't hold a format number.
+    InvalidStamp { text: String },
+}
+
+/// `comline store reset` doesn't exist yet: step 1.3 of core#268 builds the
+/// engine and `comline store`. Until then the message says so and tells
+/// the user what to do by hand; 1.3 changes this one text.
+const RESET_HINT: &str = "To start a new history, `comline store reset` will move `.comline/` aside \
+     (to `.comline.format-<its format>.bak/`) and keep `deps-cache/`, but that command is not in this \
+     release yet: until it is, move `.comline/` aside yourself.";
+
+impl std::fmt::Display for StoreError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let current = CURRENT_IR_FORMAT_VERSION;
+        match self {
+            Self::Older { found } => write!(
+                f,
+                "the version history in `.comline/` is in IR format {found}, but this comline \
+                 reads and writes format {current}, and has no migration from format {found}. \
+                 Nothing was changed. To keep the history, use the comline that wrote it. \
+                 {RESET_HINT}"
+            ),
+            Self::Newer { found } => write!(
+                f,
+                "the version history in `.comline/` is in IR format {found}, which a newer \
+                 comline wrote; this comline reads and writes format {current}. Nothing was \
+                 changed and nothing will be: use a comline that reads format {found}."
+            ),
+            Self::Unstamped => write!(
+                f,
+                "`.comline/` holds a version history but no `FORMAT_VERSION` stamp, so its IR \
+                 format is unknown (it predates the stamp, or the file was lost). Nothing was \
+                 changed. {RESET_HINT}"
+            ),
+            Self::UnreadableStamp { reason } => write!(
+                f,
+                "`.comline/FORMAT_VERSION` can't be read ({reason}), so the IR format of the \
+                 version history is unknown. Nothing was changed. Restore the file, or: \
+                 {RESET_HINT}"
+            ),
+            Self::InvalidStamp { text } => write!(
+                f,
+                "`.comline/FORMAT_VERSION` holds {text:?}, which is not an IR format number, so \
+                 the format of the version history is unknown (the file may be damaged, or \
+                 written by a comline this one doesn't know). Nothing was changed. {RESET_HINT}"
+            ),
+        }
+    }
+}
+
+impl std::error::Error for StoreError {}
+
+/// Whether `dir` holds anything at all (a missing or unreadable one doesn't).
+fn has_entries(dir: &Path) -> bool {
+    fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
+}
+
+/// Classify the `.comline/` under `project_root` against
+/// [`CURRENT_IR_FORMAT_VERSION`]. **Read-only**: it never creates, moves,
+/// rewrites or deletes anything, in any outcome. Call it before trusting
+/// anything already in `.comline/` (before deciding whether a previous commit
+/// exists to diff against), and before writing to it.
+///
+/// - no `.comline/`, or an unstamped one with no history: [`StoreState::Fresh`]
+/// - the current stamp: [`StoreState::Current`]
+/// - an older stamp, a newer one, a missing stamp on a store with history, a
+///   stamp that can't be read or isn't a number: the matching [`StoreError`]
+///
+/// `deps-cache/` is not part of the store: a `.comline/` holding only it is
+/// fresh, and an error here never touches it.
+pub fn ensure_compatible_store(project_root: &Path) -> Result<StoreState, StoreError> {
     let comline_dir = project_root.join(".comline");
     if !comline_dir.exists() {
-        return Ok(()); // first build ever - nothing to check
+        return Ok(StoreState::Fresh); // first build ever - nothing to check
     }
 
-    let stored: Option<u32> = fs::read_to_string(format_version_path(project_root))
-        .ok()
-        .and_then(|s| s.trim().parse().ok());
+    let text = match fs::read_to_string(format_version_path(project_root)) {
+        Ok(text) => text,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let has_history =
+                has_entries(&comline_dir.join("refs")) || has_entries(&comline_dir.join("objects"));
+            return if has_history { Err(StoreError::Unstamped) } else { Ok(StoreState::Fresh) };
+        }
+        Err(e) => return Err(StoreError::UnreadableStamp { reason: e.to_string() }),
+    };
 
-    if stored != Some(CURRENT_IR_FORMAT_VERSION) {
-        tracing::warn!(
-            "`.comline/` predates or mismatches this build's IR format \
-             (found {stored:?}, need {CURRENT_IR_FORMAT_VERSION}) - rebuilding from scratch"
-        );
-        fs::remove_dir_all(&comline_dir)?;
+    let trimmed = text.trim();
+    let found = Some(trimmed)
+        .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|t| t.parse::<u32>().ok());
+    match found {
+        Some(found) if found == CURRENT_IR_FORMAT_VERSION => Ok(StoreState::Current),
+        Some(found) if found < CURRENT_IR_FORMAT_VERSION => Err(StoreError::Older { found }),
+        Some(found) => Err(StoreError::Newer { found }),
+        None => Err(StoreError::InvalidStamp { text: trimmed.chars().take(64).collect() }),
     }
-
-    Ok(())
 }
 
 /// Object store manages content-addressable storage
@@ -94,10 +195,17 @@ impl ObjectStore {
     }
 
     /// Initialize the store (create directories), stamping it with
-    /// [`CURRENT_IR_FORMAT_VERSION`] if this is the first time.
+    /// [`CURRENT_IR_FORMAT_VERSION`] if this is the first time. A store
+    /// [`ensure_compatible_store`] refuses is refused here too, before
+    /// anything is created: `init` never stamps a store whose format it
+    /// doesn't know as if it were current.
     pub fn init(&self) -> Result<()> {
         if self.scratch.is_some() {
             return Ok(());
+        }
+        let project_root = self.objects_dir.parent().and_then(Path::parent);
+        if let Some(root) = project_root {
+            ensure_compatible_store(root)?;
         }
         fs::create_dir_all(&self.objects_dir)?;
         let Some(comline_dir) = self.objects_dir.parent() else {

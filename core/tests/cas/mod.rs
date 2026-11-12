@@ -17,3 +17,4 @@ pub mod dependency_configs_tests;
 pub mod release_tests;
 pub mod compat_tests;
 pub mod reconcile_tests;
+pub mod store_never_wiped_tests;
