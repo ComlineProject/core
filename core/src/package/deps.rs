@@ -38,8 +38,9 @@ pub struct ResolvedDependency {
     /// the consuming project's or vendored into its CAS tree.
     pub context: ProjectContext,
     /// blake3 hash over the dependency's frozen schema content (all schema
-    /// contexts, in order) — stable across incidental source formatting.
-    /// Compared against `DependencyConfig::declared_hash()` when the author
+    /// contexts, in order) and its frozen config (`wire`, declared encodings,
+    /// `unverified`, `settings`, ...) — stable across incidental source formatting, and the same
+    /// wherever the dependency sits. Compared against `DependencyConfig::declared_hash()` when the author
     /// wrote one; always computed and recorded either way so drift is
     /// detectable on a later build even without a declared hash.
     pub content_hash: Hash,
@@ -133,12 +134,7 @@ pub(crate) fn resolve_with(
         Some(declared) => {
             let computed = format!("blake3:{}", content_hash.to_hex());
             if declared != computed {
-                bail!(
-                    "dependency '{}': hash mismatch — declared {declared}, resolved to {computed}. \
-                     Either the source changed without updating the pin, or something tampered \
-                     with it.",
-                    dep.name
-                );
+                bail!("{}", mismatch_message(&dep.name, declared, &computed, &context));
             }
         }
         None => {
@@ -317,10 +313,92 @@ fn resolved_version(package_path: &Path) -> String {
     .unwrap_or_else(|_| "0.0.0-unbuilt".to_string())
 }
 
-/// blake3 hash over every schema context's frozen units, concatenated in
-/// order. Mirrors the shape that becomes the dependency's vendored CAS
-/// subtree, so this hash and that tree's content agree by construction.
+/// Names the scheme [`hash_frozen_content`] hashes under, and starts its
+/// input. A pin is a bare `blake3:<hex>`, so the scheme can't be read off
+/// one; the tag is what keeps two schemes from ever producing the same hash
+/// for the same content. Changing what is hashed, or how, means a new tag.
+const CONTENT_HASH_SCHEME: &str = "comline-dep-content-v2";
+
+/// The dependency's content hash: blake3 over [`CONTENT_HASH_SCHEME`] and two
+/// sections, each length-prefixed so the parts can't run into each other.
+///
+/// - **schemas:** every schema context's frozen units, in order, as CBOR.
+///   Mirrors the shape that becomes the dependency's vendored CAS subtree.
+/// - **config:** the dependency's frozen `config.idp` (`config_frozen`), one
+///   CBOR value per unit, sorted by those bytes, so the order the keys are
+///   written in doesn't matter. This is what the consumer reads beside the
+///   schemas: `wire`, the declared encodings (each with its `profile_hash`
+///   and `has_vectors`), `unverified`, the default `handshake`, `settings`,
+///   `id` and the edition. See [`covered_by_pin`] for what is left out.
+///
+/// Both are the frozen form, not source text: no spans, paths or comments
+/// reach the hash, and every map in it is ordered, so it is the same on
+/// every platform and wherever the dependency sits.
 fn hash_frozen_content(context: &ProjectContext) -> Result<Hash> {
+    let mut input = Vec::new();
+    input.extend_from_slice(CONTENT_HASH_SCHEME.as_bytes());
+    input.push(0);
+    push_section(&mut input, "schemas", &[schema_units_cbor(context)?]);
+
+    let mut config = context
+        .config_frozen
+        .iter()
+        .flatten()
+        .filter(|unit| covered_by_pin(unit))
+        .map(to_cbor)
+        .collect::<Result<Vec<_>>>()?;
+    config.sort();
+    push_section(&mut input, "config", &config);
+
+    Ok(Hash::from_bytes(&input))
+}
+
+/// Whether a frozen config unit is part of what a pin covers: all of them
+/// but two, each left out on purpose.
+///
+/// - `PublishRegistry` says where the package publishes to, not what it
+///   guarantees; moving a registry is no new version.
+/// - `Dependency` names the dependency's own dependencies. Each of those is
+///   pinned by its own `hash` where this dependency declares it, and checked
+///   when this one is resolved; their schemas are in the schema section.
+///
+/// `Settings` stay in: they set the dependency's default bounds and the
+/// annotations it allows, so a change is a change to what it declares even
+/// where no frozen unit moves yet. No wildcard arm: a new kind of unit has
+/// to be decided here.
+fn covered_by_pin(unit: &crate::package::config::ir::frozen::FrozenUnit) -> bool {
+    use crate::package::config::ir::frozen::FrozenUnit as Config;
+    match unit {
+        Config::PublishRegistry(_) | Config::Dependency(_) => false,
+        Config::Namespace(_)
+        | Config::PackageId(_)
+        | Config::SpecificationVersion(_)
+        | Config::PackageVersion(_)
+        | Config::SchemaPath(_)
+        | Config::CodeGeneration(_)
+        | Config::Settings(_)
+        | Config::Handshake(_)
+        | Config::HandshakeParams(_)
+        | Config::Wire { .. }
+        | Config::Encoding { .. }
+        | Config::Unverified(_) => true,
+    }
+}
+
+/// A section's name and parts, each with its length (8 bytes, little-endian).
+fn push_section(input: &mut Vec<u8>, name: &str, parts: &[Vec<u8>]) {
+    let len = |n: usize| (n as u64).to_le_bytes();
+    input.extend_from_slice(&len(name.len()));
+    input.extend_from_slice(name.as_bytes());
+    input.extend_from_slice(&len(parts.len()));
+    for part in parts {
+        input.extend_from_slice(&len(part.len()));
+        input.extend_from_slice(part);
+    }
+}
+
+/// Every schema context's frozen units, as CBOR.
+fn schema_units_cbor(context: &ProjectContext) -> Result<Vec<u8>> {
     let mut all_units = Vec::new();
     for schema_ctx in &context.schema_contexts {
         let schema_ref = schema_ctx.borrow();
@@ -329,9 +407,48 @@ fn hash_frozen_content(context: &ProjectContext) -> Result<Hash> {
             all_units.push(units.clone());
         }
     }
+    to_cbor(&all_units)
+}
 
-    let bytes = to_cbor(&all_units)?;
-    Ok(Hash::from_bytes(&bytes))
+/// What a pin was made of before [`CONTENT_HASH_SCHEME`]: the schemas alone.
+/// Kept to recognise such a pin (see [`mismatch_message`]), never to accept
+/// one.
+fn hash_frozen_content_v1(context: &ProjectContext) -> Result<Hash> {
+    Ok(Hash::from_bytes(&schema_units_cbor(context)?))
+}
+
+/// What a hash mismatch says. A pin that equals the schemas-only hash of
+/// what was resolved was made by a comline before pins covered config
+/// (core#252): the schemas haven't changed, and the pin was never checking
+/// the rest. It's told so, and how to re-pin, rather than "tampered".
+/// A pin older than that and for a dependency that has changed since can't be
+/// told from any other wrong pin, and gets the plain mismatch.
+fn mismatch_message(
+    name: &str,
+    declared: &str,
+    computed: &str,
+    context: &ProjectContext,
+) -> String {
+    let older = hash_frozen_content_v1(context)
+        .map(|old| declared == format!("blake3:{}", old.to_hex()))
+        .unwrap_or(false);
+    if older {
+        format!(
+            "dependency '{name}': this pin was made by an older comline. Pins now also cover the \
+             dependency's config (its `wire`, declared encodings, `unverified` and `settings`), \
+             which the old ones left unchecked; its schemas are the ones that were pinned. \
+             Review its config.idp, then re-pin: in the `{name}` entry of your config.idp, set \
+             hash = \"{computed}\""
+        )
+    } else {
+        format!(
+            "dependency '{name}': hash mismatch — declared {declared}, resolved to {computed}. \
+             Either the source changed without updating the pin, or something tampered with it. \
+             (A pin made before pins covered the dependency's config is re-pinned the same \
+             way: review what changed, then set hash = \"{computed}\" in the `{name}` entry \
+             of your config.idp.)"
+        )
+    }
 }
 
 /// Fetch (or reuse a cached checkout of) a git dependency at its pinned
@@ -1282,6 +1399,55 @@ mod tests {
             Ok(_) => panic!("a wrong pin must fail the build, not silently pass"),
         };
         assert!(err.to_string().contains("hash mismatch"), "got: {err}");
+    }
+
+    /// The hole core#252 closed: what the pin used to hash (the schemas)
+    /// doesn't move when the config does, and what it hashes now does.
+    #[test]
+    fn config_moves_the_content_hash_though_it_left_the_schemas_alone() {
+        let profile = r#"{ "name": "com.acme.lines@1", "kind": "framing", "facts": {
+            "calls": { "value": "by_name", "proven_by": [] },
+            "directions": { "value": "both", "proven_by": [] },
+            "errors": { "value": "by_name", "proven_by": [] },
+            "payload": { "value": "opaque", "proven_by": [] }
+        } }"#;
+        let hashes = |wire: &str, unverified: &str, vectors: bool| {
+            let tmp = tempfile::tempdir().unwrap();
+            let dir = tmp.path();
+            std::fs::create_dir_all(dir.join("src")).unwrap();
+            std::fs::create_dir_all(dir.join("profiles")).unwrap();
+            std::fs::write(
+                dir.join("config.idp"),
+                format!(
+                    "congregation acme\nspecification_version = 1\n\
+                     settings = {{ annotations = {{ framing = {{ allowed = true }} unverified = {{ allowed = true }} }} }}\n\
+                     encodings = {{ \"com.acme.lines@1\" = {{ kind = \"framing\" profile = \"profiles/lines.json\" }} }}\n\
+                     wire = {{ format = \"{wire}\" }}\n{unverified}"
+                ),
+            )
+            .unwrap();
+            std::fs::write(dir.join("src/api.ids"), "struct Thing {\n    id: u64\n}\n").unwrap();
+            std::fs::write(dir.join("profiles/lines.json"), profile).unwrap();
+            if vectors {
+                std::fs::write(dir.join("profiles/lines.vectors.json"), "[]").unwrap();
+            }
+            let context = crate::package::build::compile_package(dir).unwrap();
+            (
+                hash_frozen_content_v1(&context).unwrap().to_hex(),
+                hash_frozen_content(&context).unwrap().to_hex(),
+            )
+        };
+
+        let base = hashes("json@1", "", false);
+        for (what, changed) in [
+            ("wire.format", hashes("msgpack@1", "", false)),
+            ("unverified", hashes("json@1", "unverified = \"a reason\"\n", false)),
+            ("vectors", hashes("json@1", "", true)),
+        ] {
+            assert_eq!(changed.0, base.0, "{what}: the schemas didn't change");
+            assert_ne!(changed.1, base.1, "{what}: the content hash has to");
+        }
+        assert_ne!(base.0, base.1, "the schemes can't produce the same hash");
     }
 
     #[test]
