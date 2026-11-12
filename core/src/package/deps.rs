@@ -470,6 +470,14 @@ fn mismatch_message(
 /// the next attempt to mistake for a finished checkout. A checkout in the
 /// cache that is *not* at the pinned commit (one an earlier version left
 /// half-made) is thrown away and fetched again rather than reused.
+///
+/// A checkout is reused only if it is also *clean* (see [`is_clean`]): the
+/// commit pins what the dependency is, but not what is on disk in the cache,
+/// and what gets compiled is the files. One that was edited, or has files
+/// added to it, is thrown away the same way and fetched again, and the log
+/// says so. Not repaired in place: it is the checkout's own `.git` that
+/// would do the repairing, and the cache is already managed by being deleted
+/// and fetched again.
 fn resolve_git(uri: &str, commit: &str, cache_dir: &Path) -> Result<PathBuf> {
     let checkout_path = git_checkout_dir(cache_dir, uri, commit);
 
@@ -477,9 +485,18 @@ fn resolve_git(uri: &str, commit: &str, cache_dir: &Path) -> Result<PathBuf> {
         // Already fetched for this exact uri+commit pin — reuse it. The pin
         // is the commit, which is immutable, so there is nothing to update.
         if is_checked_out_at(&checkout_path, commit) {
-            return Ok(checkout_path);
-        }
-        if !FETCHING.get() {
+            if is_clean(&checkout_path) {
+                return Ok(checkout_path);
+            }
+            if !FETCHING.get() {
+                bail!(
+                    "'{uri}' at {commit} has been changed in the dependency cache — run `comline check` to restore it"
+                );
+            }
+            tracing::warn!(
+                "the cached checkout of '{uri}' at {commit} had been changed; restoring it from the pinned commit"
+            );
+        } else if !FETCHING.get() {
             bail!("'{uri}' at {commit} isn't fetched correctly — run `comline check` to fetch it again");
         }
         remove_dir(&checkout_path)?;
@@ -544,6 +561,33 @@ fn is_checked_out_at(dir: &Path, commit: &str) -> bool {
     }
 }
 
+/// Whether the working tree at `dir` is exactly what `HEAD` has: nothing
+/// edited, nothing deleted, nothing added. Added includes what git is told to
+/// ignore (`--ignored`): a `.gitignore` in the dependency is the
+/// dependency's to write, so it can't be what decides which files in it are
+/// looked at. Nested git dependencies are the one exception: compiling a
+/// dependency fetches *its* git dependencies into its own
+/// `.comline/deps-cache`, and each of those is checked the same way when it
+/// is resolved.
+///
+/// Anything that goes wrong asking is "not clean".
+fn is_clean(dir: &Path) -> bool {
+    let nested = format!(":(exclude){DEPS_CACHE_DIR}");
+    git_output(
+        dir,
+        &[
+            "status",
+            "--porcelain",
+            "--untracked-files=all",
+            "--ignored",
+            "--",
+            ".",
+            &nested,
+        ],
+    )
+    .is_ok_and(|changes| changes.is_empty())
+}
+
 /// Remove `dir` and everything in it; a directory that isn't there is fine.
 fn remove_dir(dir: &Path) -> Result<()> {
     match std::fs::remove_dir_all(dir) {
@@ -564,9 +608,19 @@ fn run_git_allow_failure(dir: &Path, args: &[&str]) -> Result<()> {
 
 /// Run `git` with `args` in `dir`: its trimmed stdout, or an error carrying
 /// its stderr.
+///
+/// A checkout in the cache is somebody else's repository, and its
+/// `.git/config` is read by every command run in it. `core.fsmonitor` names a
+/// program git runs whenever it looks at the index (`status`, `reset`,
+/// `checkout`), so it is set off on the command line, which wins over the
+/// config. (Hooks are not a way in here: none of these commands runs one,
+/// and a fresh `git init` has none.) `GIT_OPTIONAL_LOCKS=0` keeps `status`
+/// from refreshing, and so writing, the index.
 fn git_output(dir: &Path, args: &[&str]) -> Result<String> {
     let output = std::process::Command::new("git")
+        .args(["-c", "core.fsmonitor=false", "-c", "core.ignoreStat=false"])
         .args(args)
+        .env("GIT_OPTIONAL_LOCKS", "0")
         .current_dir(dir)
         .output()
         .map_err(|e| {
