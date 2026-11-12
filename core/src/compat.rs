@@ -56,6 +56,7 @@ use std::path::Path;
 use crate::package::build::cas::build::{compare, last_release};
 use crate::package::build::cas::object_store::ObjectStore;
 use crate::package::build::cas::objects::{Blob, Commit, EntryMode, Tree};
+use crate::package::build::cas::object_store::ensure_compatible_store;
 use crate::package::build::cas::refs::{main_ref, read_ref, ref_exists};
 use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::ProjectContext;
@@ -732,6 +733,8 @@ impl Loaded {
 /// The facts of a built version: the latest build, or the version
 /// `version` (`0.3.0`, `0.4.0-dev.2`) in its history.
 pub fn facts(project_path: &Path, version: Option<&str>) -> Result<PackageFacts> {
+    // Read-only, and refuses a store in another format without touching it.
+    ensure_compatible_store(project_path)?;
     if !ref_exists(project_path, main_ref()) {
         bail!("nothing built yet: run `comline build` first");
     }
@@ -769,6 +772,7 @@ pub fn facts_of_working_tree(project_path: &Path, context: &ProjectContext) -> R
     use crate::package::build::cas::build::{first_version, next_build, working_tree, NextBuild};
     use crate::package::build::cas::reconcile::{plan, read_heads, Heads};
 
+    ensure_compatible_store(project_path)?;
     let store = ObjectStore::scratch(project_path);
     let tree = working_tree(project_path, context, &store)?;
     if !ref_exists(project_path, main_ref()) {

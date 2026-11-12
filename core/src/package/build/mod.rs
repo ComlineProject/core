@@ -227,12 +227,13 @@ pub fn build_with(
     package_path: &Path,
     check: impl FnOnce(&ProjectContext) -> Result<()>,
 ) -> Result<BuildResult> {
+    // A `.comline/` in another IR format is refused, not deleted or
+    // migrated: see `ensure_compatible_store`. First, so that nothing is
+    // fetched into or written under a store this build can't use.
+    cas::object_store::ensure_compatible_store(package_path)?;
+
     let latest_project = compile_package(package_path)?;
     check(&latest_project)?;
-
-    // Discard any `.comline/` left behind by a different IR format before
-    // trusting it for anything below - see `ensure_compatible_store`.
-    cas::object_store::ensure_compatible_store(package_path)?;
 
     // Use CAS for immutable version storage
     let build_info = if cas::refs::ref_exists(package_path, cas::refs::main_ref()) {
