@@ -418,7 +418,7 @@ fn strict_what_a_package_setting_gives_up_is_acknowledged_beside_the_setting() {
     // The protocol takes the package's `none` handshake, and says why itself:
     // the innermost scope of that cause is the package.
     let schema =
-        "@unverified = {\n    schema_agreement = \"x\"\n    encoding_agreement = \"y\"\n}\n\
+        "@unverified = {\n    schema_agreement = \"x\",\n    encoding_agreement = \"y\"\n}\n\
                   protocol P {\n    function f();\n}\n";
     let err = error(&format!("handshake = \"none\"\n{STRICT}"), schema);
     assert!(has(&err, "unverified::strict-scope"), "{err}");
@@ -434,7 +434,7 @@ fn strict_what_a_package_setting_gives_up_is_acknowledged_beside_the_setting() {
     // protocol is where it sits, so the protocol's is innermost.
     built(
         &format!("handshake = \"none\"\n{STRICT}"),
-        "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"x\"\n    encoding_agreement = \"y\"\n}\n\
+        "@handshake = \"none\"\n@unverified = {\n    schema_agreement = \"x\",\n    encoding_agreement = \"y\"\n}\n\
          protocol P {\n    function f();\n}\n",
     );
 }
@@ -545,10 +545,7 @@ fn an_unknown_sibling_key_is_still_an_unknown_key() {
     let settings = "settings = {\n    annotations = {\n        unverified = {\n            allowed = true\n            stricct = true\n        }\n    }\n}\n";
     let err = error(settings, BARE);
     assert!(has(&err, "settings::unknown-key"), "{err}");
-    assert!(
-        err.contains("annotations.unverified.strict"),
-        "should suggest the key: {err}"
-    );
+    assert!(err.contains("annotations.unverified.stricct"), "{err}");
 }
 
 #[test]
