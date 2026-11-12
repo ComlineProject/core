@@ -236,6 +236,11 @@ pub struct PathShape {
     pub group: &'static str,
     pub leaf: &'static str,
     pub name: NameKind,
+    /// The only names this shape takes, where it isn't any: a key that only
+    /// one annotation reads (`annotations.unverified.strict`) is no key of
+    /// another's, which would be accepted and never consulted. Empty means
+    /// any name of [`PathShape::name`]'s kind.
+    pub only: &'static [&'static str],
     /// Whether the name segment may be omitted, giving a coarser
     /// "anything in this group" form.
     ///
@@ -298,6 +303,7 @@ impl Shape {
 // Shape ids. Used instead of bare strings so a typo is a compile error.
 pub const MODE: &str = "mode";
 pub const ANNOTATIONS_ALLOWED: &str = "annotations.allowed";
+pub const ANNOTATIONS_STRICT: &str = "annotations.strict";
 pub const VALIDATORS_ALLOWED: &str = "validators.allowed";
 pub const DIAGNOSTICS_LEVEL: &str = "diagnostics.level";
 pub const BOUNDS_MAX: &str = "bounds.max";
@@ -353,6 +359,7 @@ pub const SHAPES: &[Shape] = &[
         group: "annotations",
         leaf: "allowed",
         name: NameKind::Name,
+        only: &[],
         // No coarse form: nothing ever resolves a bare
         // `annotations.allowed`, and offering one would promise a policy
         // that is never consulted.
@@ -375,10 +382,42 @@ pub const SHAPES: &[Shape] = &[
         },
     }),
     Shape::Path(PathShape {
+        id: ANNOTATIONS_STRICT,
+        group: "annotations",
+        leaf: "strict",
+        name: NameKind::Name,
+        // Only `@unverified` has a strict form. Another annotation's would be
+        // accepted here and never read, so the registry doesn't know it.
+        only: &["unverified"],
+        coarse: false,
+        // Resolved where `annotations.<name>.allowed` is, so it is set in the
+        // same places: the package, a schema's `settings`, a preset, or
+        // scoped to a declaration.
+        scoping: Scoping::DeclScopedThenGlobal,
+        value: ValueType::Bool,
+        malformed: DiagnosticCode::error("settings::malformed-value"),
+        doc: ShapeDoc {
+            summary: "whether `@unverified` has to be keyed, and at its innermost scope",
+            description: "Strict mode for `@unverified` (core#222). `true` requires the \
+                keyed form (`@unverified(bounded_size = \"...\")`, a plain reason is an \
+                error) and requires each acknowledgement at the innermost scope its \
+                guarantee allows on the path to its cause: a `bounded_size` marker on the \
+                argument, field or type that reaches the value without a maximum rather \
+                than on the function or protocol, and a guarantee a package setting gives \
+                up next to that setting in `config.idp`. `false` (the default) lets an \
+                outer marker cover what is inside it, and only suggests the narrower \
+                placement.",
+            coarse_summary: None,
+            coarse_description: None,
+            name_notes: &[],
+        },
+    }),
+    Shape::Path(PathShape {
         id: VALIDATORS_ALLOWED,
         group: "validators",
         leaf: "allowed",
         name: NameKind::Name,
+        only: &[],
         coarse: true,
         scoping: Scoping::DeclScopedThenGlobal,
         value: ValueType::Bool,
@@ -404,6 +443,7 @@ pub const SHAPES: &[Shape] = &[
         group: "bounds",
         leaf: "max",
         name: NameKind::Name,
+        only: &[],
         coarse: false,
         scoping: Scoping::DeclScopedThenGlobal,
         value: ValueType::Integer,
@@ -429,6 +469,7 @@ pub const SHAPES: &[Shape] = &[
         group: "diagnostics",
         leaf: "level",
         name: NameKind::CodeId,
+        only: &[],
         coarse: false,
         scoping: Scoping::GlobalOnly,
         value: ValueType::StrEnum(LEVELS),
@@ -468,6 +509,11 @@ pub fn bounds_max() -> &'static PathShape {
 /// The shape governing `@annotation` usage.
 pub fn annotations_allowed() -> &'static PathShape {
     path_shape(ANNOTATIONS_ALLOWED)
+}
+
+/// The shape of strict mode, `annotations.unverified.strict`.
+pub fn annotations_strict() -> &'static PathShape {
+    path_shape(ANNOTATIONS_STRICT)
 }
 
 /// The shape governing `@validators` entries.
@@ -532,6 +578,9 @@ impl PathShape {
     pub fn pattern(&self, coarse: bool) -> String {
         if coarse {
             format!("{}.{}", self.group, self.leaf)
+        } else if let [only] = self.only {
+            // One name, so nothing for the user to fill in.
+            format!("{}.{only}.{}", self.group, self.leaf)
         } else {
             format!("{}.{}.{}", self.group, self.name.placeholder(), self.leaf)
         }
@@ -607,7 +656,9 @@ fn match_path_shape<'a>(segments: &[&'a str]) -> Option<Match<'a>> {
                 continue;
             }
             match rest {
-                [group, name, leaf] if *group == p.group && *leaf == p.leaf => {
+                [group, name, leaf]
+                    if *group == p.group && *leaf == p.leaf && (p.only.is_empty() || p.only.contains(name)) =>
+                {
                     return Some(Match { shape, decl, name: Some(name) });
                 }
                 [group, leaf] if p.coarse && *group == p.group && *leaf == p.leaf => {
@@ -807,6 +858,7 @@ mod tests {
     fn every_shape_const_resolves() {
         // Guards the `panic!` in `path_shape`.
         assert_eq!(annotations_allowed().id, ANNOTATIONS_ALLOWED);
+        assert_eq!(annotations_strict().id, ANNOTATIONS_STRICT);
         assert_eq!(validators_allowed().id, VALIDATORS_ALLOWED);
         assert_eq!(diagnostics_level().id, DIAGNOSTICS_LEVEL);
         assert_eq!(mode().id, MODE);
@@ -917,6 +969,23 @@ mod tests {
     }
 
     #[test]
+    fn strict_is_a_key_of_unverified_only() {
+        let m = match_path(&segs("annotations.unverified.strict")).unwrap();
+        assert_eq!(m.shape.id(), ANNOTATIONS_STRICT);
+        assert_eq!(m.name, Some("unverified"));
+        let scoped = match_path(&segs("protocol.function.annotations.unverified.strict")).unwrap();
+        assert_eq!(scoped.decl, Some(DeclPath::ProtocolFunction));
+        // No other annotation reads one, so it is not a key of theirs.
+        assert!(match_path(&segs("annotations.framing.strict")).is_none());
+        assert!(match_path(&segs("annotations.strict")).is_none());
+        assert!(match_path(&segs("annotations.unverified.stricter")).is_none());
+        assert_eq!(
+            annotations_strict().candidates(DeclPath::StructField, "unverified"),
+            vec!["struct.field.annotations.unverified.strict", "annotations.unverified.strict"]
+        );
+    }
+
+    #[test]
     fn annotations_have_no_coarse_form() {
         // Deliberate asymmetry with validators, now expressed as data.
         assert!(match_path(&segs("annotations.allowed")).is_none());
@@ -996,7 +1065,7 @@ mod tests {
         // unfixable build break. That safety rests on every written key
         // having at most one parse. Enumerate every shape's concrete forms
         // at every scope and assert no two shapes can claim one key.
-        let names = ["x", "validators", "annotations", "struct", "field", "allowed", "mode"];
+        let names = ["x", "validators", "annotations", "struct", "field", "allowed", "mode", "unverified"];
         let mut seen: std::collections::HashMap<String, &'static str> = Default::default();
 
         for shape in SHAPES {
@@ -1008,6 +1077,9 @@ mod tests {
             };
             for scope in scopes {
                 for name in names {
+                    if !p.only.is_empty() && !p.only.contains(&name) {
+                        continue;
+                    }
                     let mut forms = vec![p.key(scope, Some(name))];
                     if p.coarse {
                         forms.push(p.key(scope, None));
