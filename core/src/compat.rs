@@ -31,6 +31,18 @@
 //!   A number whose item is gone is retired and never reused. `@id = N`
 //!   writes one out; see [`number_scope`].
 //!
+//! - **Encodings:** a protocol's format, framing and handshake are read from
+//!   the declarations the package sees, its own and its dependencies' (what
+//!   `inspect` reads), so a framing a dependency declares decides the
+//!   default format, and a profile it declares is in the encoding's
+//!   parameters (`profile`). A version stores each dependency's frozen
+//!   config in its `dep_<name>` tree for that (core#251). One stored before
+//!   that doesn't have them: they are **unseen**, not empty, so an encoding
+//!   it can't find is unknown (`profile = "unknown"`, see
+//!   [`EncodingFacts::is_unknown`]) and its format a guess, the rules read
+//!   the strictest facts, and a comparison against it lists what it
+//!   couldn't see (`Comparison::unseen`) and is at least a patch.
+//!
 //! They need history, so each build records them in its root tree, as a
 //! `facts` blob ([`FACTS_ENTRY`]) beside `config` and `docs`; a version
 //! built before that gets them computed when read. The hashes need only
@@ -48,12 +60,14 @@ use crate::package::build::cas::refs::{main_ref, read_ref, ref_exists};
 use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::ConfigChange;
+use crate::package::config::ir::frozen::cas::blob::StoredConfigs;
 use crate::package::config::ir::frozen::FrozenUnit as ConfigUnit;
 use crate::schema::ir::diff::{
     analyze_package_changes_with, concerns_protocol, protocol_reach, BreakingChange, WireFacts,
 };
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, FrozenUnit};
+use crate::schema::ir::unverified::Encodings;
 
 // External Uses
 use comline_catalog::fact;
@@ -296,7 +310,11 @@ pub fn history(
         .collect();
     let old_paths: BTreeSet<String> =
         old.protocols().into_iter().map(|d| protocol_path(d.namespace, d.name)).collect();
-    let mut facts = WireFacts::of((&old.own, &old.config), (&new.own, &new.config));
+    let (old_encodings, new_encodings) = (old.encodings(), new.encodings());
+    let mut facts = WireFacts::of(
+        (&old.own, &old.configs.own, &old_encodings),
+        (&new.own, &new.configs.own, &new_encodings),
+    );
     facts.numbers = number_map(before);
 
     let mut protocols = vec![];
@@ -350,7 +368,7 @@ pub fn history(
             number: 0,
             functions,
             retired: vec![],
-            encodings: encodings_in_play(parameters, &new.config),
+            encodings: encodings_in_play(parameters, &new.configs),
         });
         earliers.push(earlier);
     }
@@ -374,7 +392,7 @@ fn first_history(new: &Loaded, target: &str) -> Result<History> {
                 .map(|(f, _)| FunctionFacts { name: f.to_string(), since: target.to_string(), number: 0 })
                 .collect(),
             retired: vec![],
-            encodings: encodings_in_play(parameters, &new.config),
+            encodings: encodings_in_play(parameters, &new.configs),
         })
         .collect();
     let earliers = vec![None; protocols.len()];
@@ -629,16 +647,16 @@ struct ProtocolDecl<'a> {
 }
 
 /// A stored version: its own schemas, its dependencies' (vendored), and
-/// its config.
+/// its configs, its own and its dependencies' (what a version stored before
+/// core#251 doesn't hold of them is unseen, see [`StoredConfigs`]).
 struct Loaded {
     own: Schemas,
     dependencies: Vec<Schemas>,
-    config: Vec<ConfigUnit>,
+    configs: StoredConfigs,
 }
 
 impl Loaded {
     fn of(store: &ObjectStore, tree: &Tree) -> Result<Self> {
-        use crate::package::config::ir::frozen::cas::blob as config_blob;
         use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
 
         let dependency_names: BTreeSet<&str> = tree
@@ -663,14 +681,14 @@ impl Loaded {
                 }
             }
         }
-        let config = tree
-            .entries
-            .iter()
-            .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
-            .map(|e| config_blob::read_config(store, &e.hash))
-            .transpose()?
-            .unwrap_or_default();
-        Ok(Loaded { own, dependencies: dependencies.into_values().collect(), config })
+        let configs = StoredConfigs::read(store, tree)?;
+        Ok(Loaded { own, dependencies: dependencies.into_values().collect(), configs })
+    }
+
+    /// The encoding declarations the version sees: its own and its
+    /// dependencies', complete where it stored them all.
+    fn encodings(&self) -> Encodings<'_> {
+        self.configs.encodings()
     }
 
     fn all(&self) -> impl Iterator<Item = &[Vec<FrozenUnit>]> {
@@ -794,7 +812,13 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
     let loaded = Loaded {
         own: mine,
         dependencies: vec![theirs],
-        config: context.config_frozen.clone().unwrap_or_default(),
+        // A compiled package has all of its configs, its dependencies' too.
+        configs: StoredConfigs {
+            own: context.config_frozen.clone().unwrap_or_default(),
+            own_stored: true,
+            dependencies: context.dependency_configs.clone(),
+            unstored: vec![],
+        },
     };
     // Numbered as a first version is; an `@id` the numbering refuses is
     // the build's to report, so the facts leave the numbers at 0.
@@ -811,7 +835,7 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
                     .map(|(f, _)| FunctionFacts { name: f.to_string(), since: version.to_string(), number: 0 })
                     .collect(),
                 retired: vec![],
-                encodings: encodings_in_play(parameters, &loaded.config),
+                encodings: encodings_in_play(parameters, &loaded.configs),
             })
             .collect(),
         retired: vec![],
@@ -836,7 +860,7 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
             // As this version recorded them, where it did.
             let in_play = match h {
                 Some(h) if !h.encodings.is_empty() => h.encodings.clone(),
-                _ => encodings_in_play(parameters, &loaded.config),
+                _ => encodings_in_play(parameters, &loaded.configs),
             };
             for e in &in_play {
                 encodings.insert((e.kind.clone(), e.name.clone(), e.param_hash.clone()), e.clone());
@@ -854,7 +878,7 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
         }
     }
     PackageFacts {
-        id: crate::package::config::ir::frozen::package_id(&loaded.config).map(str::to_string),
+        id: crate::package::config::ir::frozen::package_id(&loaded.configs.own).map(str::to_string),
         version: version.to_string(),
         protocols,
         encodings: encodings.into_values().collect(),
@@ -869,10 +893,12 @@ fn assemble(loaded: &Loaded, history: &History, version: &str) -> PackageFacts {
 /// ([`IMPLICIT_FRAMING`](crate::schema::idl::annotations::IMPLICIT_FRAMING),
 /// `comline@1`), so a version built before core's defaults moved reads as
 /// it was built.
-fn encodings_in_play(parameters: &[FrozenUnit], config: &[ConfigUnit]) -> Vec<EncodingFacts> {
+fn encodings_in_play(parameters: &[FrozenUnit], configs: &StoredConfigs) -> Vec<EncodingFacts> {
+    use crate::encodings::{official, EncodingKind};
     use crate::schema::idl::annotations::{canonical_value, HandshakeValue, IMPLICIT_FRAMING};
-    use crate::schema::ir::unverified::{default_format, Encodings};
-    let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(config);
+    use crate::schema::ir::unverified::default_format_known;
+    let encodings = configs.encodings();
+    let (wire_format, wire_framing) = crate::package::config::ir::frozen::wire(&configs.own);
     let property = |key: &str| {
         parameters.iter().find_map(|u| match u {
             FrozenUnit::Property { name, value } if name == key => Some(value),
@@ -886,30 +912,66 @@ fn encodings_in_play(parameters: &[FrozenUnit], config: &[ConfigUnit]) -> Vec<En
         }
         None => (wire_framing.unwrap_or(IMPLICIT_FRAMING).to_string(), BTreeMap::new()),
     };
-    let format = match wire_format {
-        Some(f) => f.to_string(),
-        None => {
-            let encodings = Encodings { declared: config.iter().collect(), ..Default::default() };
-            default_format(&framing, &encodings).to_string()
-        }
+    // Where the framing may be declared out of sight, the format it implies
+    // isn't known either: core's default stands in for the name, and the
+    // fact says it's a guess.
+    let (format, format_guessed) = match wire_format {
+        Some(f) => (f.to_string(), false),
+        None => match default_format_known(&framing, &encodings) {
+            Some(f) => (f.to_string(), false),
+            None => (crate::schema::ir::unverified::default_format(&framing, &encodings).to_string(), true),
+        },
     };
     let handshake = HandshakeValue::of_protocol(parameters);
     let (handshake, handshake_params) = (handshake.name.clone(), handshake.wire_params());
-    let declared = |name: &str| {
-        config.iter().find_map(|u| match u {
-            ConfigUnit::Encoding { name: n, profile_hash, .. } if n == name => Some(profile_hash.clone()),
-            _ => None,
-        })
-    };
-    [("format", format, BTreeMap::new()), ("framing", framing, framing_params), ("handshake", handshake, handshake_params)]
-        .into_iter()
-        .map(|(kind, name, mut params)| {
-            if let Some(profile) = declared(&name) {
-                params.insert("profile".to_string(), profile);
+    [
+        ("format", EncodingKind::Format, format, BTreeMap::new(), format_guessed),
+        ("framing", EncodingKind::Framing, framing, framing_params, false),
+        ("handshake", EncodingKind::Handshake, handshake, handshake_params, false),
+    ]
+    .into_iter()
+    .map(|(kind, which, name, mut params, guessed)| {
+        // Declared by the package or a dependency: the profile it has now. An
+        // official name needs none. A name nothing declares, where these
+        // aren't all the configs there are, may be declared where they can't
+        // be seen: its profile is unknown, and a hash made of that is no hash
+        // of anything a peer could hold, so it can't read as the same.
+        let official = official::resolve(which, &name).is_some();
+        match encodings.find(which, &name) {
+            Some(ConfigUnit::Encoding { profile_hash, .. }) if !official => {
+                params.insert(PROFILE_PARAM.to_string(), profile_hash.clone());
             }
-            encoding(kind, &name, params)
-        })
-        .collect()
+            Some(_) => {}
+            None if official || encodings.complete => {}
+            None => {
+                params.insert(PROFILE_PARAM.to_string(), UNKNOWN.to_string());
+            }
+        }
+        if guessed {
+            params.insert(PROFILE_PARAM.to_string(), UNKNOWN.to_string());
+        }
+        encoding(kind, &name, params)
+    })
+    .collect()
+}
+
+/// The parameter holding a declared encoding's profile hash.
+pub const PROFILE_PARAM: &str = "profile";
+
+/// What [`PROFILE_PARAM`] holds where the profile couldn't be seen: the
+/// declaration of the encoding is in a config the version didn't store
+/// (core#251). The parameter hash then covers that, so it is never one a
+/// profile makes; and no two of them are the same encoding for that reason
+/// alone, see [`EncodingFacts::is_unknown`].
+pub const UNKNOWN: &str = "unknown";
+
+impl EncodingFacts {
+    /// Whether the encoding's profile couldn't be seen, so what it is isn't
+    /// known: whatever is judged from it can't claim to be the same as, or
+    /// compatible with, another's.
+    pub fn is_unknown(&self) -> bool {
+        self.params.get(PROFILE_PARAM).is_some_and(|p| p == UNKNOWN)
+    }
 }
 
 /// An encoding's facts: its parameter hash covers its kind, name and
@@ -1272,7 +1334,7 @@ mod tests {
     fn loaded(code: &str) -> Loaded {
         let mut units = vec![FrozenUnit::Namespace("pkg::api".to_string())];
         units.extend(IncrementalInterpreter::from_source(code));
-        Loaded { own: vec![units], dependencies: vec![], config: vec![] }
+        Loaded { own: vec![units], dependencies: vec![], configs: StoredConfigs { own_stored: true, ..Default::default() } }
     }
 
     fn numbered(protocol: u16, functions: &[(&str, u16)]) -> ProtocolHistory {
@@ -1296,7 +1358,7 @@ mod tests {
         let index = Index::of(&loaded);
         let protocol = loaded.own[0].iter().find(|u| matches!(u, FrozenUnit::Protocol { .. })).unwrap();
         let FrozenUnit::Protocol { parameters, .. } = protocol else { unreachable!() };
-        let encodings = encodings_in_play(parameters, &[]);
+        let encodings = encodings_in_play(parameters, &StoredConfigs { own_stored: true, ..Default::default() });
         match by_id {
             None => shape_hash(protocol, "pkg::api", &index, &encodings, history),
             Some(by_id) => {

@@ -19,7 +19,7 @@ use super::version::{dev_version, next_release, VersionBump};
 use crate::compat::release_of;
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::{analyze_config_changes, ConfigChanges};
-use crate::package::config::ir::frozen::cas::blob as config_blob;
+use crate::package::config::ir::frozen::cas::blob::{self as config_blob, StoredConfigs};
 use crate::schema::ir::diff::SchemaChanges;
 use crate::schema::ir::frozen::cas::blob::build_tree_from_schema;
 use crate::schema::ir::frozen::cas::commit::{create_initial_commit, create_version_commit};
@@ -42,13 +42,20 @@ pub struct BuildInfo {
     /// Changes inside dependencies present in both builds, per dependency.
     pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     pub config_changes: ConfigChanges,
+    /// Configs the comparison against the build before couldn't see
+    /// ([`Comparison::unseen`]); empty for a first build.
+    pub unseen: Vec<UnseenConfig>,
 }
 
 /// Vendor one resolved dependency's own frozen schema into the commit: a
 /// `schema_{idx}` subtree per schema file in the dependency (same shape a
-/// local package's schemas get), plus a `manifest` blob recording the
-/// verified content hash. Returns the tree ready to be written and added to
-/// the root tree under `dep_<name>`.
+/// local package's schemas get), a `manifest` blob recording the verified
+/// content hash, the dependency's own frozen `config` blob, and, where it has
+/// dependencies of its own, their configs as `dependency_configs`. The
+/// configs are what a stored version's compatibility check reads beside the
+/// schemas (its encodings' declarations and wire defaults, core#251): the
+/// same `config_frozen` the content hash covers. Returns the tree ready to be
+/// written and added to the root tree under `dep_<name>`.
 #[cfg(feature = "deps")]
 fn build_dependency_tree(
     resolved: &crate::package::deps::ResolvedDependency,
@@ -70,6 +77,18 @@ fn build_dependency_tree(
         &super::objects::Blob::new(resolved.content_hash.to_hex().into_bytes()).to_bytes()?,
     )?;
     dep_tree.add_entry(EntryMode::Blob, "manifest".to_string(), manifest_hash);
+
+    // Always written, even for a config with nothing in it: a dependency
+    // tree without it was stored by a build that didn't keep it, and reads
+    // as unknown.
+    let config = resolved.context.config_frozen.as_deref().unwrap_or(&[]);
+    let config_hash = config_blob::write_config(config, store)?;
+    dep_tree.add_entry(EntryMode::Blob, config_blob::DEPENDENCY_CONFIG_ENTRY.to_string(), config_hash);
+    if !resolved.context.dependency_configs.is_empty() {
+        let theirs =
+            config_blob::write_dependency_configs(&resolved.context.dependency_configs, store)?;
+        dep_tree.add_entry(EntryMode::Blob, config_blob::DEPENDENCY_CONFIGS_ENTRY.to_string(), theirs);
+    }
 
     Ok(dep_tree)
 }
@@ -121,9 +140,25 @@ pub struct Comparison {
     /// Changes inside dependencies present in both trees, per dependency.
     pub dependency_changes: Vec<crate::schema::ir::diff::DependencyChanges>,
     pub config_changes: ConfigChanges,
+    /// Configs one of the two trees doesn't hold, so that what they declare
+    /// (encodings, wire defaults) couldn't be compared: a tree stored before
+    /// core#251 kept no dependency's, and one before configs at all not the
+    /// package's. Where it matters the facts the rules read are the
+    /// strictest, and the bump is at least a patch: a comparison that can't
+    /// see part of what it compares doesn't say nothing changed.
+    pub unseen: Vec<UnseenConfig>,
     pub bump: VersionBump,
 }
 
+/// A config a stored version doesn't hold ([`Comparison::unseen`]).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UnseenConfig {
+    /// The package's own, in the old or the new tree.
+    Own,
+    /// A vendored dependency's, by its declared name, in the old or the new
+    /// tree.
+    Dependency(String),
+}
 /// Compare two root trees from the store: the package's own schema files
 /// (paired by namespace), every dependency vendored into both, and the
 /// congregation.
@@ -146,16 +181,17 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
         }
         Ok(schemas)
     };
-    let config = |tree: &Tree| -> Result<Vec<_>> {
-        Ok(tree
-            .entries
-            .iter()
-            .find(|e| e.name == "config" && e.mode == EntryMode::Blob)
-            .map(|e| config_blob::read_config(store, &e.hash))
-            .transpose()?
-            .unwrap_or_default())
-    };
-    let (old_config, new_config) = (config(old)?, config(new)?);
+    // Each tree's configs, its own and its dependencies' (core#251). What a
+    // tree doesn't hold is unseen, and its encodings aren't complete.
+    let (old_configs, new_configs) = (StoredConfigs::read(store, old)?, StoredConfigs::read(store, new)?);
+    let (old_config, new_config) = (&old_configs.own, &new_configs.own);
+    let (old_encodings, new_encodings) = (old_configs.encodings(), new_configs.encodings());
+    let mut unseen = vec![];
+    if !old_configs.own_stored || !new_configs.own_stored {
+        unseen.push(UnseenConfig::Own);
+    }
+    let unstored: BTreeSet<&String> = old_configs.unstored.iter().chain(&new_configs.unstored).collect();
+    unseen.extend(unstored.into_iter().map(|name| UnseenConfig::Dependency(name.clone())));
 
     // A package's compiled schemas include every dependency's, each under
     // the dependency's name (`shared_types::models`): those are split off
@@ -189,7 +225,8 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
     // Files are paired by namespace, not by their position in the glob:
     // adding, renaming or reordering a file must not pair the wrong schemas.
     // The format-dependent rules read the facts of the encodings in play.
-    let mut facts = WireFacts::of((&old_own, &old_config), (&new_own, &new_config));
+    let mut facts =
+        WireFacts::of((&old_own, old_config, &old_encodings), (&new_own, new_config, &new_encodings));
     // The old version's wire numbers: an `@id` is judged against them.
     facts.numbers = crate::compat::read_history(store, old)?
         .map(|h| crate::compat::number_map(&h))
@@ -199,10 +236,10 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
 
     // A dependency counts only as far as this package reaches into it: the
     // types its own declarations use or re-export, and what those use,
-    // compared with the same rules (under the dependency's own protocols and
-    // core's defaults: its config isn't stored). A change anywhere else in
-    // it doesn't move the version, and adding or removing one is a patch
-    // (`analyze_config_changes`).
+    // compared with the same rules, under the dependency's own `wire` and the
+    // declarations its package sees (its stored config, core#251). A change
+    // anywhere else in it doesn't move the version, and adding or removing
+    // one is a patch (`analyze_config_changes`).
     let mut dependency_changes = vec![];
     let names: BTreeSet<&String> = old_dependencies.keys().chain(new_dependencies.keys()).collect();
     for name in names {
@@ -210,7 +247,12 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
         let after = new_dependencies.get(name).cloned().unwrap_or_default();
         let reach = reached_by(&[&old_own, &new_own], &[&before, &after]);
         let (before, after) = (within_reach(&before, &reach), within_reach(&after, &reach));
-        let facts = WireFacts::of((&before, &[]), (&after, &[]));
+        // A dependency's protocols are on its own `wire`, where one is on
+        // none stored; the encodings are the whole package's.
+        let facts = WireFacts::of(
+            (&before, old_configs.dependency(name).unwrap_or(&[]), &old_encodings),
+            (&after, new_configs.dependency(name).unwrap_or(&[]), &new_encodings),
+        );
         let changes = analyze_package_changes_with(&before, &after, &facts);
         bump = bump.max(changes_bump(&changes));
         if !changes.is_empty() {
@@ -221,10 +263,13 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
     // Congregation changes. Only units that affect the schema API count
     // (spec version, dependencies). A tree from before config was stored
     // has none.
-    let config_changes = analyze_config_changes(&old_config, &new_config);
+    let config_changes = analyze_config_changes(old_config, new_config);
     bump = bump.max(config_changes.bump());
+    if !unseen.is_empty() {
+        bump = bump.max(VersionBump::Patch);
+    }
 
-    Ok(Comparison { schema_changes, dependency_changes, config_changes, bump })
+    Ok(Comparison { schema_changes, dependency_changes, config_changes, unseen, bump })
 }
 
 /// The last release at or before `from`, and how many builds come after it
@@ -384,6 +429,7 @@ pub fn process_initial_freezing(
         schema_changes: None,
         dependency_changes: vec![],
         config_changes: ConfigChanges::default(),
+        unseen: vec![],
     })
 }
 
@@ -445,11 +491,12 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
             schema_changes: None,
             dependency_changes: vec![],
             config_changes: ConfigChanges::default(),
+        unseen: vec![],
         });
     }
 
     // What this build changed, against the one before it.
-    let Comparison { schema_changes: all_changes, dependency_changes, config_changes, bump } =
+    let Comparison { schema_changes: all_changes, dependency_changes, config_changes, unseen, bump } =
         compare(&store, &prev_tree, &root_tree)?;
     let version_bump = bump;
 
@@ -496,5 +543,6 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         schema_changes: merged_changes,
         dependency_changes,
         config_changes,
+        unseen,
     })
 }
