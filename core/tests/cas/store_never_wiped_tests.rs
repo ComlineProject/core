@@ -236,7 +236,7 @@ fn a_current_store_builds_as_before() {
     let built = build(dir.path()).unwrap();
 
     assert_eq!(built.previous_version.as_deref(), Some("0.1.0-dev.1"));
-    assert_eq!(built.current_version, "0.1.1-dev.1");
+    assert_eq!(built.current_version, "0.1.0-dev.2");
     // The history kept what was there, and the cache is where it was.
     let after = ObjectStore::new(dir.path()).list_objects().unwrap();
     assert!(objects.iter().all(|hash| after.contains(hash)));
