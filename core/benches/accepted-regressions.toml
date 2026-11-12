@@ -41,3 +41,9 @@
 # benchmark, not a rename, has nothing to regress from: it's recorded only.
 #
 # Wall time (Criterion, `wall_ns` in the report) is never gated.
+
+[[accepted]]
+pr = 265
+bench = "parse/complex"
+max_percent = 17.63
+reason = "annotations on function arguments and the keyed @key(...) form add parse states (#222). parse/complex's input doesn't parse (`returns` and no `;`), so it measures error recovery, which walks them; the valid benchmarks grew 0.25% (parse/large) and 0.98% (parse/simple)"
