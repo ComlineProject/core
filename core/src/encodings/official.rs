@@ -163,6 +163,16 @@ pub fn profile(kind: EncodingKind, written: &str) -> Option<&'static super::Prof
         .map(|(_, _, profile)| profile)
 }
 
+/// The catalog's title of the official encoding of `kind` written as
+/// `written` (any spelling: `json-rpc` -> `JSON-RPC`), for a message to the
+/// person who wrote it. `None` for a name that isn't an official one.
+pub fn title(kind: EncodingKind, written: &str) -> Option<&'static str> {
+    let canonical = resolve(kind, written)?;
+    comline_catalog::resolve(canonical)
+        .filter(|entry| entry.kind == kind.catalog_kind())
+        .map(|entry| entry.title)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -179,6 +189,20 @@ mod tests {
         assert_eq!(fact(EncodingKind::Framing, "datagram", "calls").as_deref(), Some("by_index"));
         assert_eq!(fact(EncodingKind::Framing, "datagram@2", "calls").as_deref(), Some("by_index"));
         assert!(profile(EncodingKind::Format, "com.acme.x@1").is_none());
+    }
+
+    /// An official encoding's title is the catalog's, by any spelling and only
+    /// under its own kind; anything else has none.
+    #[test]
+    fn an_official_encoding_has_the_catalogs_title() {
+        assert_eq!(title(EncodingKind::Framing, "jsonrpc"), Some("JSON-RPC"));
+        assert_eq!(title(EncodingKind::Framing, "json-rpc"), Some("JSON-RPC"));
+        assert_eq!(title(EncodingKind::Framing, "datagram"), Some("datagram"));
+        assert_eq!(title(EncodingKind::Framing, "datagram@3"), Some("datagram@3"));
+        assert_eq!(title(EncodingKind::Format, "msgpack@1"), Some("MessagePack"));
+        assert_eq!(title(EncodingKind::Handshake, "none"), Some("no handshake"));
+        assert_eq!(title(EncodingKind::Format, "jsonrpc"), None);
+        assert_eq!(title(EncodingKind::Framing, "com.acme.lines@1"), None);
     }
 
     /// What each official framing states about its frames: `protocol` (named
