@@ -197,7 +197,7 @@ mod tests {
     fn an_official_encoding_has_the_catalogs_title() {
         assert_eq!(title(EncodingKind::Framing, "jsonrpc"), Some("JSON-RPC"));
         assert_eq!(title(EncodingKind::Framing, "json-rpc"), Some("JSON-RPC"));
-        assert_eq!(title(EncodingKind::Framing, "datagram"), Some("datagram"));
+        assert_eq!(title(EncodingKind::Framing, "datagram"), Some("datagram@1"));
         assert_eq!(title(EncodingKind::Framing, "datagram@3"), Some("datagram@3"));
         assert_eq!(title(EncodingKind::Format, "msgpack@1"), Some("MessagePack"));
         assert_eq!(title(EncodingKind::Handshake, "none"), Some("no handshake"));
