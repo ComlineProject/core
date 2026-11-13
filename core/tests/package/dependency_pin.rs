@@ -114,10 +114,12 @@ fn resolve_pinned(root: &Path, path: &str, pin: &str) -> Result<(), String> {
 const OLD_PIN: &str = "blake3:728e1b2153908105259b94a8d35e91ddf4e589253c8f8c44a1d609545e61f33b";
 
 /// What [`Config::base`] with both profiles and its vectors hashes to now.
-/// If this moves, the hash scheme changed: every pin made before is wrong,
-/// so it's a new `CONTENT_HASH_SCHEME` and a breaking change, not a fix to
-/// this line.
-const GOLDEN_PIN: &str = "blake3:634d212c23a663caf347a38646d0a8926611202b21b191bf058dee3b6fce7022";
+/// If this moves while that input stays the same, the hash scheme changed:
+/// every pin made before is wrong, so it's a new `CONTENT_HASH_SCHEME` and a
+/// breaking change, not a fix to this line. It moves legitimately only when
+/// the input does: spec 0.11 made `FRAMING` state `protocol`, which changes
+/// its frozen `Encoding` unit (was `blake3:634d212c…`).
+const GOLDEN_PIN: &str = "blake3:85584227b207edb2e099f073aef9ce7c76315d3319e6e99769e69c007f4fb4af";
 
 /// Pin the base dependency, change it with `change`, and it no longer
 /// verifies, and as a plain mismatch rather than an old pin.
