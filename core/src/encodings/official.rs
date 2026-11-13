@@ -181,6 +181,33 @@ mod tests {
         assert!(profile(EncodingKind::Format, "com.acme.x@1").is_none());
     }
 
+    /// What each official framing states about its frames: `protocol` (named
+    /// by `datagram@2` and `datagram@3`, not by `datagram@1` or `jsonrpc@1`)
+    /// and `directions` (both ways but for `datagram@1`), and nothing for a
+    /// format or a handshake.
+    #[test]
+    fn the_official_framings_state_their_protocol_and_directions() {
+        let read = |written| {
+            let profile = profile(EncodingKind::Framing, written).unwrap();
+            (profile.names_protocol(), profile.both_directions())
+        };
+        assert_eq!(read("datagram@1"), (Some(false), Some(false)));
+        assert_eq!(read("datagram@2"), (Some(true), Some(true)));
+        assert_eq!(read("datagram@3"), (Some(true), Some(true)));
+        assert_eq!(read("jsonrpc@1"), (Some(false), Some(true)));
+        // Any spelling of a framing reads the same.
+        assert_eq!(read("jsonrpc"), read("jsonrpc@1"));
+        assert_eq!(read("datagram"), read("datagram@1"));
+        for (kind, written) in [
+            (EncodingKind::Format, "json@1"),
+            (EncodingKind::Format, "packed@1"),
+            (EncodingKind::Handshake, "comline@2"),
+        ] {
+            let profile = profile(kind, written).unwrap();
+            assert_eq!((profile.names_protocol(), profile.both_directions()), (None, None), "{written}");
+        }
+    }
+
     #[test]
     fn the_snapshot_is_what_freezes() {
         let frozen = units();
