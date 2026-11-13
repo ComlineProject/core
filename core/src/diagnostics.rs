@@ -117,13 +117,17 @@ pub struct Diagnostic {
     /// The change that resolves this diagnostic, when there's one safe to
     /// make without asking (a renamed keyword, a missing line). See [`Fix`].
     pub fix: Option<Fix>,
+    /// The schema unit it's about, by path (`app::Chat`, `app::Chat::send`),
+    /// for a diagnostic found on frozen IR, which keeps no spans: a tool that
+    /// has the source resolves it to one, and one that doesn't shows the path.
+    pub unit: Option<String>,
 }
 
 impl Diagnostic {
     pub fn new(code: DiagnosticCode, message: impl Into<String>) -> Self {
         Self {
             code, message: message.into(), context: String::new(), span: None, help: None,
-            secondary: None, severity_override: None, fix: None,
+            secondary: None, severity_override: None, fix: None, unit: None,
         }
     }
 
@@ -176,6 +180,12 @@ impl Diagnostic {
     /// The change that resolves this diagnostic; see [`Fix`].
     pub fn with_fix(mut self, fix: Fix) -> Self {
         self.fix = Some(fix);
+        self
+    }
+
+    /// The schema unit it's about, by path; see [`Self::unit`].
+    pub fn with_unit(mut self, unit: impl Into<String>) -> Self {
+        self.unit = Some(unit.into());
         self
     }
 
