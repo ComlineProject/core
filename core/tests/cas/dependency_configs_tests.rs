@@ -31,7 +31,8 @@ fn lines_profile(errors: &str) -> String {
     "calls": {{ "value": "by_name", "proven_by": ["lines/request"] }},
     "directions": {{ "value": "both", "proven_by": ["lines/request"] }},
     "errors": {{ "value": "{errors}", "proven_by": ["lines/error"] }},
-    "payload": {{ "value": "json", "proven_by": ["lines/request"] }}
+    "payload": {{ "value": "json", "proven_by": ["lines/request"] }},
+    "protocol": {{ "value": "named", "proven_by": ["lines/request"] }}
   }}
 }}"#
     )

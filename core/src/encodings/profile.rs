@@ -7,7 +7,10 @@
 //! profile format ComlineProject/specification defines (`specs/profile.cue`).
 //! The specification's vectors are where the profiles are proven; core only
 //! checks that a declared profile is one. When the profile format moves, this
-//! copy moves with it, and the rev above changes.
+//! copy moves with it, and the rev above changes. The fact list isn't part of
+//! that copy: it's the catalog's (`comline-catalog`), so a fact the
+//! specification adds, like 0.11's framing fact `protocol`, is known here once
+//! the catalog is pinned at it.
 //!
 //! A handshake's facts, `schema_agreement` and `encoding_agreement`, are
 //! what it establishes; one it doesn't state as `true` is given up
@@ -158,6 +161,34 @@ impl Profile {
         self.facts.get(fact).map(|f| f.value.clone()).filter(|value| value != none)
     }
 
+    /// Whether a framing's request frame names the protocol it calls into
+    /// (`protocol`): `Some(true)` for `named`, `Some(false)` for `unnamed`,
+    /// and `None` for a profile that isn't a framing's, or states some other
+    /// value. A connection may carry several protocols only where it does.
+    pub fn names_protocol(&self) -> Option<bool> {
+        self.framing_fact_is(fact::PROTOCOL, "named", "unnamed")
+    }
+
+    /// Whether a framing carries calls both ways on one transport
+    /// (`directions`): `Some(true)` for `both`, `Some(false)` for `one`, and
+    /// `None` for a profile that isn't a framing's, or states some other value.
+    pub fn both_directions(&self) -> Option<bool> {
+        self.framing_fact_is(fact::DIRECTIONS, "both", "one")
+    }
+
+    /// A framing's two-valued `fact`: `Some(true)` when it states `yes`,
+    /// `Some(false)` when it states `no`, else `None`.
+    fn framing_fact_is(&self, fact: &str, yes: &str, no: &str) -> Option<bool> {
+        if self.kind != ProfileKind::Framing {
+            return None;
+        }
+        match self.facts.get(fact)?.value.as_str() {
+            value if value == yes => Some(true),
+            value if value == no => Some(false),
+            _ => None,
+        }
+    }
+
     /// What a framing states as `fact`; `None` for one this kind doesn't state.
     pub fn stated(&self, fact: &str) -> Option<String> {
         self.facts.get(fact).map(|f| f.value.clone())
@@ -203,6 +234,9 @@ mod tests {
             (fact::CALLS, "by_name"),
             (fact::CALLS, "by_id"),
             (fact::DIRECTIONS, "one"),
+            (fact::DIRECTIONS, "both"),
+            (fact::PROTOCOL, "named"),
+            (fact::PROTOCOL, "unnamed"),
             (fact::ERRORS, "by_name"),
             (fact::PAYLOAD, "opaque"),
             (fact::PAYLOAD, "json"),
@@ -219,15 +253,24 @@ mod tests {
     fn a_profile_is_held_to_the_catalogs_facts() {
         let profile = |facts: &str| format!(r#"{{ "name": "x@1", "kind": "framing", "facts": {{ {facts} }} }}"#);
         let fact = |name: &str, value: &str| format!(r#""{name}": {{ "value": "{value}", "proven_by": ["x/a"] }}"#);
-        let all = [fact("calls", "by_name"), fact("directions", "both"), fact("errors", "by_name"), fact("payload", "opaque")];
+        let all = [
+            fact("calls", "by_name"),
+            fact("directions", "both"),
+            fact("errors", "by_name"),
+            fact("payload", "opaque"),
+            fact("protocol", "named"),
+        ];
         assert!(Profile::parse(profile(&all.join(", ")).as_bytes()).is_ok());
 
-        let wrong = [fact("calls", "by_guess"), all[1].clone(), all[2].clone(), all[3].clone()];
+        let wrong = [fact("calls", "by_guess"), all[1].clone(), all[2].clone(), all[3].clone(), all[4].clone()];
         let error = Profile::parse(profile(&wrong.join(", ")).as_bytes()).unwrap_err();
         assert_eq!(error, "its `calls` is `by_guess`: expected one of `by_index`, `by_name`, `by_id`");
 
         let error = Profile::parse(profile(&all[1..].join(", ")).as_bytes()).unwrap_err();
         assert_eq!(error, "it doesn't state `calls`");
+
+        let error = Profile::parse(profile(&all[..4].join(", ")).as_bytes()).unwrap_err();
+        assert_eq!(error, "it doesn't state `protocol`");
 
         let extra = [all.join(", "), fact("struct_fields", "by_name")];
         let error = Profile::parse(profile(&extra.join(", ")).as_bytes()).unwrap_err();

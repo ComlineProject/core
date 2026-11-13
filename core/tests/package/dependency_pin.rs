@@ -15,7 +15,8 @@ const FRAMING: &str = r#"{
     "calls": { "value": "by_name", "proven_by": ["lines/request"] },
     "directions": { "value": "both", "proven_by": ["lines/request"] },
     "errors": { "value": "by_name", "proven_by": ["lines/error"] },
-    "payload": { "value": "opaque", "proven_by": ["lines/request-binary"] }
+    "payload": { "value": "opaque", "proven_by": ["lines/request-binary"] },
+    "protocol": { "value": "named", "proven_by": ["lines/request"] }
   }
 }"#;
 

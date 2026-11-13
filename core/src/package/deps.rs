@@ -1463,7 +1463,8 @@ mod tests {
             "calls": { "value": "by_name", "proven_by": [] },
             "directions": { "value": "both", "proven_by": [] },
             "errors": { "value": "by_name", "proven_by": [] },
-            "payload": { "value": "opaque", "proven_by": [] }
+            "payload": { "value": "opaque", "proven_by": [] },
+            "protocol": { "value": "named", "proven_by": [] }
         } }"#;
         let hashes = |wire: &str, unverified: &str, vectors: bool| {
             let tmp = tempfile::tempdir().unwrap();

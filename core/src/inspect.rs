@@ -535,7 +535,8 @@ mod tests {
                 format!(
                     r#"{{ "name": "com.acme.f@1", "kind": "framing",
                          "facts": {{ "calls": {{ "value": "by_name" }}, "directions": {{ "value": "both" }},
-                                    "errors": {{ "value": "by_name" }}, "payload": {{ "value": "{payload}" }} }} }}"#
+                                    "errors": {{ "value": "by_name" }}, "payload": {{ "value": "{payload}" }},
+                                    "protocol": {{ "value": "named" }} }} }}"#
                 ),
             )
             .unwrap();
@@ -560,7 +561,7 @@ mod tests {
             app.join("profiles/f.json"),
             r#"{ "name": "com.acme.f@1", "kind": "framing",
                  "facts": { "calls": { "value": "by_name" }, "directions": { "value": "both" }, "errors": { "value": "by_name" },
-                            "payload": { "value": "opaque" } } }"#,
+                            "payload": { "value": "opaque" }, "protocol": { "value": "named" } } }"#,
         )
         .unwrap();
         package(
