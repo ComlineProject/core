@@ -77,7 +77,7 @@ pub fn check_settings_conflicts(
                         context: format!("in {label}"),
                         span: Some(decl.span),
                         secondary: None,
-                        severity_override: None, fix: None,
+                        severity_override: None, fix: None, unit: None,
                     });
                 }
             }

@@ -947,7 +947,7 @@ fn a_package_stating_its_encodings_sees_no_change() {
     }
 }
 
-// ---------- the working tree's facts, for `comline generate` ----------
+// ---------- the working tree's facts, for `comline generation` ----------
 
 fn working(dir: &Path) -> PackageFacts {
     let context = comline_core::package::build::compile_package(dir).unwrap();

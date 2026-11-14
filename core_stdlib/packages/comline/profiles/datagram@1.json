@@ -28,6 +28,13 @@
         "framing-datagram/request-params-msgpack",
         "framing-datagram/request-params-packed"
       ]
+    },
+    "protocol": {
+      "value": "unnamed",
+      "proven_by": [
+        "framing-datagram/request",
+        "framing-datagram/request-large-id"
+      ]
     }
   }
 }

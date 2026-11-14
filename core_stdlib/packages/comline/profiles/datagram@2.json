@@ -30,6 +30,12 @@
         "framing-datagram2/request-params-msgpack",
         "framing-datagram2/request-params-packed"
       ]
+    },
+    "protocol": {
+      "value": "named",
+      "proven_by": [
+        "framing-datagram2/request-two-byte-protocol"
+      ]
     }
   }
 }

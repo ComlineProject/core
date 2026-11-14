@@ -647,6 +647,22 @@ struct ProtocolDecl<'a> {
     functions: Vec<(&'a str, &'a [FrozenUnit])>,
 }
 
+/// The names a version's compiled schemas are split off by, as
+/// dependencies' rather than the package's own: its `dependencies`, and
+/// `std`, which is built in and never vendored (no `dep_std` entry) yet
+/// compiled into every build, so it's compared by reach like the rest.
+pub fn dependency_names<'a>(dependencies: impl IntoIterator<Item = &'a str>) -> BTreeSet<&'a str> {
+    dependencies.into_iter().chain(std::iter::once("std")).collect()
+}
+
+/// A build tree's vendored dependencies: its `dep_<name>` entries.
+pub fn vendored(tree: &Tree) -> impl Iterator<Item = &str> {
+    tree.entries
+        .iter()
+        .filter(|e| e.mode == EntryMode::Tree)
+        .filter_map(|e| e.name.strip_prefix("dep_"))
+}
+
 /// A stored version: its own schemas, its dependencies' (vendored), and
 /// its configs, its own and its dependencies' (what a version stored before
 /// core#251 doesn't hold of them is unseen, see [`StoredConfigs`]).
@@ -660,12 +676,7 @@ impl Loaded {
     fn of(store: &ObjectStore, tree: &Tree) -> Result<Self> {
         use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
 
-        let dependency_names: BTreeSet<&str> = tree
-            .entries
-            .iter()
-            .filter(|e| e.mode == EntryMode::Tree)
-            .filter_map(|e| e.name.strip_prefix("dep_"))
-            .collect();
+        let dependency_names = dependency_names(vendored(tree));
         let mut own = vec![];
         let mut dependencies: BTreeMap<String, Schemas> = BTreeMap::new();
         for entry in &tree.entries {
@@ -802,8 +813,7 @@ pub fn facts_of_context(context: &ProjectContext, version: &str) -> PackageFacts
         .iter()
         .filter_map(|s| s.borrow().frozen_schema.borrow().clone())
         .collect();
-    let dependency_names: BTreeSet<&str> =
-        context.dependency_configs.iter().map(|(n, _)| n.as_str()).collect();
+    let dependency_names = dependency_names(context.dependency_configs.iter().map(|(n, _)| n.as_str()));
     let (mut mine, mut theirs) = (vec![], vec![]);
     for units in own {
         let first = schema_namespace(&units).and_then(|ns| ns.split_once("::").map(|(f, _)| f.to_string()));
