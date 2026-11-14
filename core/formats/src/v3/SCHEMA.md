@@ -101,7 +101,7 @@ the rest; they only make a tree readable, and a reader doesn't depend on them.
 
 | Entry | Holds | Absent reads as |
 |---|---|---|
-| `manifest` | The content hash verified when the dependency was vendored, as text (`blake3:<hex>`) | |
+| `manifest` | The content hash verified when the dependency was vendored, as text: its hex digits | |
 | `config` | The dependency's own frozen config: CBOR of `[ConfigUnit]`, written even when empty | **unseen**: not empty, not defaulted (3.19) |
 | `dependency_configs` | The frozen configs of the dependency's own dependencies: CBOR of `[(name, [ConfigUnit])]`, in the order the compile saw them. Written only where it has any | **unseen** (3.19) |
 

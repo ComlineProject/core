@@ -91,7 +91,11 @@ fn dependency_tree(store: &ObjectStore, tree: &Tree, whose: &str) {
             }
             (EntryMode::Blob, entry::MANIFEST) => {
                 let text = blob_content(store, &entry.hash);
-                assert!(String::from_utf8(text).is_ok_and(|t| t.starts_with("blake3:")), "{whose}");
+                assert!(
+                    String::from_utf8(text)
+                        .is_ok_and(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_hexdigit())),
+                    "{whose}: the manifest is the content hash in hex"
+                );
             }
             (EntryMode::Blob, entry::DEPENDENCY_CONFIG) => {
                 same::<Vec<LiveConfigUnit>, Vec<frozen::ConfigUnit>>(&whose, &blob_content(store, &entry.hash))
