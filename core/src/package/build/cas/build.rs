@@ -13,7 +13,7 @@ use std::path::Path;
 use super::object_store::ObjectStore;
 use super::objects::{Commit, EntryMode, Tree};
 use super::reconcile::{self, read_heads, Heads};
-use super::refs::{main_ref, ref_exists, update_ref};
+use super::refs::{REF_HEAD_MAIN_FILENAME, ref_exists, update_ref};
 use super::storage::Hash;
 use super::version::{dev_version, next_release, VersionBump};
 use crate::compat::release_of;
@@ -411,7 +411,7 @@ pub fn process_initial_freezing(
     let commit_hash = store.write(&commit_bytes)?;
 
     // Update main ref to point to this commit
-    update_ref(project_path, main_ref(), &commit_hash)?;
+    update_ref(project_path, REF_HEAD_MAIN_FILENAME, &commit_hash)?;
 
     tracing::info!("CAS: Initial commit {} created", commit_hash);
 
@@ -436,7 +436,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     store.init()?;
 
     // Read previous commit
-    if !ref_exists(project_path, main_ref()) {
+    if !ref_exists(project_path, REF_HEAD_MAIN_FILENAME) {
         // No previous commit, treat as initial
         return process_initial_freezing(project_path, latest_project);
     }
@@ -474,7 +474,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
         // Reconciling onto a head whose tree is already the merged one:
         // nothing to build, but the ref is repaired to that head.
         if reconciling.is_some() {
-            update_ref(project_path, main_ref(), &parent_hash)?;
+            update_ref(project_path, REF_HEAD_MAIN_FILENAME, &parent_hash)?;
         }
         let (release, _) = last_release(&store, parent_hash)?;
         return Ok(BuildInfo {
@@ -518,7 +518,7 @@ pub fn process_changes(project_path: &Path, latest_project: &ProjectContext) -> 
     let commit_hash = store.write(&commit_bytes)?;
 
     // Update main ref
-    update_ref(project_path, main_ref(), &commit_hash)?;
+    update_ref(project_path, REF_HEAD_MAIN_FILENAME, &commit_hash)?;
 
     tracing::info!("CAS: New commit {} created ({})", commit_hash, new_version);
 

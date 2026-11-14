@@ -57,7 +57,7 @@ use crate::package::build::cas::build::{compare, last_release};
 use crate::package::build::cas::object_store::ObjectStore;
 use crate::package::build::cas::objects::{Blob, Commit, EntryMode, Tree};
 use crate::package::build::cas::object_store::ensure_compatible_store;
-use crate::package::build::cas::refs::{main_ref, read_ref, ref_exists};
+use crate::package::build::cas::refs::{REF_HEAD_MAIN_FILENAME, read_ref, ref_exists};
 use crate::package::build::cas::storage::{from_cbor, to_cbor, Hash};
 use crate::package::config::ir::context::ProjectContext;
 use crate::package::config::ir::diff::ConfigChange;
@@ -746,11 +746,11 @@ impl Loaded {
 pub fn facts(project_path: &Path, version: Option<&str>) -> Result<PackageFacts> {
     // Read-only, and refuses a store in another format without touching it.
     ensure_compatible_store(project_path)?;
-    if !ref_exists(project_path, main_ref()) {
+    if !ref_exists(project_path, REF_HEAD_MAIN_FILENAME) {
         bail!("nothing built yet: run `comline build` first");
     }
     let store = ObjectStore::new(project_path);
-    let mut hash = read_ref(project_path, main_ref())?;
+    let mut hash = read_ref(project_path, REF_HEAD_MAIN_FILENAME)?;
     loop {
         let commit = Commit::from_bytes(&store.read(&hash)?)?;
         if version.map_or(true, |v| v == commit.version) {
@@ -786,7 +786,7 @@ pub fn facts_of_working_tree(project_path: &Path, context: &ProjectContext) -> R
     ensure_compatible_store(project_path)?;
     let store = ObjectStore::scratch(project_path);
     let tree = working_tree(project_path, context, &store)?;
-    if !ref_exists(project_path, main_ref()) {
+    if !ref_exists(project_path, REF_HEAD_MAIN_FILENAME) {
         let version = first_version().to_string();
         let history = history(&store, None, &tree, &release_of(&version))?;
         return Ok(assemble(&Loaded::of(&store, &tree)?, &history, &version));

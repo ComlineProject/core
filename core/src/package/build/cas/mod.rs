@@ -41,7 +41,7 @@ mod schema;
 pub use storage::{Hash, compress, decompress};
 pub use object_store::ObjectStore;
 #[cfg(feature = "compiler")]
-pub use refs::{update_ref, read_ref, ref_exists, main_ref};
+pub use refs::{update_ref, read_ref, ref_exists, REF_HEAD_MAIN_FILENAME};
 pub use version::VersionBump;
 
 // Standard Uses

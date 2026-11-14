@@ -13,7 +13,7 @@ use comline_core::doc::{changelog, frozen_config, frozen_schemas};
 use comline_core::inspect;
 use comline_core::package::build::cas::build::{compare, working_tree, UnseenConfig};
 use comline_core::package::build::cas::objects::{Commit, EntryMode, Tree};
-use comline_core::package::build::cas::{main_ref, read_ref, update_ref, ObjectStore};
+use comline_core::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, update_ref, ObjectStore};
 use comline_core::package::build::{build, compile_package, VersionBump};
 use comline_core::package::config::ir::frozen::cas::blob::{self, StoredConfigs};
 use comline_core::schema::ir::diff::{BreakingChange, NewFeature, WireFacts};
@@ -291,7 +291,7 @@ fn the_changelog_uses_the_full_view() {
 
 fn head(dir: &Path) -> (ObjectStore, Commit, Tree) {
     let store = ObjectStore::new(dir);
-    let hash = read_ref(dir, main_ref()).unwrap();
+    let hash = read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap();
     let commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     (store, commit, tree)
@@ -375,7 +375,7 @@ fn a_stored_version_gives_the_facts_the_live_package_does() {
             .collect::<Vec<_>>()
     );
     // And what the history recorded is what recomputing it gives.
-    let hash = read_ref(&dir, main_ref()).unwrap();
+    let hash = read_ref(&dir, REF_HEAD_MAIN_FILENAME).unwrap();
     assert_eq!(
         compat::history_of_commit(&store, &hash).unwrap(),
         compat::compute_history_of_commit(&store, &head(&dir).1, &tree).unwrap()
@@ -446,7 +446,7 @@ fn store_as_before_configs_were_kept(dir: &Path) -> Tree {
     let mut rewritten = commit;
     rewritten.tree = store.write(&old.to_bytes().unwrap()).unwrap();
     let hash = store.write(&rewritten.to_bytes().unwrap()).unwrap();
-    update_ref(dir, main_ref(), &hash).unwrap();
+    update_ref(dir, REF_HEAD_MAIN_FILENAME, &hash).unwrap();
     old
 }
 

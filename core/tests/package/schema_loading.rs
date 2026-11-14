@@ -63,7 +63,7 @@ fn test_schema_lifecycle() {
     assert!(main_ref.exists(), "main ref not created");
 
     // Verify we can read the ref
-    assert!(refs::ref_exists(&package_path, refs::main_ref()), "main ref should exist");
+    assert!(refs::ref_exists(&package_path, refs::REF_HEAD_MAIN_FILENAME), "main ref should exist");
 
     let released = comline_core::package::build::release(&package_path, &Default::default())
         .expect("first release");

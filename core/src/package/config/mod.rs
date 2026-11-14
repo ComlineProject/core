@@ -8,7 +8,7 @@ pub mod dependency;  // NEW: Dependency configuration
 use std::path::Path;
 
 // Crate Uses
-use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
+use crate::package::config::idl::PACKAGE_CONFIG_FILENAME;
 
 // External Uses
 
@@ -16,10 +16,6 @@ use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
 /// Determines if given path is a package directory by checking minimally
 /// required files in it
 pub fn is_package_path(package_path: &Path) -> bool {
-    let config_path = package_path.join(
-        format!("config.{}", CONGREGATION_EXTENSION)
-    );
-
-    config_path.exists()
+    package_path.join(PACKAGE_CONFIG_FILENAME).exists()
 }
 

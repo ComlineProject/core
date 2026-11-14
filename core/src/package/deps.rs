@@ -298,15 +298,15 @@ pub(crate) fn resolve_dependency_schemas(
 /// own CAS history says — this reads the ground truth.
 fn resolved_version(package_path: &Path) -> String {
     use crate::package::build::cas::objects::Commit;
-    use crate::package::build::cas::{main_ref, read_ref, ref_exists, ObjectStore};
+    use crate::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, ref_exists, ObjectStore};
 
-    if !ref_exists(package_path, main_ref()) {
+    if !ref_exists(package_path, REF_HEAD_MAIN_FILENAME) {
         return "0.0.0-unbuilt".to_string();
     }
 
     (|| -> Result<String> {
         let store = ObjectStore::new(package_path);
-        let commit_hash = read_ref(package_path, main_ref())?;
+        let commit_hash = read_ref(package_path, REF_HEAD_MAIN_FILENAME)?;
         let commit = Commit::from_bytes(&store.read(&commit_hash)?)?;
         Ok(commit.version)
     })()
