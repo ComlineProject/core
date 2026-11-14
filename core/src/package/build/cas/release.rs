@@ -13,7 +13,7 @@ use std::path::Path;
 use super::build::{compare, last_release, Comparison};
 use super::object_store::{ensure_compatible_store, ObjectStore};
 use super::objects::{Commit, Release, Tree};
-use super::refs::{main_ref, read_ref, ref_exists, update_ref};
+use super::refs::{REF_HEAD_MAIN_FILENAME, read_ref, ref_exists, update_ref};
 use super::version::{next_release, VersionBump};
 use crate::schema::ir::frozen::cas::commit::create_version_commit;
 
@@ -47,11 +47,11 @@ pub struct ReleaseInfo {
 /// The latest release in the package's history, if any.
 pub fn latest_release(project_path: &Path) -> Result<Option<Commit>> {
     ensure_compatible_store(project_path)?;
-    if !ref_exists(project_path, main_ref()) {
+    if !ref_exists(project_path, REF_HEAD_MAIN_FILENAME) {
         return Ok(None);
     }
     let store = ObjectStore::new(project_path);
-    let (release, _) = last_release(&store, read_ref(project_path, main_ref())?)?;
+    let (release, _) = last_release(&store, read_ref(project_path, REF_HEAD_MAIN_FILENAME)?)?;
     Ok(release.map(|(_, commit)| commit))
 }
 
@@ -64,12 +64,12 @@ pub fn release(project_path: &Path, request: &ReleaseRequest) -> Result<ReleaseI
         bail!("a release to 1.0.0 can't also raise the bump: 1.0.0 is the version it makes");
     }
     ensure_compatible_store(project_path)?;
-    if !ref_exists(project_path, main_ref()) {
+    if !ref_exists(project_path, REF_HEAD_MAIN_FILENAME) {
         bail!("nothing built yet: run `comline build` first");
     }
 
     let store = ObjectStore::new(project_path);
-    let head_hash = read_ref(project_path, main_ref())?;
+    let head_hash = read_ref(project_path, REF_HEAD_MAIN_FILENAME)?;
     let head = Commit::from_bytes(&store.read(&head_hash)?)?;
     let (previous, _) = last_release(&store, head_hash)?;
     let previous_version = previous
@@ -154,7 +154,7 @@ pub fn release(project_path: &Path, request: &ReleaseRequest) -> Result<ReleaseI
     let mut commit = create_version_commit(tree, head_hash, &version.to_string(), &message);
     commit.release = Some(record.clone());
     let commit_hash = store.write(&commit.to_bytes()?)?;
-    update_ref(project_path, main_ref(), &commit_hash)?;
+    update_ref(project_path, REF_HEAD_MAIN_FILENAME, &commit_hash)?;
 
     Ok(ReleaseInfo {
         previous_release: previous.map(|(_, commit)| commit.version),

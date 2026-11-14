@@ -27,7 +27,7 @@ fn scaffold(root: &std::path::Path, config: &str) {
 
 fn root_tree(root: &std::path::Path) -> (ObjectStore, Tree) {
     let store = ObjectStore::new(root);
-    let head = refs::read_ref(root, refs::main_ref()).unwrap();
+    let head = refs::read_ref(root, refs::REF_HEAD_MAIN_FILENAME).unwrap();
     let commit = Commit::from_bytes(&store.read(&head).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     (store, tree)
@@ -69,7 +69,7 @@ fn a_config_only_change_commits_without_bumping_the_version() {
     scaffold(dir.path(), CONFIG);
 
     let v1 = build(dir.path()).unwrap().current_version;
-    let head1 = refs::read_ref(dir.path(), refs::main_ref()).unwrap();
+    let head1 = refs::read_ref(dir.path(), refs::REF_HEAD_MAIN_FILENAME).unwrap();
 
     // Add a declared language — a config-only change, no schema edit.
     scaffold(
@@ -77,7 +77,7 @@ fn a_config_only_change_commits_without_bumping_the_version() {
         &CONFIG.replace("rust#1.70.0 = {}", "rust#1.70.0 = {}\n        python#3.11.0 = {}"),
     );
     let res = build(dir.path()).unwrap();
-    let head2 = refs::read_ref(dir.path(), refs::main_ref()).unwrap();
+    let head2 = refs::read_ref(dir.path(), refs::REF_HEAD_MAIN_FILENAME).unwrap();
 
     assert_ne!(head1, head2, "a config change creates a new commit");
     // A new build, so the next dev count; but nothing calls for a bump.

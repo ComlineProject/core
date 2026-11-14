@@ -42,7 +42,7 @@ fn write_consumer(dir: &Path, schema: &str) {
 
 fn root_tree(root: &Path) -> (ObjectStore, Tree) {
     let store = ObjectStore::new(root);
-    let head = refs::read_ref(root, refs::main_ref()).unwrap();
+    let head = refs::read_ref(root, refs::REF_HEAD_MAIN_FILENAME).unwrap();
     let commit = Commit::from_bytes(&store.read(&head).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     (store, tree)

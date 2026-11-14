@@ -139,17 +139,17 @@ fn nothing_that_calls_for_a_bump_needs_a_raise_to_release() {
 #[test]
 fn an_old_history_s_plain_versions_count_as_releases() {
     use comline_core::package::build::cas::objects::Commit;
-    use comline_core::package::build::cas::{main_ref, read_ref, update_ref, ObjectStore};
+    use comline_core::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, update_ref, ObjectStore};
 
     // A history built before builds and releases were separate: its head is
     // a plain 0.0.3, written without a release record.
     let dir = package();
     build(dir.path()).unwrap();
     let store = ObjectStore::new(dir.path());
-    let head = Commit::from_bytes(&store.read(&read_ref(dir.path(), main_ref()).unwrap()).unwrap()).unwrap();
+    let head = Commit::from_bytes(&store.read(&read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap()).unwrap()).unwrap();
     let old = Commit::new(head.tree, vec![], "someone".into(), 0, "Patch version bump".into(), "0.0.3".into());
     let old_hash = store.write(&old.to_bytes().unwrap()).unwrap();
-    update_ref(dir.path(), main_ref(), &old_hash).unwrap();
+    update_ref(dir.path(), REF_HEAD_MAIN_FILENAME, &old_hash).unwrap();
     assert_eq!(latest_release(dir.path()).unwrap().unwrap().version, "0.0.3");
 
     // Anything new leaves the 0.0 era for 0.1.0.

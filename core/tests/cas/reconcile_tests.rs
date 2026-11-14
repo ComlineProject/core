@@ -9,7 +9,7 @@ use std::path::Path;
 use comline_core::compat;
 use comline_core::package::build::cas::objects::Commit;
 use comline_core::package::build::cas::reconcile::{mark_diverged, read_heads, Heads};
-use comline_core::package::build::cas::{main_ref, read_ref, Hash, ObjectStore};
+use comline_core::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, Hash, ObjectStore};
 use comline_core::package::build::{build, latest_release, release, ReleaseRequest};
 use tempfile::TempDir;
 
@@ -46,7 +46,7 @@ fn branch(dir: &Path) -> TempDir {
 }
 
 fn head(dir: &Path) -> Hash {
-    read_ref(dir, main_ref()).unwrap()
+    read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap()
 }
 
 fn commit(dir: &Path, hash: &Hash) -> Commit {
@@ -60,7 +60,7 @@ fn merge(ours: &Path, theirs: &Path) -> (Hash, Hash) {
     let (a, b) = (head(ours), head(theirs));
     copy_dir(&theirs.join(".comline/objects"), &ours.join(".comline/objects"));
     fs::write(
-        ours.join(".comline").join(main_ref()),
+        ours.join(".comline").join(REF_HEAD_MAIN_FILENAME),
         format!("<<<<<<< HEAD\n{a}\n=======\n{b}\n>>>>>>> theirs\n"),
     )
     .unwrap();
@@ -76,7 +76,7 @@ fn since(dir: &Path, protocol: &str, function: &str) -> String {
 
 /// The two parents of the new head, and that the ref is clean again.
 fn parents(dir: &Path) -> Vec<Hash> {
-    let text = fs::read_to_string(dir.join(".comline").join(main_ref())).unwrap();
+    let text = fs::read_to_string(dir.join(".comline").join(REF_HEAD_MAIN_FILENAME)).unwrap();
     assert_eq!(text.trim().len(), 64, "the ref is one hash again: {text}");
     assert!(matches!(read_heads(dir).unwrap(), Heads::One(_)));
     commit(dir, &head(dir)).parents
@@ -177,21 +177,21 @@ fn releases_on_both_sides_refuse_until_one_is_picked() {
     release(theirs.path(), &ReleaseRequest::default()).unwrap();
 
     let (a, b) = merge(ours.path(), theirs.path());
-    let conflicted = fs::read_to_string(ours.path().join(".comline").join(main_ref())).unwrap();
+    let conflicted = fs::read_to_string(ours.path().join(".comline").join(REF_HEAD_MAIN_FILENAME)).unwrap();
     let err = build(ours.path()).unwrap_err().to_string();
     assert!(err.contains("both branches released"), "{err}");
     assert!(err.contains("0.1.0 ("), "names the common ancestor: {err}");
     assert!(err.contains(&a.to_hex()) && err.contains(&b.to_hex()), "{err}");
     assert!(err.contains("Pick the release to keep"), "{err}");
     // Nothing written: the ref is as Git left it.
-    let after = fs::read_to_string(ours.path().join(".comline").join(main_ref())).unwrap();
+    let after = fs::read_to_string(ours.path().join(".comline").join(REF_HEAD_MAIN_FILENAME)).unwrap();
     assert_eq!(after, conflicted);
     // Neither can a release go ahead on a conflicted ref.
     let err = release(ours.path(), &ReleaseRequest::default()).unwrap_err().to_string();
     assert!(err.contains("conflict markers"), "{err}");
 
     // Picking one: the other side's changes build on top of its release.
-    fs::write(ours.path().join(".comline").join(main_ref()), a.to_hex()).unwrap();
+    fs::write(ours.path().join(".comline").join(REF_HEAD_MAIN_FILENAME), a.to_hex()).unwrap();
     let built = build(ours.path()).unwrap();
     assert_eq!(built.last_release.as_deref(), Some("0.1.1"));
     assert_eq!(built.current_version, "0.1.2-dev.1");
@@ -210,7 +210,7 @@ fn a_ref_resolved_to_one_side_can_be_marked_diverged_again() {
 
     // Resolved by taking ours: their commit is orphaned.
     let (a, b) = merge(ours.path(), theirs.path());
-    fs::write(ours.path().join(".comline").join(main_ref()), a.to_hex()).unwrap();
+    fs::write(ours.path().join(".comline").join(REF_HEAD_MAIN_FILENAME), a.to_hex()).unwrap();
 
     mark_diverged(ours.path(), &b).unwrap();
     assert_eq!(read_heads(ours.path()).unwrap(), Heads::Two(a, b));
