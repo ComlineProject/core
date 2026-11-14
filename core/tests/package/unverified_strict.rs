@@ -340,7 +340,7 @@ fn strict_a_marker_on_a_type_used_twice_is_innermost() {
 #[test]
 fn strict_a_type_in_another_schema_of_the_package_is_judged_where_it_is_declared() {
     let models = format!("@unverified(bounded_size = \"{WHY}\")\ntype Blob = string\n");
-    let api = "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n";
+    let api = "use package::models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n";
     PackageSources::new()
         .config(config(STRICT))
         .schema(["api"], api)

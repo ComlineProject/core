@@ -51,7 +51,7 @@ fn test_whole_schema_use_resolves_across_files() {
     add_schema(
         &mut project,
         &["api"],
-        "use types\n\nstruct Response {\n    id: u64\n}\n",
+        "use package::types\n\nstruct Response {\n    id: u64\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -73,7 +73,7 @@ fn test_symbol_use_resolves_to_declaring_schema() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::User\n\nstruct Response {\n    id: u64\n}\n",
+        "use package::types::User\n\nstruct Response {\n    id: u64\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -99,7 +99,7 @@ fn test_multi_item_use_resolves_each_symbol() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::{User, Post}\n\nstruct Response {\n    id: u64\n}\n",
+        "use package::types::{User, Post}\n\nstruct Response {\n    id: u64\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -124,7 +124,7 @@ fn test_glob_use_resolves_namespace() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::*\n\nstruct Response {\n    id: u64\n}\n",
+        "use package::types::*\n\nstruct Response {\n    id: u64\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -142,8 +142,8 @@ fn test_glob_use_resolves_namespace() {
 #[test]
 fn test_import_cycle_between_schemas_is_rejected() {
     let mut project = build_project();
-    add_schema(&mut project, &["a"], "use b\n\nstruct A {\n    id: u64\n}\n");
-    add_schema(&mut project, &["b"], "use a\n\nstruct B {\n    id: u64\n}\n");
+    add_schema(&mut project, &["a"], "use package::b\n\nstruct A {\n    id: u64\n}\n");
+    add_schema(&mut project, &["b"], "use package::a\n\nstruct B {\n    id: u64\n}\n");
 
     let result = interpret_context(&project);
     assert!(result.is_err(), "Expected a cycle error, got {:?}", result);
@@ -172,7 +172,7 @@ fn test_same_package_symbol_not_found_is_rejected() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::Missing\n\nstruct Response {\n    id: u64\n}\n",
+        "use package::types::Missing\n\nstruct Response {\n    id: u64\n}\n",
     );
 
     // Builds used to trust this; an import of something that doesn't exist
@@ -197,7 +197,7 @@ fn test_unknown_namespace_is_rejected_with_a_suggestion() {
 fn test_multi_item_use_rejects_only_the_undeclared_item() {
     let mut project = build_project();
     add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
-    add_schema(&mut project, &["api"], "use types::{User, Nope}\n\nstruct R {\n    u: User\n}\n");
+    add_schema(&mut project, &["api"], "use package::types::{User, Nope}\n\nstruct R {\n    u: User\n}\n");
 
     let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
     assert!(error.contains("doesn't declare 'Nope'"), "{error}");
@@ -307,7 +307,7 @@ fn test_bare_prefix_glob_of_a_missing_schema_is_rejected() {
 fn test_importing_an_error_resolves() {
     let mut project = build_project();
     add_schema(&mut project, &["errs"], "error Gone {\n    message = \"gone\"\n}\n");
-    add_schema(&mut project, &["api"], "use errs::Gone\n\nstruct R {\n    id: u64\n}\n");
+    add_schema(&mut project, &["api"], "use package::errs::Gone\n\nstruct R {\n    id: u64\n}\n");
 
     interpret_context(&project).expect("an error is importable");
 }
@@ -356,11 +356,11 @@ fn test_a_typo_in_a_dependency_name_is_rejected_with_a_suggestion() {
 
 #[test]
 fn test_a_dependency_schemas_own_imports_are_not_checked_in_the_consumer() {
-    // Merged under its name, a dependency's own `use foo::X` (relative to
-    // the dependency) doesn't line up with the consumer's namespaces; it was
+    // Merged under its name, a dependency's own `use package::foo::X` (relative
+    // to the dependency) doesn't line up with the consumer's namespaces; it was
     // checked when the dependency was compiled on its own.
     let mut project = build_project_with_dependency();
-    add_schema(&mut project, &["shared", "bar"], "use foo::X\n\nstruct B {\n    x: X\n}\n");
+    add_schema(&mut project, &["shared", "bar"], "use package::foo::X\n\nstruct B {\n    x: X\n}\n");
 
     interpret_context(&project).expect("a dependency's own imports pass");
 }
@@ -372,7 +372,7 @@ fn test_whole_namespace_import_allows_qualified_field_reference() {
     add_schema(
         &mut project,
         &["api"],
-        "use types\n\nstruct Response {\n    user: types::User\n}\n",
+        "use package::types\n\nstruct Response {\n    user: types::User\n}\n",
     );
 
     interpret_context(&project).expect(
@@ -388,7 +388,7 @@ fn test_glob_import_allows_qualified_field_reference() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::*\n\nstruct Response {\n    user: types::User\n}\n",
+        "use package::types::*\n\nstruct Response {\n    user: types::User\n}\n",
     );
 
     interpret_context(&project).expect(
@@ -440,7 +440,7 @@ fn test_use_binds_the_bare_name() {
         &mut project,
         &["api"],
         // bare `User`, not `types::User`
-        "use types::User\n\nstruct Session {\n    user: User\n}\n",
+        "use package::types::User\n\nstruct Session {\n    user: User\n}\n",
     );
 
     interpret_context(&project).expect("a bare reference after `use` should resolve");
@@ -453,7 +453,7 @@ fn test_use_as_binds_the_alias() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::User as Account\n\nstruct Session {\n    who: Account\n}\n",
+        "use package::types::User as Account\n\nstruct Session {\n    who: Account\n}\n",
     );
 
     interpret_context(&project).expect("the alias should resolve as a type");
@@ -478,7 +478,7 @@ fn test_use_as_does_not_bind_the_original_bare_name() {
         &mut project,
         &["api"],
         // aliased, so bare `User` is NOT in scope — only `Account` (or `types::User`)
-        "use types::User as Account\n\nstruct Session {\n    who: User\n}\n",
+        "use package::types::User as Account\n\nstruct Session {\n    who: User\n}\n",
     );
 
     assert!(
@@ -527,7 +527,7 @@ fn test_thrown_foreign_error_gets_a_reexport_slot() {
     add_schema(
         &mut project,
         &["api"],
-        "use errs::NotFound\n\nprotocol Store {\n    function get(u64) -> char[max 64] ! NotFound;\n}\n",
+        "use package::errs::NotFound\n\nprotocol Store {\n    function get(u64) -> char[max 64] ! NotFound;\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -567,7 +567,7 @@ fn test_local_errors_keep_low_ordinals_foreign_reexports_come_after() {
     add_schema(
         &mut project,
         &["api"],
-        "use errs::Denied\n\n\
+        "use package::errs::Denied\n\n\
          error Local {\n    message = \"local\"\n}\n\
          protocol Store {\n    function act(u64) -> char[max 64] ! Denied;\n}\n",
     );
@@ -615,7 +615,7 @@ fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::UserId\n\nstruct Response {\n    id: UserId\n}\n",
+        "use package::types::UserId\n\nstruct Response {\n    id: UserId\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -641,7 +641,7 @@ fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
         &["api"],
         // bare `id: UserId`, not `id: types::UserId` - exercises the
         // `declared_symbol_names` whole-namespace expansion path.
-        "use types\n\nstruct Response {\n    id: UserId\n}\n",
+        "use package::types\n\nstruct Response {\n    id: UserId\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -659,11 +659,11 @@ fn test_cross_file_alias_chain_through_two_files_keeps_the_written_name() {
 
     let mut project = build_project();
     add_schema(&mut project, &["a"], "type Id = u64\n");
-    add_schema(&mut project, &["b"], "use a::Id\n\ntype ForeignId = Id\n");
+    add_schema(&mut project, &["b"], "use package::a::Id\n\ntype ForeignId = Id\n");
     add_schema(
         &mut project,
         &["c"],
-        "use b::ForeignId\n\nstruct Response {\n    id: ForeignId\n}\n",
+        "use package::b::ForeignId\n\nstruct Response {\n    id: ForeignId\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -689,7 +689,7 @@ fn test_cross_file_alias_target_that_is_a_real_struct_is_not_inlined() {
         &["api"],
         // `User` is a real struct, not a `type` alias - must be left as a
         // by-name reference, not inlined into its field list.
-        "use types::User\n\nstruct Response {\n    id: User\n}\n",
+        "use package::types::User\n\nstruct Response {\n    id: User\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -741,19 +741,19 @@ fn an_imported_constant_is_checked_where_it_is_named() {
     add_schema(
         &mut project,
         &["api"],
-        "use limits::MAX\nuse limits::SMALL\n\nconst OWN: u32 = MAX\n\nstruct R {\n    a: u32 = MAX\n    b: u8 = SMALL\n}\n",
+        "use package::limits::MAX\nuse package::limits::SMALL\n\nconst OWN: u32 = MAX\n\nstruct R {\n    a: u32 = MAX\n    b: u8 = SMALL\n}\n",
     );
     interpret_context(&project).expect("values that fit should build");
 
     let mut project = build_project();
     add_schema(&mut project, &["limits"], "const BASE: u32 = 500\nconst MAX: u32 = BASE\n");
-    add_schema(&mut project, &["api"], "use limits::MAX\n\nstruct R {\n    a: u8 = MAX\n}\n");
+    add_schema(&mut project, &["api"], "use package::limits::MAX\n\nstruct R {\n    a: u8 = MAX\n}\n");
     let error = interpret_context(&project).expect_err("500 doesn't fit a u8").to_string();
     assert!(error.contains("`MAX` is 500, which does not fit in `u8`"), "{error}");
 
     let mut project = build_project();
     add_schema(&mut project, &["limits"], "const MAX: u32 = 500\n");
-    add_schema(&mut project, &["api"], "use limits\n\nconst OWN: u8 = limits::MAX\n");
+    add_schema(&mut project, &["api"], "use package::limits\n\nconst OWN: u8 = limits::MAX\n");
     let error = interpret_context(&project).expect_err("500 doesn't fit a u8").to_string();
     assert!(error.contains("`limits::MAX` is 500, which does not fit in `u8`"), "{error}");
 }
@@ -763,7 +763,7 @@ fn an_imported_constant_is_checked_where_it_is_named() {
 fn an_imported_constant_sizes_an_array() {
     let mut project = build_project();
     add_schema(&mut project, &["limits"], "const NAME: u32 = 24\n");
-    add_schema(&mut project, &["api"], "use limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
+    add_schema(&mut project, &["api"], "use package::limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
     interpret_context(&project).expect("an imported size should build");
     let frozen = frozen_units_for(&project, "api");
     let ty = frozen.iter().find_map(|u| match u {
@@ -777,8 +777,141 @@ fn an_imported_constant_sizes_an_array() {
 
     let mut project = build_project();
     add_schema(&mut project, &["limits"], "const NAME: s32 = 24\n");
-    add_schema(&mut project, &["api"], "use limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
+    add_schema(&mut project, &["api"], "use package::limits::NAME\n\nstruct R {\n    name: char[max NAME]\n}\n");
     let error = interpret_context(&project).expect_err("a signed size is refused").to_string();
     assert!(error.contains("the maximum `NAME` isn't an unsigned integer constant"), "{error}");
 }
 
+
+// ---- Own schemas are reached only through `package::`, `parent::` or `self::`.
+
+fn bare_path_errors(project: &ProjectContext, namespace: &[&str]) -> Vec<comline_core::diagnostics::Diagnostic> {
+    use comline_core::schema::ir::compiler::import_resolver::check_imports;
+
+    let namespace: Vec<String> = namespace.iter().map(|s| s.to_string()).collect();
+    let schema = project
+        .schema_contexts
+        .iter()
+        .find(|schema| schema.borrow().namespace == namespace)
+        .expect("schema should exist");
+    let declarations = schema.borrow().declarations.clone();
+    check_imports(&declarations, &namespace, project).err().unwrap_or_default()
+}
+
+const TYPES: &str = "struct User {\n    id: u64\n}\n\nstruct Post {\n    id: u64\n}\n";
+
+#[test]
+fn test_a_bare_path_to_an_own_schema_is_an_error_with_a_fix_that_writes_package() {
+    use comline_core::schema::ir::compiler::import_resolver::BARE_OWN_SCHEMA_PATH;
+
+    // Each form of a `use`, and what the fix makes of it.
+    let cases = [
+        ("use types::User\n\nstruct R {\n    u: User\n}\n", "use package::types::User\n\nstruct R {\n    u: User\n}\n"),
+        ("use types\n\nstruct R {\n    u: types::User\n}\n", "use package::types\n\nstruct R {\n    u: types::User\n}\n"),
+        ("use types::*\n\nstruct R {\n    u: User\n}\n", "use package::types::*\n\nstruct R {\n    u: User\n}\n"),
+        (
+            "use types::{User, Post}\n\nstruct R {\n    u: User\n    p: Post\n}\n",
+            "use package::types::{User, Post}\n\nstruct R {\n    u: User\n    p: Post\n}\n",
+        ),
+        ("use types::User as Account\n\nstruct R {\n    u: Account\n}\n", "use package::types::User as Account\n\nstruct R {\n    u: Account\n}\n"),
+        // Where the path sits in the file doesn't matter.
+        (
+            "// the users\n\nuse   types::User\n\nstruct R {\n    u: User\n}\n",
+            "// the users\n\nuse   package::types::User\n\nstruct R {\n    u: User\n}\n",
+        ),
+    ];
+    for (source, fixed) in cases {
+        let mut project = build_project();
+        add_schema(&mut project, &["types"], TYPES);
+        add_schema(&mut project, &["api"], source);
+
+        let errors = bare_path_errors(&project, &["api"]);
+        assert_eq!(errors.len(), 1, "{source}: {errors:?}");
+        assert_eq!(errors[0].code, BARE_OWN_SCHEMA_PATH, "{source}");
+        assert_eq!(errors[0].code.id, "import::bare-own-schema-path");
+        let fix = errors[0].fix.as_ref().unwrap_or_else(|| panic!("{source}: no fix"));
+        assert_eq!(fix.apply(source), fixed, "{source}");
+
+        // The error stops the build, and what the fix writes builds, with the
+        // references the import brought in (`types::User`) as they were.
+        let error = interpret_context(&project).expect_err("a bare path to an own schema is refused").to_string();
+        assert!(error.contains("import::bare-own-schema-path"), "{source}: {error}");
+        let mut project = build_project();
+        add_schema(&mut project, &["types"], TYPES);
+        add_schema(&mut project, &["api"], fixed);
+        assert!(bare_path_errors(&project, &["api"]).is_empty(), "{fixed}");
+        interpret_context(&project).unwrap_or_else(|e| panic!("{fixed}: {e}"));
+    }
+}
+
+#[test]
+fn test_the_error_for_a_bare_path_says_what_to_write() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], TYPES);
+    add_schema(&mut project, &["api"], "use types::{User, Post}\n\nstruct R {\n    u: User\n}\n");
+
+    let errors = bare_path_errors(&project, &["api"]);
+    assert_eq!(errors[0].message, "'types::{User, Post}' is one of this package's own schemas, reached by a bare path");
+    assert!(errors[0].help.as_deref().unwrap().contains("write `package::types::{User, Post}`"), "{:?}", errors[0].help);
+    assert_eq!(errors[0].fix.as_ref().unwrap().title, "Write `package::types::{User, Post}`");
+}
+
+#[test]
+fn test_a_bare_path_into_a_directory_of_the_package_gets_package_in_front() {
+    let mut project = build_project();
+    add_schema(&mut project, &["shapes", "models"], TYPES);
+    add_schema(&mut project, &["shapes", "api"], "use shapes::models::User\n\nstruct R {\n    u: User\n}\n");
+
+    let errors = bare_path_errors(&project, &["shapes", "api"]);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    let source = "use shapes::models::User\n\nstruct R {\n    u: User\n}\n";
+    assert_eq!(
+        errors[0].fix.as_ref().unwrap().apply(source),
+        "use package::shapes::models::User\n\nstruct R {\n    u: User\n}\n"
+    );
+}
+
+#[test]
+fn test_relative_paths_to_own_schemas_are_not_errors() {
+    let mut project = build_project();
+    add_schema(&mut project, &["shapes", "models"], TYPES);
+    add_schema(&mut project, &["shapes", "package_path"], "use package::shapes::models::User\n\nstruct A {\n    u: User\n}\n");
+    add_schema(&mut project, &["shapes", "parent_path"], "use parent::models::User\n\nstruct B {\n    u: User\n}\n");
+    add_schema(&mut project, &["shapes", "self_path", "models"], TYPES);
+    add_schema(&mut project, &["shapes", "self_path"], "use self::models::User\n\nstruct C {\n    u: User\n}\n");
+    add_schema(&mut project, &["shapes", "models", "glob"], "use parent::*\n\nstruct D {\n    u: User\n}\n");
+
+    for namespace in ["package_path", "parent_path", "self_path"] {
+        let errors = bare_path_errors(&project, &["shapes", namespace]);
+        assert!(errors.is_empty(), "{namespace}: {errors:?}");
+    }
+    let errors = bare_path_errors(&project, &["shapes", "models", "glob"]);
+    assert!(errors.is_empty(), "{errors:?}");
+}
+
+#[cfg(feature = "deps")]
+#[test]
+fn test_a_bare_path_to_a_dependency_or_std_is_not_this_error() {
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["shared", "models"], "struct Thing {\n    id: u64\n}\n");
+    add_schema(
+        &mut project,
+        &["api"],
+        "use shared::models::Thing\nuse std::http::Request\n\nstruct R {\n    t: Thing\n    r: Request\n}\n",
+    );
+
+    let errors = bare_path_errors(&project, &["api"]);
+    assert!(errors.iter().all(|e| e.code.id != "import::bare-own-schema-path"), "{errors:?}");
+}
+
+#[test]
+fn test_a_path_that_matches_nothing_is_unresolved_not_a_bare_own_path() {
+    let mut project = build_project();
+    add_schema(&mut project, &["types"], TYPES);
+    add_schema(&mut project, &["api"], "use typse::User\n\nstruct R {\n    u: User\n}\n");
+
+    let errors = bare_path_errors(&project, &["api"]);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert_eq!(errors[0].code.id, "import::unresolved");
+    assert!(errors[0].fix.is_none());
+}

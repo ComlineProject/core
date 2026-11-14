@@ -203,7 +203,7 @@ fn a_struct_marker_is_a_type_marker_too() {
 fn a_type_in_another_schema_of_the_package_is_covered_by_its_marker() {
     let models =
         format!("@unverified(bounded_size = \"{WHY}\")\nstruct Blob {{\n    data: string\n}}\n");
-    let api = "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n";
+    let api = "use package::models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n";
     let ctx = PackageSources::new()
         .config(&config(ALLOW))
         .schema(["api"], api)

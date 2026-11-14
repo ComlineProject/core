@@ -2,7 +2,7 @@
 //!
 //! Packages are `p0`, `p1`, ... and each depends only on lower ones, so the
 //! graph is a DAG by construction. A package's schemas are `src/s0.ids`,
-//! `src/s1.ids`, ...; every package has an `s0`, and a `use s0::T` names the
+//! `src/s1.ids`, ...; every package has an `s0`, and a `use package::s0::T` names the
 //! schema of the package it is written in; a schema holds structs and
 //! protocols. Type and protocol names are unique across the whole graph
 //! (`P1S0T2`, `P1S0Q0`): an acceptance names a protocol and nothing else.
@@ -291,7 +291,7 @@ impl Model {
         for ty in tys {
             if let Ty::Struct { of, .. } = ty {
                 if (of.pkg, of.schema) != (pkg, schema) {
-                    let path = if of.pkg == pkg { format!("s{}", of.schema) } else { format!("p{}::s{}", of.pkg, of.schema) };
+                    let path = if of.pkg == pkg { format!("package::s{}", of.schema) } else { format!("p{}::s{}", of.pkg, of.schema) };
                     uses.insert(format!("use {path}::{}\n", self.type_name(*of)));
                 }
             }

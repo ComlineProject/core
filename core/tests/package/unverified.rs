@@ -373,7 +373,7 @@ const MARKED_ORDERS: &str =
 fn an_unbounded_type_from_another_schema_is_unbounded_where_used() {
     let err = compile_with(
         &[("models", MODELS)],
-        &format!("use models::Blob\n\n{ORDERS}"),
+        &format!("use package::models::Blob\n\n{ORDERS}"),
     )
     .unwrap_err()
     .to_string();
@@ -387,7 +387,7 @@ fn an_unbounded_type_from_another_schema_is_unbounded_where_used() {
 fn a_marked_protocol_using_it_gives_up_bounded_size() {
     let units = compile_with(
         &[("models", MODELS)],
-        &format!("use models::Blob\n\n{MARKED_ORDERS}"),
+        &format!("use package::models::Blob\n\n{MARKED_ORDERS}"),
     )
     .unwrap();
     assert_eq!(
@@ -401,7 +401,7 @@ fn a_type_bounded_where_declared_is_bounded_where_used() {
     let models = MODELS.replace("data: string", "data: char[max 64]");
     let units = compile_with(
         &[("models", &models)],
-        &format!("use models::Blob\n\n{ORDERS}"),
+        &format!("use package::models::Blob\n\n{ORDERS}"),
     )
     .unwrap();
     assert!(unverified::frozen_set(protocol_params(&units, "Orders")).is_empty());
@@ -409,7 +409,7 @@ fn a_type_bounded_where_declared_is_bounded_where_used() {
 
 #[test]
 fn it_stays_unbounded_through_a_rename_a_struct_and_another_schema() {
-    let renamed = "use models::Blob as Payload\n\n\
+    let renamed = "use package::models::Blob as Payload\n\n\
          protocol Orders {\n    function send(b: Payload);\n}\n";
     let err = compile_with(&[("models", MODELS)], renamed)
         .unwrap_err()
@@ -421,7 +421,7 @@ fn it_stays_unbounded_through_a_rename_a_struct_and_another_schema() {
 
     // `Order` holds a `Blob`; no protocol here reaches it, so another
     // schema could use it, and it has to be bounded.
-    let held = "use models::Blob\n\nstruct Order {\n    blob: Blob\n}\n";
+    let held = "use package::models::Blob\n\nstruct Order {\n    blob: Blob\n}\n";
     let err = compile_with(&[("models", MODELS)], held)
         .unwrap_err()
         .to_string();
@@ -432,9 +432,9 @@ fn it_stays_unbounded_through_a_rename_a_struct_and_another_schema() {
 
     // `wrap` holds it in `Wrapper`, reached only by its own marked
     // protocol; `api` uses `Wrapper`.
-    let wrap = "use models::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n\
+    let wrap = "use package::models::Blob\n\nstruct Wrapper {\n    blob: Blob\n}\n\n\
          @unverified = \"wraps uploads\"\nprotocol Wrap {\n    function wrap(w: Wrapper);\n}\n";
-    let api = "use wrap::Wrapper\n\nprotocol Orders {\n    function send(w: Wrapper);\n}\n";
+    let api = "use package::wrap::Wrapper\n\nprotocol Orders {\n    function send(w: Wrapper);\n}\n";
     let err = compile_with(&[("wrap", wrap), ("models", MODELS)], api)
         .unwrap_err()
         .to_string();

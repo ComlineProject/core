@@ -1,0 +1,642 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "imports",
+    "cases": [
+        {
+            "id": "imports/bare-own-item",
+            "description": "a bare path to an item of the package's own schema is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/bare-own-namespace",
+            "description": "a bare path to the package's own schema as a whole is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/bare-own-multi",
+            "description": "a bare path with {...} to the package's own schema is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::{Blob, Tag}\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/bare-own-glob",
+            "description": "a bare path with * to the package's own schema is an error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::*\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/bare-own-nested",
+            "description": "a bare path to a schema in a directory of the package is an error, whatever the importing schema's own place",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/shapes/api.ids",
+                            "text": "use shapes::models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/package-item",
+            "description": "package:: reaches an item of the package's own schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/package-namespace",
+            "description": "package:: reaches the package's own schema as a whole",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::models\n\nstruct Upload {\n    blob: models::Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/package-multi",
+            "description": "package:: with {...} reaches several items of the package's own schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::models::{Blob, Tag}\n\nstruct Upload {\n    blob: Blob\n    tag: Tag\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/package-glob",
+            "description": "package:: with * reaches every item of the package's own schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::models::*\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/package-nested",
+            "description": "package:: reaches a schema in a directory of the package from one beside it",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/shapes/api.ids",
+                            "text": "use package::shapes::models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/parent-item",
+            "description": "parent:: reaches a schema one level up from the importing schema's namespace",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/shapes/api.ids",
+                            "text": "use parent::models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/self-item",
+            "description": "self:: reaches a schema under the importing schema's own namespace",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use self::models::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        },
+                        {
+                            "path": "src/api/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/dependency-path",
+            "description": "a bare path whose first segment is a dependency reaches the dependency's schema",
+            "packages": [
+                {
+                    "name": "models",
+                    "config": "congregation models\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    models = {\n        path = \"../models\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use models::api::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "models"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/std-path",
+            "description": "a bare path whose first segment is std reaches the standard library's schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use std::http::Request\n\nstruct Call {\n    request: Request\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "imports/unknown-first-segment",
+            "description": "a bare path that is neither a dependency, std nor one of the package's schemas is unresolved, not this error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use modles::Blob\n\nstruct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "import::unresolved",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "imports/own-schema-named-like-dependency",
+            "description": "a package's own schema named like one of its dependencies is refused, so a first segment is never both",
+            "packages": [
+                {
+                    "name": "models",
+                    "config": "congregation models\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    models = {\n        path = \"../models\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "models"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "schema 'models.ids' is named like the dependency 'models'"
+                ]
+            }
+        },
+        {
+            "id": "imports/dependency-named-std",
+            "description": "std can't be a dependency's name",
+            "packages": [
+                {
+                    "name": "std",
+                    "config": "congregation std\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    std = {\n        path = \"../std\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "std"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "reserved"
+                ]
+            }
+        },
+        {
+            "id": "imports/dependency-named-package",
+            "description": "package can't be a dependency's name",
+            "packages": [
+                {
+                    "name": "package",
+                    "config": "congregation package\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    package = {\n        path = \"../package\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "package"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "reserved"
+                ]
+            }
+        },
+        {
+            "id": "imports/dependency-named-parent",
+            "description": "parent can't be a dependency's name",
+            "packages": [
+                {
+                    "name": "parent",
+                    "config": "congregation parent\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    parent = {\n        path = \"../parent\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "parent"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "reserved"
+                ]
+            }
+        },
+        {
+            "id": "imports/dependency-named-self",
+            "description": "self can't be a dependency's name",
+            "packages": [
+                {
+                    "name": "self",
+                    "config": "congregation self\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Blob {\n    size: u32\n}\n\nstruct Tag {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    self = {\n        path = \"../self\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "self"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [],
+                "error_contains": [
+                    "reserved"
+                ]
+            }
+        }
+    ]
+}

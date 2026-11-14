@@ -264,7 +264,7 @@
                         },
                         {
                             "path": "src/api.ids",
-                            "text": "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                            "text": "use package::models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
                         }
                     ],
                     "dependencies": []
@@ -295,7 +295,7 @@
                         },
                         {
                             "path": "src/api.ids",
-                            "text": "use models::Blob\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                            "text": "use package::models::Blob\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(b: Blob);\n}\n"
                         }
                     ],
                     "dependencies": []
@@ -354,7 +354,7 @@
                         },
                         {
                             "path": "src/api.ids",
-                            "text": "use models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
+                            "text": "use package::models::Blob\n\nprotocol Orders {\n    function send(b: Blob);\n}\n"
                         }
                     ],
                     "dependencies": []
