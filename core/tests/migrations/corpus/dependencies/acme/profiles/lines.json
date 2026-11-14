@@ -1,0 +1,11 @@
+{
+  "name": "com.acme.lines@1",
+  "kind": "framing",
+  "facts": {
+    "calls": { "value": "by_name", "proven_by": ["lines/request"] },
+    "directions": { "value": "both", "proven_by": ["lines/request"] },
+    "errors": { "value": "by_name", "proven_by": ["lines/error"] },
+    "payload": { "value": "json", "proven_by": ["lines/request"] },
+    "protocol": { "value": "named", "proven_by": ["lines/request"] }
+  }
+}

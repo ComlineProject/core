@@ -1,0 +1,25 @@
+# The objects a fresh build of this fixture package writes (core#268): each
+# entry of the version's root tree, recursively, with its hash, as
+# `<hash>  <path>` (a tree's path ends in `/`). The standard library's
+# schemas are compiled into every build and aren't recorded.
+# These move only with a ledger row or a format bump. Regenerate:
+#   COMLINE_UPDATE_GOLDEN=1 cargo test -p comline-core --features deps --test mod migrations::golden
+a4c3687e96c132608795540fb3c4992bb414d1067f443a2a817a4e91ed41087c  schema_0/
+0d118251eb6d357fa3240d2b5c3d14d312fe9c833cbd7b6655290e07ba10f654  schema_0/namespace_tour
+a8fda6bc0529b4ae86ffa18840374b92f2de97e6769aabda2dfc4753e8ebd817  schema_0/import_1
+302c24934a12492ad3ed249ba29b9bff17ea3d2d77cdf9e202a7dd03be35e3f4  schema_0/const_MAX_NAME
+8d44a2f110fdc34aa35798f2764d1cd20e39846bb26ce36ee0bdd34f479b9776  schema_0/const_GREETING
+aecdd5636e4ed8dcd4f0c79816971497920e38d29e4a4faece0fa5538f18ce8a  schema_0/const_STRICT
+6123a69d4ed247b2ae0f1c8e2a840037428a20dd012c3d050e7c84cb9e6c1b06  schema_0/unit_5
+269b09077c79ffdf2e94da5ce2ca5b9202151e8c4e8ec529be6c6ba578f11421  schema_0/unit_6
+a584f7ae55dd9d83a374dcdcb45b06fad2c21add86b0eb22d583df049c14edd9  schema_0/unit_7
+3880bbd88849bdc8e64fd759278b8a26701e0e4f44f73718447ea02bde67fa9f  schema_0/enum_Role
+62e961898a2dcfc1f06fdbdef91efc5d022b9ea582db5f92f0cfb83a8cba5a7e  schema_0/struct_LegacyUser
+da8d0f0d3cd8755069b08f00ed0bd566c8a9791cc518034767ac9b4a2356b6e1  schema_0/unit_10
+9b2a40410f0837a32dc734c861d620f788d3a927524adeede0d2d08e3e7785b6  schema_0/struct_User
+19c1cdb55f45aa43e93e42c7a9220ce2195e942d048e83f055debd3915df5da7  schema_0/unit_12
+bcfae81d4e9dd4ec3b6f4144c412923555e8796832f4d99d5e6b33de119ca894  schema_0/unit_13
+381ac80dbc49019211c4b2db9d95d35c9cfc91720ba858251cc0c71563a83f12  schema_0/protocol_Users
+-  schema_1/  (standard library, not recorded)
+cd96832b2835fee19bbe37804d7d28d79365ac6a8d8741ba7ea5d72485ffa34f  config
+c688ba8996c406b04654ebc9c71e3b72372775bb4256ff47320c615512f35b6a  facts

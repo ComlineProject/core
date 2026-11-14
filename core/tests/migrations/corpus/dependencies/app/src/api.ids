@@ -1,0 +1,7 @@
+struct S {
+    a: u32
+}
+
+protocol P {
+    function get() -> S;
+}

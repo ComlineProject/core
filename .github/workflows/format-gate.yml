@@ -1,0 +1,46 @@
+name: Format gate
+
+# The IR format gate's checks that look at the repository (core#268): the
+# seal of every superseded format (core/formats/MANIFEST), and, on a pull
+# request, what the change to the format has to come with: a bump of
+# CURRENT_IR_FORMAT_VERSION needs its step, its directory, the previous
+# format's seal and fixtures; moved golden hashes
+# (core/tests/migrations/expected) need a ledger row. See `cargo xtask`.
+#
+# The tests that need a build (`live == frozen(current)`, the golden fresh
+# build) are core's own tests, in the Cargo Build & Test workflow.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  format_gate:
+    name: Format gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The merge base with the pull request's base.
+          fetch-depth: 0
+          persist-credentials: false
+      - name: The seals, and what a change to the format comes with
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ -n "$BASE" ]; then
+            cargo xtask check-format-bump --base "$BASE"
+          else
+            cargo xtask check-format-bump
+          fi

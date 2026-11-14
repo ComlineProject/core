@@ -169,6 +169,11 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
     use crate::schema::ir::frozen::cas::blob::load_schema_from_tree;
     use std::collections::{BTreeMap, BTreeSet};
 
+    // A version with parts its format could not know isn't compared as if
+    // it were complete (core#268).
+    super::entries::require_known(store, old)?;
+    super::entries::require_known(store, new)?;
+
     // `schema_{idx}` entries only: a `dep_<name>` entry is a vendored
     // dependency's own copy, kept so the commit is reproducible.
     let local = |tree: &Tree| -> Result<Vec<_>> {

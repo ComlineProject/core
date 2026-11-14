@@ -1,0 +1,25 @@
+# The objects a fresh build of this fixture package writes (core#268): each
+# entry of the version's root tree, recursively, with its hash, as
+# `<hash>  <path>` (a tree's path ends in `/`). The standard library's
+# schemas are compiled into every build and aren't recorded.
+# These move only with a ledger row or a format bump. Regenerate:
+#   COMLINE_UPDATE_GOLDEN=1 cargo test -p comline-core --features deps --test mod migrations::golden
+f17991caa9359f62cd6f44a221f071de26941e8f2ac08e17e7c89d1d7738b731  schema_0/
+9c72d0cb016fb272dc1b98aa028e57655fd788c6466b853871c70e1060d00cb9  schema_0/namespace_api
+c934e2c3708ab4ec23c5bee7a4d575532e2231faa5966db6fd4e6e89a5729872  schema_0/struct_S
+4ce161d760ce061cae27b6a6faf27f3c9b97006b7b8980363e982e94ddde62db  schema_0/protocol_P
+d68ad8e1474206db87c917b5b59f69c4b20b34cc86e4cf5996940242ee363031  schema_1/
+1d6d177bc0aacff1945dc2fee61549a8fe41778f56d1c943e49243f3db4b7f59  schema_1/namespace_acme::api
+6ef6da6ca27d5bed33bd14b9f3ce488184d27d9f00a864d480f2fa9d4b013c84  schema_1/struct_Thing
+2b7d10eeef3bb2304a4e4240f4786e993453ae533bb1344578d90b33498e96dd  dep_acme/
+625abf3e6225eff2e6373de24f1c9e573cfc0c55ff015fe186ebfed20d58da79  dep_acme/schema_0/
+9c72d0cb016fb272dc1b98aa028e57655fd788c6466b853871c70e1060d00cb9  dep_acme/schema_0/namespace_api
+6ef6da6ca27d5bed33bd14b9f3ce488184d27d9f00a864d480f2fa9d4b013c84  dep_acme/schema_0/struct_Thing
+5697b80a0edc2485bcc452bec97fa5156a8ac24d61b0ca8a4ad52420c78f971b  dep_acme/schema_1/
+b1605906dbed3541ecf998af25bb24d07733cbd6b0dabb0946afc95f3b8991c2  dep_acme/schema_1/namespace_base::api
+2f29a339943185dda90772614da40755a0d0020c4f4cfed6bf2133efb1da4db0  dep_acme/schema_1/struct_Base
+3f52b6636e818df6da938a4216a01006cdaf8f86f665bca590c7e465411c5512  dep_acme/manifest
+02d6cf7ca34df430c25e95c7482917d23c1e1296f4bf3d02c5b344ab3cfa0753  dep_acme/config
+df319a59f0e1bf9705a7924eeca52681147b3035d8d10bd7d30e7e34a1a047f4  dep_acme/dependency_configs
+883dc7289e77d2bc4dedf4c99e7407fa356f3416313e7f57196c9c7499268fc3  config
+5f106eb3a858cebcfc246fccc9728e0ddd3cfa82c302231f942a16da1c7cc658  facts

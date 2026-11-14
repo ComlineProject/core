@@ -1,0 +1,8 @@
+congregation tour
+specification_version = 1
+
+code_generation = {
+    languages = {
+        rust#1.85.0 = {}
+    }
+}

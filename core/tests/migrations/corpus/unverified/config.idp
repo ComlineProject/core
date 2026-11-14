@@ -1,0 +1,13 @@
+congregation unverified
+specification_version = 1
+
+settings = { annotations = { unverified = { allowed = true } } }
+
+handshake = "none"
+wire = { format = "json@1" framing = "datagram@3" }
+
+code_generation = {
+    languages = {
+        rust#1.85.0 = {}
+    }
+}

@@ -1,0 +1,6 @@
+congregation base
+specification_version = 1
+settings = { annotations = { framing = { allowed = true } unverified = { allowed = true } } }
+encodings = {
+    "com.acme.cbor@1" = { kind = "format" profile = "profiles/cbor.json" }
+}
