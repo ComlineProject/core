@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "core",
     "core_stdlib",
+    "xtask",
 ]
 
 [profile.release]

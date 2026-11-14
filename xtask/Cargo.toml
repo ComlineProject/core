@@ -1,0 +1,18 @@
+[package]
+name = "xtask"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+description = "Repository tasks: `cargo xtask check-format-bump`, `check-seal`, `seal-format` (core#268)"
+
+# Run as `cargo xtask <task>` (the alias is in .cargo/config.toml). It reads
+# the repository's files and runs `git`; it depends on no comline crate, so
+# the gate can't be moved by the code it guards.
+
+[dependencies]
+blake3 = "1.4.1"
+toml = "0.8"
+
+[dev-dependencies]
+tempfile = "3.8"

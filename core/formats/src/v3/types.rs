@@ -24,19 +24,23 @@ use serde_derive::{Deserialize, Serialize};
 
 /// A BLAKE3 digest, serialized as the 32 bytes' sequence.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Hash(pub [u8; 32]);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Blob {
     pub content: Vec<u8>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Tree {
     pub entries: Vec<TreeEntry>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct TreeEntry {
     pub mode: EntryMode,
     pub name: String,
@@ -44,12 +48,14 @@ pub struct TreeEntry {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum EntryMode {
     Blob,
     Tree,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Commit {
     pub tree: Hash,
     pub parents: Vec<Hash>,
@@ -63,6 +69,7 @@ pub struct Commit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Release {
     pub computed: VersionBump,
     pub applied: VersionBump,
@@ -72,8 +79,8 @@ pub struct Release {
     pub since: Option<Hash>,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum VersionBump {
     None,
     Patch,
@@ -81,10 +88,10 @@ pub enum VersionBump {
     Major,
 }
 
-
 // ---------- schema units: one blob per unit, in a `schema_<n>` tree ----------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SchemaUnit {
     Namespace(String),
     Name(String),
@@ -98,10 +105,10 @@ pub enum SchemaUnit {
     },
     Property {
         name: String,
-        value: ConfigValue
+        value: ConfigValue,
     },
     ExpressionBlock {
-        asserts: Vec<SchemaUnit>
+        asserts: Vec<SchemaUnit>,
     },
     Assert {
         condition: String,
@@ -205,6 +212,7 @@ pub enum SchemaUnit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum ConfigValue {
     Marker,
     Bool(bool),
@@ -217,6 +225,7 @@ pub enum ConfigValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum DeprecatedValue {
     False,
     True,
@@ -225,7 +234,8 @@ pub enum DeprecatedValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct  FrozenArgument {
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+pub struct FrozenArgument {
     pub name: String,
     pub ty: TypeRef,
     pub span: (usize, usize),
@@ -234,6 +244,7 @@ pub struct  FrozenArgument {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Guarantee {
     SchemaAgreement,
     EncodingAgreement,
@@ -242,8 +253,8 @@ pub enum Guarantee {
     BoundedSize,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum PrimitiveType {
     S8,
     S16,
@@ -263,6 +274,7 @@ pub enum PrimitiveType {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum TypeRef {
     Primitive(PrimitiveType),
     Named(String),
@@ -277,6 +289,7 @@ pub enum TypeRef {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Literal {
     Integer(i64),
     Bool(bool),
@@ -285,12 +298,14 @@ pub enum Literal {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Condition {
     pub first: Comparison,
     pub rest: Vec<(LogicalOp, Comparison)>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Comparison {
     pub left: Operand,
     pub op: CompareOp,
@@ -298,12 +313,14 @@ pub struct Comparison {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum LogicalOp {
     And,
     Or,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum CompareOp {
     Eq,
     Ne,
@@ -314,14 +331,15 @@ pub enum CompareOp {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum Operand {
     Path(Vec<String>),
     Integer(i64),
     String(String),
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum SettingsValue {
     Bool(bool),
     Integer(i64),
@@ -331,15 +349,17 @@ pub enum SettingsValue {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SettingsDict(pub BTreeMap<String, SettingsValue>);
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct SettingsSpans(pub BTreeMap<String, (usize, usize)>);
-
 
 // ---------- config units: the `config` blob and a dependency's ----------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum ConfigUnit {
     Namespace(String),
     PackageId(String),
@@ -376,6 +396,7 @@ pub enum ConfigUnit {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Dependency {
     pub author: String,
     pub project: String,
@@ -383,23 +404,27 @@ pub struct Dependency {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct LanguageDetails {
     pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct PublishRegistry {
     pub kind: RegistryKind,
     pub uri: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub enum RegistryKind {
-    LocalStorage, RegistryServer
+    LocalStorage,
+    RegistryServer,
 }
 
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(rename_all = "snake_case")]
 pub enum EncodingKind {
     Format,
@@ -407,10 +432,10 @@ pub enum EncodingKind {
     Handshake,
 }
 
-
 pub type EncodingMap = BTreeMap<String, EncodingMapping>;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct EncodingMapping {
     #[serde(rename = "type")]
     pub ty: String,
@@ -418,10 +443,10 @@ pub struct EncodingMapping {
     pub version: Option<String>,
 }
 
-
 // ---------- the `docs` blob ----------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct FrozenDocs {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub package: Option<String>,
@@ -429,10 +454,10 @@ pub struct FrozenDocs {
     pub modules: BTreeMap<String, String>,
 }
 
-
 // ---------- the `facts` blob ----------
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct History {
     pub protocols: Vec<ProtocolHistory>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -442,6 +467,7 @@ pub struct History {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct ProtocolHistory {
     pub path: String,
     pub line: String,
@@ -455,6 +481,7 @@ pub struct ProtocolHistory {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct FunctionFacts {
     pub name: String,
     pub since: String,
@@ -463,12 +490,14 @@ pub struct FunctionFacts {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct Retired {
     pub number: u16,
     pub name: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 pub struct EncodingFacts {
     pub kind: String,
     pub name: String,
@@ -480,10 +509,12 @@ pub struct EncodingFacts {
 
 /// One element of the root tree's `unknown` blob (a CBOR array of these):
 /// something a step could not know, and what it recorded. Reserved: no
-/// release writes it yet, and a reader that meets one is refused (see
-/// `codec::read_unknown`). `deny_unknown_fields`, so that a record with a
-/// field this build doesn't know is refused rather than read short.
+/// release writes it yet, and a reader that meets one refuses the version
+/// (`codec::decode_unknown`, and core's `require_known`).
+/// `deny_unknown_fields`, so that a record with a field this build doesn't
+/// know is refused rather than read short.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
 #[serde(deny_unknown_fields)]
 pub struct UnknownRecord {
     /// A JSON pointer into the version's model.
@@ -495,4 +526,18 @@ pub struct UnknownRecord {
     /// What that format recorded there, where it recorded something.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub original: Option<Vec<u8>>,
+}
+
+/// The root tree's `produced_by` blob: the core and the specification that
+/// wrote the version. Reserved: no build writes it yet. A version without it
+/// was written by one that is not known, and reads as unknown, never as the
+/// reading core. `deny_unknown_fields`, as for [`UnknownRecord`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[serde(deny_unknown_fields)]
+pub struct ProducedBy {
+    /// The `comline-core` version, as `CARGO_PKG_VERSION` spells it.
+    pub core: String,
+    /// The specification the catalog was taken from (`comline_catalog::SPEC_VERSION`).
+    pub spec: String,
 }

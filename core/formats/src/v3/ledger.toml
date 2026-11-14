@@ -1,0 +1,172 @@
+# The additions made to format 3 without a bump, one row per addition, in the
+# order they were made (core#268, docs/proposals/ir-migrations/formats.md).
+#
+# id        "3.<n>": how SCHEMA.md and a fixture name the row
+# commit    where it was added; the rows from before this file are the
+#           commits that added them to `master`
+# date      when
+# added     what was added
+# absent    what a version written before it reads as: the absence reading
+# fixture   (optional) the store under tests/migrations/stores/format-3/ that
+#           has the row. None yet: the first fixtures are built for the step
+#           out of format 3, and `cargo xtask check-format-bump` requires one
+#           per row before format 4 can be introduced.
+#
+# A row is added in the same change as the lines in types.rs and SCHEMA.md
+# that carry it, and never removed. The first twenty are what format 3 had
+# gained when the gate was written; the last two are the entries that
+# nothing writes yet.
+
+[[row]]
+id = "3.01"
+commit = "0983015"
+date = "2026-10-18"
+added = "validator call `span`, `arg_spans`"
+absent = "unknown span, `(0, 0)`"
+
+[[row]]
+id = "3.02"
+commit = "8243d98"
+date = "2026-10-18"
+added = "type alias `parameters`"
+absent = "none"
+
+[[row]]
+id = "3.03"
+commit = "ad2b3f5"
+date = "2026-10-19"
+added = "`Assert.message_span`, `uninterpolated`; validator `validate_span`"
+absent = "none"
+
+[[row]]
+id = "3.04"
+commit = "bd9d9f4"
+date = "2026-10-20"
+added = "`Unverified(Vec<Guarantee>)` in a protocol's parameters; the `Guarantee` enum"
+absent = "no recorded set"
+
+[[row]]
+id = "3.05"
+commit = "af0371f"
+date = "2026-10-20"
+added = "`Commit.release`"
+absent = "a release only if the version has no pre-release part"
+
+[[row]]
+id = "3.06"
+commit = "6571780"
+date = "2026-10-20"
+added = "config units `Handshake`, `HandshakeParams`"
+absent = "the default handshake of the reading core"
+
+[[row]]
+id = "3.07"
+commit = "031d74c"
+date = "2026-10-25"
+added = "config unit `Wire`"
+absent = "the default format and framing of the reading core"
+
+[[row]]
+id = "3.08"
+commit = "a5d6f85"
+date = "2026-10-25"
+added = "`ConfigValue::Dict`"
+absent = "a variant older readers can't decode"
+
+[[row]]
+id = "3.09"
+commit = "f643d51"
+date = "2026-10-31"
+added = "config unit `Encoding`"
+absent = "no declaration"
+
+[[row]]
+id = "3.10"
+commit = "038591e"
+date = "2026-11-01"
+added = "root `docs` blob"
+absent = "no `//!` headers"
+
+[[row]]
+id = "3.11"
+commit = "f873d98"
+date = "2026-11-01"
+added = "root `facts` blob; config unit `PackageId`"
+absent = "computed when read; no id"
+
+[[row]]
+id = "3.12"
+commit = "4ba7c57"
+date = "2026-11-01"
+added = "`Encoding.establishes`, `has_vectors`"
+absent = "the strict reading: nothing established, no vectors"
+
+[[row]]
+id = "3.13"
+commit = "4eb6228"
+date = "2026-11-02"
+added = "`PrimitiveType::Char`, `TypeRef::Array.max`"
+absent = "a variant older readers can't decode; no maximum"
+
+[[row]]
+id = "3.14"
+commit = "2b6d636"
+date = "2026-11-02"
+added = "`Guarantee::BoundedSize`"
+absent = "a variant older readers can't decode"
+
+[[row]]
+id = "3.15"
+commit = "8ec27df"
+date = "2026-11-03"
+added = "facts' `number`, `retired`, `numbered`"
+absent = "`numbered = false`: computed when read"
+
+[[row]]
+id = "3.16"
+commit = "4da05ab"
+date = "2026-11-07"
+added = "`Encoding.grammar`, `calls`, `directions`"
+absent = "none"
+
+[[row]]
+id = "3.17"
+commit = "bbbd957, 9a6482e"
+date = "2026-11-08"
+added = "facts' per-protocol `encodings`; the defaults moved to `datagram@3` and `comline@2`"
+absent = "resolved when read, with what an absent value was (`IMPLICIT_FRAMING`, `IMPLICIT_HANDSHAKE`)"
+
+[[row]]
+id = "3.18"
+commit = "9ea142e"
+date = "2026-11-10"
+added = "config unit `Unverified`"
+absent = "none"
+
+[[row]]
+id = "3.19"
+commit = "965e781"
+date = "2026-11-12"
+added = "`dep_<name>/config`, `dependency_configs`"
+absent = "unseen: not empty, not defaulted"
+
+[[row]]
+id = "3.20"
+commit = "66feecb"
+date = "2026-11-12"
+added = "`FrozenArgument.parameters` (markers on arguments)"
+absent = "none"
+
+[[row]]
+id = "3.21"
+commit = "core#268, step 1.2"
+date = "2026-11-15"
+added = "root `unknown` blob: what a step could not know, with the original (reserved: nothing writes it)"
+absent = "none: the version has no unknowns. A reader refuses a version that has one"
+
+[[row]]
+id = "3.22"
+commit = "core#268, step 1.2"
+date = "2026-11-15"
+added = "root `produced_by` blob: the core and specification versions that wrote the version (reserved: nothing writes it)"
+absent = "unknown: not the reading core's, not defaulted"
