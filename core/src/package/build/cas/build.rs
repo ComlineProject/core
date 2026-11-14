@@ -195,14 +195,9 @@ pub fn compare(store: &ObjectStore, old: &Tree, new: &Tree) -> Result<Comparison
 
     // A package's compiled schemas include every dependency's, each under
     // the dependency's name (`shared_types::models`): those are split off
-    // and compared by reach below.
-    let dependency_names: BTreeSet<&str> = old
-        .entries
-        .iter()
-        .chain(&new.entries)
-        .filter(|e| e.mode == EntryMode::Tree)
-        .filter_map(|e| e.name.strip_prefix("dep_"))
-        .collect();
+    // and compared by reach below, `std`'s too.
+    use crate::compat::{dependency_names, vendored};
+    let dependency_names = dependency_names(vendored(old).chain(vendored(new)));
     type Schemas = Vec<Vec<crate::schema::ir::frozen::unit::FrozenUnit>>;
     let split = |schemas: Schemas| -> (Schemas, BTreeMap<String, Schemas>) {
         let mut own = vec![];
