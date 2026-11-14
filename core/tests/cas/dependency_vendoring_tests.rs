@@ -176,7 +176,7 @@ fn an_unchanged_dependency_contributes_no_bump() {
 fn a_dependency_whose_schemas_import_each_other_still_builds() {
     let workspace = TempDir::new().unwrap();
     let dependency = workspace.path().join("shared-types");
-    write_dependency(&dependency, "use common::Base\n\nstruct Thing {\n    base: Base\n}\n");
+    write_dependency(&dependency, "use package::common::Base\n\nstruct Thing {\n    base: Base\n}\n");
     fs::write(dependency.join("src/common.ids"), "struct Base {\n    id: u64\n}\n").unwrap();
     let consumer_dir = workspace.path().join("consumer");
     write_consumer(&consumer_dir, CONSUMER_SCHEMA);
@@ -233,7 +233,7 @@ fn a_dependency_is_taken_as_its_own_compile_froze_it() {
     write_dependency(&dependency, "struct Thing {\n    id: u64\n}\n");
     fs::write(
         dependency.join("src/api.ids"),
-        "use models::Thing\n\nprotocol Things {\n    function get(id: u64) -> Thing;\n}\n",
+        "use package::models::Thing\n\nprotocol Things {\n    function get(id: u64) -> Thing;\n}\n",
     )
     .unwrap();
     let consumer = workspace.path().join("consumer");

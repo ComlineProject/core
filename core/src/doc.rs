@@ -1346,8 +1346,8 @@ mod tests {
         type CustomerId = u64\n";
 
     const API: &str = "//! The shop's API.\n\n\
-        use types::Customer\n\
-        use types::Payment\n\n\
+        use package::types::Customer\n\
+        use package::types::Payment\n\n\
         /// Not in stock.\nerror OutOfStock {\n    message = f\"{item} is out of stock\"\n    item: string\n}\n\n\
         /// One order.\nstruct Order {\n    customer: Customer\n    payments: Payment[]\n    lines: union(u32 string)\n}\n\n\
         /// Orders things.\nprotocol Orders {\n    \

@@ -55,9 +55,9 @@ fn cross_schema_use_resolves_across_the_added_schemas() {
     // The bare name (`use ns::Name` -> `Name`), the qualified form (`ns::Name`),
     // and an alias (`use ns::Name as X` -> `X`) all resolve.
     let cases = [
-        ("use types::User", "User"),
-        ("use types::User", "types::User"),
-        ("use types::User as Account", "Account"),
+        ("use package::types::User", "User"),
+        ("use package::types::User", "types::User"),
+        ("use package::types::User as Account", "Account"),
     ];
     for (import, reference) in cases {
         let ctx = PackageSources::new()
@@ -524,7 +524,7 @@ fn an_imported_validator_without_a_default_needs_its_argument() {
     let build = |call: &str| {
         PackageSources::new()
             .schema(["rules"], rules)
-            .schema(["api"], &format!("use rules::AtLeast\n\nstruct S {{\n    @validators = [{call}]\n    n: u32\n}}\n"))
+            .schema(["api"], &format!("use package::rules::AtLeast\n\nstruct S {{\n    @validators = [{call}]\n    n: u32\n}}\n"))
             .compile()
             .err()
             .map(|e| e.to_string())
@@ -550,7 +550,7 @@ fn an_imported_alias_resolves_before_matching() {
         .schema(["types"], types)
         .schema(
             ["api"],
-            "use types::{AccountName, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    name: AccountName\n}\n",
+            "use package::types::{AccountName, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    name: AccountName\n}\n",
         )
         .compile()
         .expect("an alias of string matches `for string`");
@@ -559,7 +559,7 @@ fn an_imported_alias_resolves_before_matching() {
         .schema(["types"], types)
         .schema(
             ["api"],
-            "use types::{Count, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    n: Count\n}\n",
+            "use package::types::{Count, NonEmpty}\n\nstruct S {\n    @validators = [NonEmpty()]\n    n: Count\n}\n",
         )
         .compile()
         .err()

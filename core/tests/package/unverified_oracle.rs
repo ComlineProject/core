@@ -183,7 +183,7 @@ fn an_upstream_field_made_unbounded_is_not_accepted_by_a_consumer_that_accepted_
     expect(&m, false);
 }
 
-/// Regression test for core#245: a dependency's `use s0::A`, naming a
+/// Regression test for core#245: a dependency's `use package::s0::A`, naming a
 /// sibling schema of its own package, resolves within that package, not
 /// against the consumer's schema of the same name. Two packages that each have
 /// an `s0` and import across them used to be reported as an import cycle
@@ -194,7 +194,7 @@ fn a_dependencys_use_of_its_sibling_schema_is_not_the_consumers() {
     let files = [
         ("p0/config.idp", "congregation p0\nspecification_version = 1\n"),
         ("p0/src/s0.ids", "struct A {\n    f0: char[max 64]\n}\n"),
-        ("p0/src/s1.ids", "use s0::A\n\nstruct B {\n    f0: A\n}\n"),
+        ("p0/src/s1.ids", "use package::s0::A\n\nstruct B {\n    f0: A\n}\n"),
         (
             "p1/config.idp",
             "congregation p1\nspecification_version = 1\ndependencies = {\n    p0 = {\n        path = \"../p0\"\n    }\n}\n",

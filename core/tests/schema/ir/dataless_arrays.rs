@@ -154,8 +154,8 @@ fn project() -> ProjectContext {
 fn an_imported_data_less_type_is_refused_through_aliases_and_schemas() {
     let mut project = project();
     add_schema(&mut project, &["empty"], "struct Empty {}\n");
-    add_schema(&mut project, &["types"], "use empty::Empty\n\ntype Nothing = Empty\n");
-    add_schema(&mut project, &["api"], "use types::Nothing\n\nstruct Batch {\n    items: Nothing[]\n}\n");
+    add_schema(&mut project, &["types"], "use package::empty::Empty\n\ntype Nothing = Empty\n");
+    add_schema(&mut project, &["api"], "use package::types::Nothing\n\nstruct Batch {\n    items: Nothing[]\n}\n");
 
     let error = interpret_context(&project).expect_err("the array is refused").to_string();
     assert!(error.contains("an array of `Nothing` carries only its length"), "{error}");
@@ -168,7 +168,7 @@ fn an_imported_type_with_data_is_not_refused() {
     add_schema(
         &mut project,
         &["api"],
-        "use types::Node\nuse types::Flag\n\nstruct Batch {\n    nodes: Node[max 8]\n    flags: Flag[max 8]\n}\n",
+        "use package::types::Node\nuse package::types::Flag\n\nstruct Batch {\n    nodes: Node[max 8]\n    flags: Flag[max 8]\n}\n",
     );
 
     interpret_context(&project).expect("arrays of types that carry data build");

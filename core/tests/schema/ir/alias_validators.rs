@@ -156,7 +156,7 @@ impl ImportLookup for StandIn {
 
 #[test]
 fn a_stand_in_import_is_not_judged_against_a_validator() {
-    let code = "use rules::Name\n\nvalidator Positive for u32 {\n    validate {\n        \
+    let code = "use package::rules::Name\n\nvalidator Positive for u32 {\n    validate {\n        \
                 assert(value > 0, f\"{value.name}\")\n    }\n}\n\
                 struct S {\n    @validators = [Positive()]\n    n: Name\n}\n";
     assert_eq!(messages_with(code, &StandIn), Vec::<String>::new());

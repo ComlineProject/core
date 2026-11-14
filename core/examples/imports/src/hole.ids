@@ -1,10 +1,10 @@
 // Imports whole schemas by namespace
-use ant
-use food
+use package::ant
+use package::food
 
 // Or imports exactly the components you want: structures, enums, errors
-use ant::{Ant, Mood, CantCarryError}
-use food::{Food, State, NotEdibleError}
+use package::ant::{Ant, Mood, CantCarryError}
+use package::food::{Food, State, NotEdibleError}
 
 protocol Gathering {
     function gather(ant::Ant) -> food::Food;

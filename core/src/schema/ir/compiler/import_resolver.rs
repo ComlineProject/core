@@ -13,7 +13,7 @@ use crate::schema::idl::constants::SCHEMA_EXTENSION;
 use crate::schema::idl::grammar::{Declaration, UsePath, RelativePrefix};
 use crate::schema::ir::context::SchemaContext;
 use crate::utils::text::closest;
-use crate::diagnostics::{Diagnostic, DiagnosticCode};
+use crate::diagnostics::{Diagnostic, DiagnosticCode, Fix};
 use crate::schema::ir::frozen::types::{Literal, TypeRef};
 use crate::schema::ir::validation::constants::{fits, literal_value, primitive_bound, ResolvedConstant};
 use crate::schema::ir::frozen::unit::FrozenUnit;
@@ -22,6 +22,13 @@ use crate::schema::ir::validation::ImportLookup;
 use crate::schema::ir::validation::data::{carries_data, Answers};
 
 const UNRESOLVED: DiagnosticCode = DiagnosticCode::error("import::unresolved");
+
+/// A `use` path that reaches one of the package's own schemas without
+/// `package::`, `parent::` or `self::`. An absolute first segment means `std`
+/// or a dependency, so the path is an error where it reaches one. The code is
+/// in the specification's compiler cases (`imports`).
+pub const BARE_OWN_SCHEMA_PATH: DiagnosticCode =
+    DiagnosticCode::error("import::bare-own-schema-path");
 
 /// Resolved import information
 #[derive(Debug, Clone)]
@@ -188,7 +195,11 @@ impl ImportResolver {
         Some(self.resolve_relative_prefix(&prefix, &parts[1..], current_namespace))
     }
 
-    /// Resolve absolute path (e.g., std::http::Request or mypackage::types::User)
+    /// Resolve absolute path (e.g., `std::http::Request` or a dependency's
+    /// `shared::models::Thing`). A package's own schemas are reached only
+    /// through `package::`, `parent::` or `self::`: what falls through to
+    /// "the same package" below is the resolver's reading of a bare path, and
+    /// [`check_imports`] refuses it where it reaches one of them.
     fn resolve_absolute(
         &self,
         path: String,
@@ -223,9 +234,13 @@ impl ImportResolver {
             });
         }
         
-        // It's from the same package - already loaded as a SchemaContext in the
-        // ProjectContext being compiled, so no schema_path is needed to load it
-        // from disk; see `resolve_use_to_schema` below for how it's located.
+        // Neither `std` nor a dependency: a bare path, which names a schema of
+        // the same package when there is one (already loaded as a SchemaContext
+        // in the ProjectContext being compiled, so no schema_path is needed to
+        // load it from disk; see `resolve_use_to_schema` below for how it's
+        // located). `check_imports` makes that an error
+        // (`import::bare-own-schema-path`): own schemas are reached through
+        // `package::`, `parent::` or `self::`.
         Ok(ResolvedImport {
             absolute_namespace: parts,
             schema_path: None,
@@ -877,12 +892,94 @@ pub(crate) fn importable_names(schema_context: &SchemaContext) -> Vec<String> {
     names
 }
 
+/// The first segment of a `use` path as written, when it is an absolute one:
+/// `None` for a path that starts with `self`, `parent` or `package`, which is
+/// relative. A bare path's first segment is `std`, a dependency's name, or
+/// (the error [`BARE_OWN_SCHEMA_PATH`]) one of the package's own schemas.
+pub fn absolute_first_segment(use_path: &UsePath) -> Option<&str> {
+    let path = match use_path {
+        UsePath::Absolute(scoped) => scoped.as_str(),
+        UsePath::Glob(glob) => glob.path.as_str(),
+        UsePath::Multi(multi) => multi.path.as_str(),
+        UsePath::Relative(_) | UsePath::RelativeGlob(_) | UsePath::RelativeMulti(_) => return None,
+    };
+    let first = path.split("::").next().unwrap_or(path);
+    (!matches!(first, "self" | "parent" | "package")).then_some(first)
+}
+
+/// A `use` path as it is written, without its alias.
+fn written_path(use_path: &UsePath) -> String {
+    match use_path {
+        UsePath::Absolute(scoped) => scoped.to_string(),
+        UsePath::Relative(rel) => format!("{}::{}", rel.prefix.keyword(), rel.path.as_str()),
+        UsePath::Glob(glob) => format!("{}::*", glob.path.as_str()),
+        UsePath::Multi(multi) => {
+            let items: Vec<&str> = multi.items.iter().map(|item| item.text.as_str()).collect();
+            format!("{}::{{{}}}", multi.path.as_str(), items.join(", "))
+        }
+        UsePath::RelativeGlob(glob) => format!("{}::*", glob.prefix.keyword()),
+        UsePath::RelativeMulti(multi) => {
+            let items: Vec<&str> = multi.items.iter().map(|item| item.text.as_str()).collect();
+            format!("{}::{{{}}}", multi.prefix.keyword(), items.join(", "))
+        }
+    }
+}
+
+/// The error for a bare path to one of the package's own schemas, with the
+/// fix that writes `package::` in front of it. `span` is the `use`
+/// declaration's, and `source` the schema's text: without it the error stands
+/// without a fix. The fix is the whole of the rewrite: what the import brings
+/// in is the schema's namespace, whichever path reached it, so a reference
+/// written `models::Blob` after `use models` stays right after
+/// `use package::models`.
+fn bare_own_schema_path(
+    use_path: &UsePath,
+    first: &str,
+    span: (usize, usize),
+    source: Option<&str>,
+) -> Diagnostic {
+    let written = written_path(use_path);
+    let write = format!("package::{written}");
+    let diagnostic = Diagnostic::new(
+        BARE_OWN_SCHEMA_PATH,
+        format!("'{written}' is one of this package's own schemas, reached by a bare path"),
+    )
+    .with_context(format!(
+        "an absolute path starts with `std` or a dependency's name; '{first}' is neither"
+    ))
+    .with_span(span)
+    .with_help(format!(
+        "write `{write}`: a package's own schemas are reached as `package::...`, `parent::...` or `self::...`"
+    ));
+    match own_path_fix(source, span, first, &write) {
+        Some(fix) => diagnostic.with_fix(fix),
+        None => diagnostic,
+    }
+}
+
+/// Inserting `package::` where the `use` declaration at `span` names `first`,
+/// the first segment of its path; `None` when `source` isn't there, or the
+/// declaration isn't `use`, whitespace, and then `first`.
+fn own_path_fix(source: Option<&str>, span: (usize, usize), first: &str, write: &str) -> Option<Fix> {
+    let source = source?;
+    let after_use = source.get(span.0..span.1)?.strip_prefix("use")?;
+    let at = span.1 - after_use.trim_start().len();
+    source.get(at..)?.starts_with(first).then(|| {
+        Fix::replace(format!("Write `{write}`"), (at, at), "package::")
+    })
+}
+
 /// Every `use` in `declarations` that doesn't resolve, as validation
 /// errors: a path no schema of the project matches (its own, or a
 /// dependency's, merged under the dependency's name), or a named item the
 /// matched schema doesn't declare. Run by the real build (`interpret_context`)
 /// before a schema is compiled, so `comline build` / `check` reject the import
 /// instead of trusting it.
+///
+/// A path that starts with neither `self`, `parent`, `package`, `std` nor a
+/// dependency's name, and reaches one of the package's own schemas, is the
+/// error [`BARE_OWN_SCHEMA_PATH`], with a fix that writes `package::` in front
+/// of it. A path that reaches nothing is `import::unresolved`, as it was.
 ///
 /// A `std::` path is checked like any other: the build merges the std
 /// schemas a package imports (see `package::stdlib`), and one that no std
@@ -927,6 +1024,15 @@ pub fn check_imports(
 
     let resolver = ImportResolver::new(vec![], Default::default(), None);
     let mut errors = Vec::new();
+
+    // The schema's text, for the fix a bare path to an own schema carries.
+    let source: Option<String> = project_context
+        .schema_contexts
+        .iter()
+        .find(|schema| schema.borrow().namespace == current_namespace)
+        .and_then(|schema| {
+            schema.borrow().codemap.files().first().map(|file| file.contents().to_string())
+        });
 
     for decl in declarations {
         let Declaration::Use(use_stmt) = &decl.value else {
@@ -973,6 +1079,16 @@ pub fn check_imports(
             errors.push(unresolved(context));
             continue;
         };
+
+        // A path that starts with neither `std` nor a dependency's name, and
+        // reaches one of the package's own schemas: those are only reached
+        // through `package::`, `parent::` or `self::`.
+        if let Some(written) = absolute_first_segment(&use_stmt.path) {
+            if written != stdlib::NAMESPACE && !dependencies.contains(written) {
+                errors.push(bare_own_schema_path(&use_stmt.path, written, decl.span, source.as_deref()));
+                continue;
+            }
+        }
 
         let schema = schema.borrow();
         let named: Vec<String> = if target.resolved.symbols == ["*"] {
