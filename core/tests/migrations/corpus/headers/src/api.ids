@@ -1,0 +1,11 @@
+//! The API module.
+
+/// A ping.
+struct Ping {
+    seq: u32
+}
+
+/// Answers a ping.
+protocol Pinger {
+    function ping(p: Ping) -> Ping;
+}

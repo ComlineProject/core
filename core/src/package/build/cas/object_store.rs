@@ -10,8 +10,8 @@ use std::path::{Path, PathBuf};
 /// `specification_version` (that's the user's own chosen language edition,
 /// unrelated to core's internal IR representation).
 ///
-/// CBOR tags struct fields and enum variants by name, so growing or
-/// reordering `FrozenUnit` needs no bump here - only *renaming* or
+/// CBOR tags struct fields and enum variants by name, so growing (with a
+/// ledger row, below) or reordering `FrozenUnit` needs no bump here - only *renaming* or
 /// *removing* an existing field/variant does, since that's the one case a
 /// self-describing format can't absorb for free. Bump this by hand when you
 /// do one of those; [`ensure_compatible_store`] then refuses any `.comline/`
@@ -19,6 +19,13 @@ use std::path::{Path, PathBuf};
 /// or in the worst case silently misreading) to decode it. It refuses and
 /// changes nothing: no store is deleted, moved or rewritten to change its
 /// format (core#268, `docs/proposals/ir-migrations`).
+///
+/// What a format is, and what may change in it without a bump, is written
+/// down and checked: `formats/src/v3/` holds its `SCHEMA.md`, the frozen
+/// copy of its types and a ledger of every addition made without a bump.
+/// A test holds the live types to the copy, golden hashes hold what a fresh
+/// build writes, and `cargo xtask check-format-bump` says what a bump has
+/// to come with.
 ///
 /// History:
 /// - 1: CBOR, replacing bincode's position-based encoding.
@@ -29,9 +36,10 @@ use std::path::{Path, PathBuf};
 ///   `KindValue` text: `Field`/`Constant` `kind_value` became `ty` plus a
 ///   literal, `EnumVariant` holds its name, and `Assert` gained `expr`.
 ///
-/// Additions that needed no bump: the root tree's `docs` blob (the `//!`
-/// headers, `crate::doc::FrozenDocs`, core#145) is a new entry that older
-/// readers skip and newer ones treat as absent on older versions. So are a
+/// Additions that needed no bump (each is a row of the ledger): the root
+/// tree's `docs` blob (the `//!` headers, `crate::doc::FrozenDocs`, core#145)
+/// is a new entry that older readers skip and newer ones treat as absent on
+/// older versions. So are a
 /// vendored dependency's `config` and `dependency_configs` blobs, in its
 /// `dep_<name>` tree (core#251): a tree without them reads as having not
 /// kept the dependency's config

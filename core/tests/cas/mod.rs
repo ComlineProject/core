@@ -19,3 +19,4 @@ pub mod std_reach_tests;
 pub mod compat_tests;
 pub mod reconcile_tests;
 pub mod store_never_wiped_tests;
+pub mod entries_tests;

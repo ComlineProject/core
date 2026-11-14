@@ -1,0 +1,13 @@
+{
+  "name": "com.acme.cbor@1",
+  "kind": "format",
+  "facts": {
+    "struct_fields": { "value": "by_name", "proven_by": [] },
+    "unknown_field": { "value": "ignored", "proven_by": [] },
+    "missing_optional": { "value": "absent", "proven_by": [] },
+    "enum_variants": { "value": "by_name", "proven_by": [] },
+    "unknown_variant": { "value": "rejected", "proven_by": [] },
+    "integer_width": { "value": "by_value", "proven_by": [] },
+    "output": { "value": "bytes", "proven_by": [] }
+  }
+}

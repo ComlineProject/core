@@ -1,0 +1,13 @@
+# The objects a fresh build of this fixture package writes (core#268): each
+# entry of the version's root tree, recursively, with its hash, as
+# `<hash>  <path>` (a tree's path ends in `/`). The standard library's
+# schemas are compiled into every build and aren't recorded.
+# These move only with a ledger row or a format bump. Regenerate:
+#   COMLINE_UPDATE_GOLDEN=1 cargo test -p comline-core --features deps --test mod migrations::golden
+766b414e8da615c1bdb0e237964bc70c1fda7f46e5b968aaed2647ca54e09fe8  schema_0/
+4732c3cea971ad47c197a979b6aea750a763ac6f24081c23f0fcb566e8d02719  schema_0/namespace_mail
+54a32f355dd2140a6c2fd29c5d2a79adcfa8b280f02268e38dc3d60b6f201742  schema_0/unit_1
+0086a1e9901d7788d2f5bdd1dfa6fdeb8266e44b1e55e010b9767c79216605e5  schema_0/struct_Message
+6d6ff2a118b6ac6ecc2fc6dc7dde930157b30b37c1257d3398010162eb01a0eb  schema_0/protocol_Mail
+e8c7700b2f600ac654f23a2ef4b49dfb876d177a44f0d618d909c9d81f25c212  config
+80b731323b06d294eb8cd23b3c7e45511abef53ab1b90e8e1b3aa5f3e920f746  facts

@@ -1,0 +1,3 @@
+struct Thing {
+    id: u64
+}

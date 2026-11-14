@@ -28,6 +28,7 @@ pub mod refs;          // Git-style references management
 #[cfg(feature = "compiler")]
 pub mod build;         // Build process implementation
 pub mod version;       // Version bump types
+pub mod entries;       // Entries reserved for unknowns and who wrote a version
 #[cfg(feature = "compiler")]
 pub mod release;       // Releases on top of builds
 #[cfg(feature = "compiler")]

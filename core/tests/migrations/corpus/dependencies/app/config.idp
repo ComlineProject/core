@@ -1,0 +1,7 @@
+congregation app
+specification_version = 1
+settings = { annotations = { framing = { allowed = true } unverified = { allowed = true } } }
+dependencies = {
+    acme = { path = "../acme" }
+}
+wire = { framing = "com.acme.lines@1" }

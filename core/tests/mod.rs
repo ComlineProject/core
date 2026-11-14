@@ -5,3 +5,4 @@ mod autodoc;
 mod utils;
 mod cas;
 mod settings;
+mod migrations;

@@ -15,78 +15,9 @@ use comline_core::schema::ir::frozen::cas::blob::{
 };
 use comline_core::schema::ir::frozen::unit::FrozenUnit;
 
-/// A schema using every declaration kind and type shape the grammar has.
-const TOUR: &str = r#"
-use std::validators::StringBounds
-
-/// Limits.
-const MAX_NAME: u32 = 64
-const GREETING: string = "hello"
-const STRICT: bool = true
-
-type UserId = u64
-type Names = char[max 64][max 16]
-
-validator Range for u8, u32 {
-    min: u32 = 0
-    max: u32 = 100
-    validate {
-        assert(value >= params.min and value <= params.max, f"{value.name} is out of range")
-    }
-}
-
-enum Role {
-    Admin
-    Member
-}
-
-@deprecated = "use User"
-struct LegacyUser {
-    id: UserId
-}
-
-settings Strict {
-    validation.unknown = "error"
-}
-
-@settings = Strict
-struct User {
-    /// The user's id.
-    id: UserId
-    @validators = [StringBounds(min_chars = 1, max_chars = 32)]
-    name: char[max 32]
-    @validators = [Range(min = 1, max = 99)]
-    age: u8 = 18
-    optional nickname: char[max 32]
-    role: Role
-    tags: Names
-    scores: u32[max 100]
-    digest: u8[32]
-    grid: s16[max 8][max 8]
-    ratio: f64
-    weight: f32 = 1
-    either: union(char[max 16] u32)
-    flag: bool = false
-}
-
-error NotFound {
-    message = "user {id} not found"
-    id: UserId
-}
-
-error Denied {
-    message = "denied"
-}
-
-protocol Users {
-    /// Look a user up.
-    @timeout_ms = 500
-    function get(id: UserId) -> User ! NotFound, Denied;
-    function ping() -> ();
-    @idempotent
-    function forget(UserId);
-}
-"#;
+/// A schema using every declaration kind and type shape the grammar has: the
+/// `tour` package of the migrations corpus.
+const TOUR: &str = include_str!("../migrations/corpus/tour/src/tour.ids");
 
 fn units_of(context: &ProjectContext) -> Vec<(String, Vec<FrozenUnit>)> {
     context

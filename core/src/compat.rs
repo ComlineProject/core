@@ -184,6 +184,7 @@ pub struct EncodingFacts {
 
 /// A version's stored history, if its tree has one.
 pub fn read_history(store: &ObjectStore, tree: &Tree) -> Result<Option<History>> {
+    crate::package::build::cas::entries::require_known(store, tree)?;
     let Some(entry) = tree.entries.iter().find(|e| e.name == FACTS_ENTRY && e.mode == EntryMode::Blob)
     else {
         return Ok(None);

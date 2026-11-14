@@ -1,0 +1,9 @@
+congregation acme
+specification_version = 1
+settings = { annotations = { framing = { allowed = true } unverified = { allowed = true } } }
+dependencies = {
+    base = { path = "../base" }
+}
+encodings = {
+    "com.acme.lines@1" = { kind = "framing" profile = "profiles/lines.json" }
+}

@@ -1,0 +1,14 @@
+@unverified(bounded_size = "legacy blob")
+type Blob = string
+
+struct Message {
+    @unverified(bounded_size = "legacy blob")
+    body: string
+    id: u64
+}
+
+@unverified = { schema_agreement = "pinned out of band", encoding_agreement = "one codebase" }
+protocol Mail {
+    function send(@unverified(bounded_size = "legacy blob") note: string, message: Message);
+    function stash(blob: Blob);
+}

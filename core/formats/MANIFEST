@@ -1,0 +1,5 @@
+# The seal of each superseded IR format (core#268): the blake3 of its
+# directory under src/, over every file's relative path and bytes in path
+# order. `cargo xtask check-seal` fails when one differs; a format is sealed
+# when the next is introduced, with `cargo xtask seal-format <N> --why <text>`,
+# which is also the only way to move a seal.

@@ -1,0 +1,19 @@
+# The objects a fresh build of this fixture package writes (core#268): each
+# entry of the version's root tree, recursively, with its hash, as
+# `<hash>  <path>` (a tree's path ends in `/`). The standard library's
+# schemas are compiled into every build and aren't recorded.
+# These move only with a ledger row or a format bump. Regenerate:
+#   COMLINE_UPDATE_GOLDEN=1 cargo test -p comline-core --features deps --test mod migrations::golden
+c2292624fe6e84a71c78aa71ef1ad8203d55e854c443e53e56dd0f16a94b17d7  schema_0/
+373fda9bc517fdf47fc92768efea5fff6ba55d9ee0d104595d7ec75f3afcfd9e  schema_0/namespace_health
+660957249a223491d4c706f1a9108a1e7094629958a029517db97b408d365cdc  schema_0/struct_Capabilities
+ee39a37757823afc5e217b018a978424bdd7a42a47c4e07daa879b0abb4d7283  schema_0/protocol_HealthCheck
+62c20565165085bec641359579b4cb0bc39abfa64081cbb70e03a2eba1c16748  schema_1/
+c113ffcd4b11b8793f404dd1b06218f5d595a14412030758200d2ca422758445  schema_1/namespace_ping
+2527227422d11420c678d7ee48e887672cfc61a6bea73dc343771254d7841d09  schema_1/import_1
+6c5c7579cd67e95c5563b773c7453afae42f1f88b50344d8c2b23bd9af39ba60  schema_1/const_LOW_PING_RATE
+1f20e6d35544392fa29a88b3a875967647b5baf32d664be539ad167c6a0b6968  schema_1/protocol_Ping
+e93f5ea69c6232afeda1921b968114e77ffb33086ece5943bf3341cad4593724  schema_2/
+753a0d189b371384992d76a29f9a75a4e0e80604b8dfdb7e14a3868961865c58  schema_2/namespace_utils::test
+fe22eea8959cf1ccb5a9de0119bc746e42650b675edf9c93de4b3aecbda4fd9f  config
+a5d9e50987ef5e5571af3580a231289625574ceae72d3839b622d5d605854d7c  facts

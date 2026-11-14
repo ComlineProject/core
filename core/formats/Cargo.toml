@@ -1,0 +1,30 @@
+[package]
+name = "comline-ir-formats"
+version = "0.0.0"
+edition = "2021"
+license = "GPL-3.0-only"
+publish = false
+rust-version = "1.82"
+description = "The IR formats comline has stored under .comline/, frozen: types, codec, document and ledger of each (core#268)"
+
+# Internal, never published at first. One module per format (`v3`), each with
+# its `SCHEMA.md`, the frozen copies of its types, its codec and its ledger.
+# It has no dependency on `comline-core`, the way the oracle has none, so that
+# a frozen type can't reach for today's: core depends on it to read old
+# stores, and tests that `live == frozen(current)`. Its dependencies are what
+# the IR-only (`wasm`) build carries; it never writes a store. See
+# SCHEMA.md in each module and `formats/MANIFEST`.
+
+[features]
+# `Arbitrary` for the frozen types, for core's `live == frozen` test over
+# values no real build produces.
+arbitrary = ["dep:arbitrary"]
+
+[dependencies]
+serde = "1.0.164"
+serde_derive = "1.0.164"
+ciborium = "0.2"
+arbitrary = { version = "1", features = ["derive"], optional = true }
+
+[dev-dependencies]
+toml = "0.8"

@@ -21,6 +21,9 @@ exclude = ["benches/benchmark_results.html", "benches/run_bench.sh", "fuzz/", "o
 [dependencies]
 # The embedded standard library (`use std::…`)
 comline-core-stdlib = { path = "../core_stdlib", version = "0.1.0" }
+# The IR formats stored under `.comline/`, frozen: what an older store is
+# decoded with, and what the live types are held to. In the IR-only build too.
+comline-ir-formats = { path = "formats" }
 # The specification's catalog of shared names: guarantees, facts and their
 # values, the official encodings' aliases and frozen spellings. no_std and
 # dependency-free, so the IR-only build has it too.
@@ -100,6 +103,10 @@ iai-callgrind = "=0.16.1"
 # crate. Exact pin on proptest, like iai-callgrind.
 proptest = "=1.5.0"
 comline-core-oracle = { path = "oracle", features = ["proptest"] }
+# `live == frozen(current)` over values no real build produces
+# (tests/migrations/live_frozen.rs).
+comline-ir-formats = { path = "formats", features = ["arbitrary"] }
+arbitrary = "1"
 
 [[bench]]
 name = "parser_benchmark"

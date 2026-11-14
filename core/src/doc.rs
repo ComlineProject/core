@@ -518,6 +518,7 @@ pub fn write_docs(docs: &FrozenDocs, store: &ObjectStore) -> eyre::Result<Hash> 
 /// The headers a built version's root tree froze; empty for a version built
 /// before they were stored, or for a package without any.
 pub fn read_docs(store: &ObjectStore, root: &Tree) -> eyre::Result<FrozenDocs> {
+    crate::package::build::cas::entries::require_known(store, root)?;
     let Some(entry) = root
         .entries
         .iter()
