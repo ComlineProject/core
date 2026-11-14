@@ -150,7 +150,7 @@ fn history(built: &Built, whose: &str) {
     let mut next = Some(
         comline_core::package::build::cas::read_ref(
             &built.package,
-            comline_core::package::build::cas::main_ref(),
+            comline_core::package::build::cas::REF_HEAD_MAIN_FILENAME,
         )
         .unwrap(),
     );

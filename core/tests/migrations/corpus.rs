@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use comline_core::package::build::build;
 use comline_core::package::build::cas::objects::{Commit, Tree};
-use comline_core::package::build::cas::{main_ref, read_ref, ObjectStore};
+use comline_core::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, ObjectStore};
 use tempfile::TempDir;
 
 /// One package a migration is proved on.
@@ -115,7 +115,7 @@ impl Built {
 
     /// The commit `refs/heads/main` points to, and its root tree.
     pub fn head(&self) -> (Commit, Tree) {
-        let hash = read_ref(&self.package, main_ref()).unwrap();
+        let hash = read_ref(&self.package, REF_HEAD_MAIN_FILENAME).unwrap();
         let commit = Commit::from_bytes(&self.store.read(&hash).unwrap()).unwrap();
         let tree = Tree::from_bytes(&self.store.read(&commit.tree).unwrap()).unwrap();
         (commit, tree)
