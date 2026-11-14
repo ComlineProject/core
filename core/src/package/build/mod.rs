@@ -15,7 +15,7 @@ use std::rc::Rc;
 
 // Crate Uses
 #[cfg(feature = "compiler")]
-use crate::package::config::idl::constants::CONGREGATION_EXTENSION;
+use crate::package::config::idl::PACKAGE_CONFIG_FILENAME;
 #[cfg(feature = "compiler")]
 use crate::package::config::ir::interpreter::ProjectInterpreter;
 #[cfg(feature = "compiler")]
@@ -105,7 +105,7 @@ fn compile_package_inner(package_path: &Path) -> Result<ProjectContext> {
 
 #[cfg(feature = "compiler")]
 fn require_config_path(package_path: &Path) -> Result<std::path::PathBuf> {
-    let config_path = package_path.join(format!("config.{}", CONGREGATION_EXTENSION));
+    let config_path = package_path.join(PACKAGE_CONFIG_FILENAME);
     let config_name = config_path.file_name().unwrap().to_str().unwrap();
 
     if !config_path.exists() {
@@ -236,7 +236,7 @@ pub fn build_with(
     check(&latest_project)?;
 
     // Use CAS for immutable version storage
-    let build_info = if cas::refs::ref_exists(package_path, cas::refs::main_ref()) {
+    let build_info = if cas::refs::ref_exists(package_path, cas::refs::REF_HEAD_MAIN_FILENAME) {
         cas::build::process_changes(&package_path, &latest_project)?
     } else {
         cas::build::process_initial_freezing(&package_path, &latest_project)?

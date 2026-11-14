@@ -37,7 +37,7 @@ use std::path::Path;
 // Crate Uses
 use super::object_store::ObjectStore;
 use super::objects::Commit;
-use super::refs::main_ref;
+use super::refs::REF_HEAD_MAIN_FILENAME;
 use super::storage::Hash;
 
 // External Uses
@@ -87,7 +87,7 @@ pub fn parse_heads(text: &str) -> Result<Heads> {
                 Section::Base => {}
                 Section::Outside => bail!(
                     "`.comline/{}` has conflict markers and other content: {line:?}",
-                    main_ref()
+                    REF_HEAD_MAIN_FILENAME
                 ),
             }
         }
@@ -98,7 +98,7 @@ pub fn parse_heads(text: &str) -> Result<Heads> {
             _ => Err(eyre!(
                 "`.comline/{}` is conflicted, but {which} side doesn't hold exactly one commit \
                  hash",
-                main_ref()
+                REF_HEAD_MAIN_FILENAME
             )),
         }
     };
@@ -108,9 +108,9 @@ pub fn parse_heads(text: &str) -> Result<Heads> {
 
 /// Read `refs/heads/main`: one head, or two after a Git merge.
 pub fn read_heads(project_path: &Path) -> Result<Heads> {
-    let path = project_path.join(".comline").join(main_ref());
+    let path = project_path.join(".comline").join(REF_HEAD_MAIN_FILENAME);
     if !path.exists() {
-        bail!("Ref {} does not exist", main_ref());
+        bail!("Ref {} does not exist", REF_HEAD_MAIN_FILENAME);
     }
     parse_heads(&fs::read_to_string(&path)?)
 }
@@ -132,12 +132,12 @@ pub fn mark_diverged(project_path: &Path, other: &Hash) -> Result<()> {
         .map_err(|e| eyre!("{other} isn't a commit: {e}"))?;
     let current = match read_heads(project_path)? {
         Heads::One(hash) => hash,
-        Heads::Two(..) => bail!("`.comline/{}` already holds two heads", main_ref()),
+        Heads::Two(..) => bail!("`.comline/{}` already holds two heads", REF_HEAD_MAIN_FILENAME),
     };
     if current == *other {
         return Ok(());
     }
-    let path = project_path.join(".comline").join(main_ref());
+    let path = project_path.join(".comline").join(REF_HEAD_MAIN_FILENAME);
     fs::write(
         path,
         format!("<<<<<<< current\n{current}\n=======\n{other}\n>>>>>>> reconcile\n"),
@@ -252,7 +252,7 @@ pub fn plan(store: &ObjectStore, a: Hash, b: Hash) -> Result<Plan> {
                  in `.comline/objects` but leaves the line.",
                 ra.version, short(&released_a[0].0), rb.version, short(&released_b[0].0),
                 a, ra.version, b, rb.version,
-                ref_ = main_ref(),
+                ref_ = REF_HEAD_MAIN_FILENAME,
             );
         }
         (Some(_), None) => a,

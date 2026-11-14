@@ -44,7 +44,5 @@ pub fn ref_exists(project_path: &Path, ref_name: &str) -> bool {
     project_path.join(".comline").join(ref_name).exists()
 }
 
-/// Get the main branch ref path
-pub fn main_ref() -> &'static str {
-    "refs/heads/main"
-}
+/// Main branch reference path
+pub const REF_HEAD_MAIN_FILENAME: &str = "refs/heads/main";

@@ -9,13 +9,13 @@ use std::path::{Path, PathBuf};
 // Crate Uses
 
 // External Uses
-use comline_core::package::config::idl::constants::CONGREGATION_EXTENSION;
+use comline_core::package::config::idl::PACKAGE_CONFIG_FILENAME;
 
 use once_cell::sync::Lazy;
 
 static TEST_PACKAGE_DIR: Lazy<&Path> = Lazy::new(|| Path::new("tests/fixtures/packages/test/"));
 static TEST_PACKAGE_CONFIG_PATH: Lazy<PathBuf> =
-    Lazy::new(|| TEST_PACKAGE_DIR.join(format!("config.{}", CONGREGATION_EXTENSION)));
+    Lazy::new(|| TEST_PACKAGE_DIR.join(PACKAGE_CONFIG_FILENAME));
 
 /*
 #[test]

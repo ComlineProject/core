@@ -7,7 +7,7 @@ use std::path::Path;
 
 use comline_core::compat::{self, PackageFacts};
 use comline_core::package::build::cas::objects::{Commit, Tree};
-use comline_core::package::build::cas::{main_ref, read_ref, ObjectStore};
+use comline_core::package::build::cas::{REF_HEAD_MAIN_FILENAME, read_ref, ObjectStore};
 use comline_core::package::build::{build, release, ReleaseRequest, VersionBump};
 use tempfile::TempDir;
 
@@ -56,7 +56,7 @@ const V1: &str = "struct User {\n    id: u64\n}\n\nprotocol Users {\n    functio
 /// before gives.
 fn assert_reproducible(dir: &Path) {
     let store = ObjectStore::new(dir);
-    let mut hash = read_ref(dir, main_ref()).unwrap();
+    let mut hash = read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap();
     loop {
         let commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
         let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
@@ -154,7 +154,7 @@ fn a_release_as_another_version_renames_what_its_builds_led_to() {
 /// renamed history; every build's stored one still recomputes.
 fn assert_reproducible_except_releases(dir: &Path) {
     let store = ObjectStore::new(dir);
-    let mut hash = read_ref(dir, main_ref()).unwrap();
+    let mut hash = read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap();
     loop {
         let commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
         let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
@@ -292,7 +292,7 @@ fn a_version_built_before_facts_gets_them_computed() {
     let dir = package(V1);
     build(dir.path()).unwrap();
     let store = ObjectStore::new(dir.path());
-    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let hash = read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap();
     let commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     let bare = compat::without_facts(&tree);
@@ -386,7 +386,7 @@ fn fnumber(facts: &PackageFacts, protocol: &str, function: &str) -> u16 {
 
 fn history(dir: &Path) -> compat::History {
     let store = ObjectStore::new(dir);
-    compat::history_of_commit(&store, &read_ref(dir, main_ref()).unwrap()).unwrap()
+    compat::history_of_commit(&store, &read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap()).unwrap()
 }
 
 #[test]
@@ -573,7 +573,7 @@ fn a_version_stored_without_numbers_gets_them_computed_when_read() {
     let dir = package(V1);
     build(dir.path()).unwrap();
     let store = ObjectStore::new(dir.path());
-    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let hash = read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap();
     let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     let stored = compat::read_history(&store, &tree).unwrap().unwrap();
@@ -596,7 +596,7 @@ fn a_version_stored_without_numbers_gets_them_computed_when_read() {
     old_tree.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), blob);
     commit.tree = store.write(&old_tree.to_bytes().unwrap()).unwrap();
     let old_hash = store.write(&commit.to_bytes().unwrap()).unwrap();
-    update_ref(dir.path(), main_ref(), &old_hash).unwrap();
+    update_ref(dir.path(), REF_HEAD_MAIN_FILENAME, &old_hash).unwrap();
 
     let read = compat::read_history(&store, &old_tree).unwrap().unwrap();
     assert!(!read.numbered);
@@ -734,7 +734,7 @@ fn the_stored_history_records_the_effective_encodings() {
 
     let stored = |dir: &Path, protocol: &str| {
         let store = ObjectStore::new(dir);
-        let commit = Commit::from_bytes(&store.read(&read_ref(dir, main_ref()).unwrap()).unwrap()).unwrap();
+        let commit = Commit::from_bytes(&store.read(&read_ref(dir, REF_HEAD_MAIN_FILENAME).unwrap()).unwrap()).unwrap();
         let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
         let history = compat::read_history(&store, &tree).unwrap().unwrap();
         let protocol = history.protocols.iter().find(|p| p.path.ends_with(protocol)).unwrap();
@@ -786,7 +786,7 @@ fn the_facts_read_the_recorded_encodings() {
     let dir = package(V1);
     build(dir.path()).unwrap();
     let store = ObjectStore::new(dir.path());
-    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let hash = read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap();
     let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     let mut history = compat::read_history(&store, &tree).unwrap().unwrap();
@@ -802,7 +802,7 @@ fn the_facts_read_the_recorded_encodings() {
     changed.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), blob);
     commit.tree = store.write(&changed.to_bytes().unwrap()).unwrap();
     let new_hash = store.write(&commit.to_bytes().unwrap()).unwrap();
-    update_ref(dir.path(), main_ref(), &new_hash).unwrap();
+    update_ref(dir.path(), REF_HEAD_MAIN_FILENAME, &new_hash).unwrap();
 
     let read = facts(dir.path());
     assert!(read.encodings.iter().any(|e| e.kind == "handshake" && e.name == "an-older-default"), "{:?}", read.encodings);
@@ -829,7 +829,7 @@ fn released_before_the_flip() -> TempDir {
     release(dir.path(), &ReleaseRequest::default()).unwrap();
 
     let store = ObjectStore::new(dir.path());
-    let hash = read_ref(dir.path(), main_ref()).unwrap();
+    let hash = read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap();
     let mut commit = Commit::from_bytes(&store.read(&hash).unwrap()).unwrap();
     let tree = Tree::from_bytes(&store.read(&commit.tree).unwrap()).unwrap();
     let mut history = compat::read_history(&store, &tree).unwrap().unwrap();
@@ -848,7 +848,7 @@ fn released_before_the_flip() -> TempDir {
     let facts_blob = store.write(&Blob::new(to_cbor(&history).unwrap()).to_bytes().unwrap()).unwrap();
     old.add_entry(EntryMode::Blob, compat::FACTS_ENTRY.to_string(), facts_blob);
     commit.tree = store.write(&old.to_bytes().unwrap()).unwrap();
-    update_ref(dir.path(), main_ref(), &store.write(&commit.to_bytes().unwrap()).unwrap()).unwrap();
+    update_ref(dir.path(), REF_HEAD_MAIN_FILENAME, &store.write(&commit.to_bytes().unwrap()).unwrap()).unwrap();
     // And its config.idp as it was: stating neither.
     config(dir.path(), "");
     dir
@@ -1001,11 +1001,11 @@ fn a_changed_tree_is_numbered_as_its_next_build_would_be() {
     build(dir.path()).unwrap();
     schema(dir.path(), "struct User {\n    id: u64\n}\n\nprotocol Users {\n    function get(id: u64) -> User;\n    function list() -> u32;\n}\n\nprotocol Admin {\n    function reset();\n}\n");
 
-    let head = read_ref(dir.path(), main_ref()).unwrap();
+    let head = read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap();
     let before = stored_files(dir.path());
     let f = working(dir.path());
     assert_eq!(stored_files(dir.path()), before, "nothing written");
-    assert_eq!(read_ref(dir.path(), main_ref()).unwrap(), head);
+    assert_eq!(read_ref(dir.path(), REF_HEAD_MAIN_FILENAME).unwrap(), head);
 
     build(dir.path()).unwrap();
     let built = facts(dir.path());
