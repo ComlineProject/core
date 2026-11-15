@@ -1,0 +1,460 @@
+{
+  "$comment": "Generated from comline_core::package::config::keys; regenerate with `COMLINE_BLESS=1 cargo test -p comline-core --lib config::keys`.",
+  "keys": [
+    {
+      "description": "The edition of the schema language this package is written in, as a number; this core knows edition 1. A change that would break schemas already written ships in a new edition, and a package keeps its behaviour until it moves to it. Every package states one.",
+      "key": "specification_version",
+      "summary": "The edition of the schema language this package is written in",
+      "value": {
+        "kind": "integer",
+        "values": [
+          1
+        ]
+      }
+    },
+    {
+      "description": "The package's identity for the compatibility check: 32 lowercase hex digits. `comline new` and `comline build` write one when it's missing. A rename keeps it, a copy must change it, and changing it is a major change.",
+      "key": "id",
+      "summary": "The package's identity, written by comline build",
+      "value": {
+        "kind": "string"
+      }
+    },
+    {
+      "description": "Declares what this package can be compiled to. Its only key is `languages`. Per-target output (directory, layout, package versions) lives in `comline.toml`'s `[generate]` table, not here.",
+      "key": "code_generation",
+      "summary": "What this package can be compiled to",
+      "value": {
+        "fields": [
+          {
+            "description": "The `language#version` targets this package declares it can generate. Each entry's value must be an empty dict (`lang#ver = {}`: it takes no options). A target is checked against the generators the CLI has when the package is generated, not here.",
+            "key": "languages",
+            "summary": "Targets this package can generate, checked by the generators",
+            "value": {
+              "entry": {
+                "description": "A language and the version of its generator, written `rust#1.70.0`. The value is `{}`: a declared target takes no options.",
+                "key": "<language>#<version>",
+                "summary": "A target, taking no options",
+                "value": {
+                  "fields": [],
+                  "kind": "dictionary"
+                }
+              },
+              "kind": "map"
+            }
+          }
+        ],
+        "kind": "dictionary"
+      }
+    },
+    {
+      "description": "The package's wire defaults, which both ends of a connection must agree on: `wire = { format = \"packed@1\" framing = \"datagram@3\" }`. Leaving out either key gives its default, shown there. A protocol's own `@framing` wins over `framing`.",
+      "key": "wire",
+      "summary": "The wire format and framing both ends speak",
+      "value": {
+        "fields": [
+          {
+            "description": "How values are encoded, `\"packed@1\"` where left out: fixed-width fields and no tags for `packed@1`, UTF-8 JSON for `json@1`, MessagePack for `msgpack@1`, or a namespaced format the package or a dependency declares under `encodings`. JSON-RPC protocols always speak JSON.",
+            "key": "format",
+            "summary": "How values are encoded",
+            "value": {
+              "default": "packed@1",
+              "kind": "choice",
+              "namespaced": true,
+              "values": [
+                "packed@1",
+                "json@1",
+                "msgpack@1"
+              ]
+            }
+          },
+          {
+            "description": "How calls are framed, for every protocol with no `@framing` of its own; `\"datagram@3\"` where left out. The `datagram` framings are Comline's own binary one: `datagram@3` and `datagram@2` are a connection, where either end can call and several protocols share one transport (`datagram@3` addresses a call by its wire number), `datagram@1` is lockstep, one protocol per transport. `jsonrpc@1` is JSON-RPC 2.0. Or a namespaced framing a package declares under `encodings`.",
+            "key": "framing",
+            "summary": "How calls are framed",
+            "value": {
+              "default": "datagram@3",
+              "kind": "choice",
+              "namespaced": true,
+              "values": [
+                "jsonrpc",
+                "datagram",
+                "datagram@2",
+                "datagram@3"
+              ]
+            }
+          }
+        ],
+        "kind": "dictionary"
+      }
+    },
+    {
+      "description": "The handshake each protocol of the package runs when it names none in `@handshake`: a name, `handshake = \"comline@2\"`, or a dictionary when the handshake takes parameters, `handshake = { name = \"comline@2\" scope = \"package\" }`. Left out, it is `comline@2`, or `comline@1` in a package whose protocols can't all run `comline@2`. A protocol's own `@handshake` replaces the package's whole. Only `comline@2` takes parameters.",
+      "key": "handshake",
+      "summary": "The handshake the package's protocols run",
+      "value": {
+        "alternatives": [
+          {
+            "kind": "choice",
+            "namespaced": true,
+            "values": [
+              "comline@1",
+              "comline@2",
+              "none"
+            ]
+          },
+          {
+            "fields": [
+              {
+                "description": "Which handshake the package's protocols run. The same as the plain form: `handshake = \"comline@2\"` is `{ name = \"comline@2\" }`.",
+                "key": "name",
+                "required": true,
+                "summary": "The handshake",
+                "value": {
+                  "kind": "choice",
+                  "namespaced": true,
+                  "values": [
+                    "comline@1",
+                    "comline@2",
+                    "none"
+                  ]
+                }
+              },
+              {
+                "description": "Whether a protocol's refusal refuses that protocol alone (`protocol`) or the whole connection (`package`). A parameter of `comline@2`, `protocol` where left out. Each end applies it on its own.",
+                "key": "scope",
+                "summary": "Whether a refusal reaches the protocol or the connection",
+                "value": {
+                  "default": "protocol",
+                  "kind": "choice",
+                  "values": [
+                    "protocol",
+                    "package"
+                  ]
+                }
+              },
+              {
+                "description": "When the consumer has functions the provider lacks: `degrade` connects, and calls to them fail locally; `refuse` refuses the protocol. A parameter of `comline@2`, `degrade` where left out. Each end applies it on its own.",
+                "key": "newer_consumer",
+                "summary": "What a consumer with more functions gets",
+                "value": {
+                  "default": "degrade",
+                  "kind": "choice",
+                  "values": [
+                    "degrade",
+                    "refuse"
+                  ]
+                }
+              },
+              {
+                "description": "When two versions are equal but their shapes differ: `refuse` refuses the protocol, `warn` connects and reports a warning, which gives up version honesty. A parameter of `comline@2`, `refuse` where left out. Each end applies it on its own.",
+                "key": "same_version_differs",
+                "summary": "What equal versions with different shapes get",
+                "value": {
+                  "default": "refuse",
+                  "kind": "choice",
+                  "values": [
+                    "refuse",
+                    "warn"
+                  ]
+                }
+              },
+              {
+                "description": "Who sends what: `offer` is a hello, an answer and a verdict, `symmetric` has each end send a hello and a verdict. A parameter of `comline@2`, `offer` where left out. Both ends must agree on it.",
+                "key": "exchange",
+                "summary": "Who sends what in the handshake",
+                "value": {
+                  "default": "offer",
+                  "kind": "choice",
+                  "values": [
+                    "offer",
+                    "symmetric"
+                  ]
+                }
+              }
+            ],
+            "kind": "dictionary"
+          }
+        ],
+        "kind": "oneOf"
+      }
+    },
+    {
+      "description": "Acknowledges, for the whole package, the guarantees its protocols give up through the package's handshake, wire or settings: one reason, `unverified = \"the gateway pins schemas by contract\"`, or a reason for each guarantee, `unverified = { schema_agreement = \"...\" }`. A protocol's own `@unverified` wins where both say.",
+      "key": "unverified",
+      "summary": "Guarantees the package gives up, with a reason",
+      "value": {
+        "alternatives": [
+          {
+            "kind": "string"
+          },
+          {
+            "fields": [
+              {
+                "description": "The reason the package gives up `schema_agreement`, for the protocols that take it from the package.",
+                "key": "schema_agreement",
+                "summary": "Why the package gives this guarantee up",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "The reason the package gives up `encoding_agreement`, for the protocols that take it from the package.",
+                "key": "encoding_agreement",
+                "summary": "Why the package gives this guarantee up",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "The reason the package gives up `encoding_conformance`, for the protocols that take it from the package.",
+                "key": "encoding_conformance",
+                "summary": "Why the package gives this guarantee up",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "The reason the package gives up `version_honesty`, for the protocols that take it from the package.",
+                "key": "version_honesty",
+                "summary": "Why the package gives this guarantee up",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "The reason the package gives up `bounded_size`, for the protocols that take it from the package.",
+                "key": "bounded_size",
+                "summary": "Why the package gives this guarantee up",
+                "value": {
+                  "kind": "string"
+                }
+              }
+            ],
+            "kind": "dictionary"
+          }
+        ],
+        "kind": "oneOf"
+      }
+    },
+    {
+      "description": "Package-wide authoring policy, applying to every schema by default: which annotations and validators are allowed, bounds, and diagnostic levels. Its keys are the settings registry's, which the language server completes and explains inside the block. A dictionary, or a reference to another package's named settings schema.",
+      "key": "settings",
+      "summary": "Authoring policy for every schema in the package",
+      "value": {
+        "kind": "settings"
+      }
+    },
+    {
+      "description": "Formats, framings and handshakes beyond the official ones, keyed by a namespaced name (`com.acme.x@1`). Each has a profile, a file in the package that states what it establishes, and may suggest how each language implements it.",
+      "key": "encodings",
+      "summary": "Encodings the package declares",
+      "value": {
+        "entry": {
+          "description": "A namespaced name, `com.acme.x@1`, with the kind of encoding and its profile.",
+          "key": "<name>@<number>",
+          "summary": "An encoding and its profile",
+          "value": {
+            "fields": [
+              {
+                "description": "What the encoding is.",
+                "key": "kind",
+                "required": true,
+                "summary": "format, framing or handshake",
+                "value": {
+                  "kind": "choice",
+                  "values": [
+                    "format",
+                    "framing",
+                    "handshake"
+                  ]
+                }
+              },
+              {
+                "description": "The path of the encoding's profile (JSON), relative to the package and inside it. Its kind and name must be this entry's. Conformance vectors sit beside it: `profiles/x.json`'s are `profiles/x.vectors.json`.",
+                "key": "profile",
+                "required": true,
+                "summary": "The profile's path, inside the package",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Where each language finds a type implementing the encoding, keyed by language.",
+                "key": "map",
+                "summary": "Suggested implementations, by language",
+                "value": {
+                  "entry": {
+                    "description": "The type that implements the encoding in this language, and optionally the package and version it comes from.",
+                    "key": "<language>",
+                    "summary": "How one language implements the encoding",
+                    "value": {
+                      "fields": [
+                        {
+                          "description": "The type implementing the encoding.",
+                          "key": "type",
+                          "required": true,
+                          "summary": "The implementing type",
+                          "value": {
+                            "kind": "string"
+                          }
+                        },
+                        {
+                          "description": "The package the type comes from.",
+                          "key": "package",
+                          "summary": "The package the type comes from",
+                          "value": {
+                            "kind": "string"
+                          }
+                        },
+                        {
+                          "description": "The version of that package.",
+                          "key": "version",
+                          "summary": "The package's version",
+                          "value": {
+                            "kind": "string"
+                          }
+                        }
+                      ],
+                      "kind": "dictionary"
+                    }
+                  },
+                  "kind": "map"
+                }
+              }
+            ],
+            "kind": "dictionary"
+          }
+        },
+        "kind": "map"
+      }
+    },
+    {
+      "description": "Named publish destinations for this package, keyed by a name you choose.",
+      "key": "publish_registries",
+      "summary": "Named publish destinations, keyed by name you choose",
+      "value": {
+        "entry": {
+          "description": "A string, identifier, or namespaced reference to a registry, or a dictionary with a `uri`.",
+          "key": "<registry name>",
+          "summary": "A publish registry reference",
+          "value": {
+            "alternatives": [
+              {
+                "kind": "string"
+              },
+              {
+                "fields": [
+                  {
+                    "description": "The registry URI.",
+                    "key": "uri",
+                    "summary": "The registry URI",
+                    "value": {
+                      "kind": "string"
+                    }
+                  }
+                ],
+                "kind": "dictionary"
+              }
+            ],
+            "kind": "oneOf"
+          }
+        },
+        "kind": "map"
+      }
+    },
+    {
+      "description": "This package's dependencies, keyed by a name you choose. It can't be `self`, `parent`, `package` or `std`.",
+      "key": "dependencies",
+      "summary": "This package's dependencies, keyed by name you choose",
+      "value": {
+        "entry": {
+          "description": "A Path dependency (`path`), a Git dependency (`version` + `uri` + `commit`), or a Registry dependency (`version` + `uri`): which fields are present determines the kind.",
+          "key": "<dependency name>",
+          "summary": "A Path, Git, or Registry dependency",
+          "value": {
+            "fields": [
+              {
+                "description": "Local filesystem path to a sibling package, which makes this a Path dependency (no declared version; its version is read from the sibling's own last build).",
+                "key": "path",
+                "summary": "Local path, which makes this a Path dependency",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Declared version. Required for Git and Registry dependencies (omit for Path dependencies).",
+                "key": "version",
+                "summary": "Declared version (Git and Registry dependencies)",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Source URI. Required for Git and Registry dependencies.",
+                "key": "uri",
+                "summary": "Source URI (Git and Registry dependencies)",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Pinned commit hash. Its presence makes this a Git dependency (needs `version` and `uri` too).",
+                "key": "commit",
+                "summary": "Pinned commit, which makes this a Git dependency",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Optional integrity hash (e.g. `blake3:...`). Valid on any dependency kind.",
+                "key": "hash",
+                "summary": "Optional integrity hash",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "Optional signature. Registry dependencies only.",
+                "key": "signature",
+                "summary": "Optional signature (Registry dependencies only)",
+                "value": {
+                  "kind": "string"
+                }
+              },
+              {
+                "description": "The dependency's `@unverified` protocols this package accepts, each with the guarantees it was accepted for: `accept_unverified = { Billing = [\"schema_agreement\"] }`. If the dependency gives up more, the build stops until it's accepted again; `comline accept` writes it.",
+                "key": "accept_unverified",
+                "summary": "The dependency's unverified protocols this package accepts",
+                "value": {
+                  "entry": {
+                    "description": "The guarantees accepted for this protocol of the dependency.",
+                    "key": "<protocol>",
+                    "summary": "The guarantees accepted for one protocol",
+                    "value": {
+                      "item": {
+                        "kind": "choice",
+                        "values": [
+                          "schema_agreement",
+                          "encoding_agreement",
+                          "encoding_conformance",
+                          "version_honesty",
+                          "bounded_size"
+                        ]
+                      },
+                      "kind": "list"
+                    }
+                  },
+                  "kind": "map"
+                }
+              }
+            ],
+            "kind": "dictionary"
+          }
+        },
+        "kind": "map"
+      }
+    }
+  ],
+  "version": 1
+}
