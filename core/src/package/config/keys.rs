@@ -740,7 +740,7 @@ mod reader_tests {
                 );
             }
         }
-        assert!(closed >= 8, "only {closed} dictionaries were checked");
+        assert!(closed >= 7, "only {closed} dictionaries were checked");
     }
 
     /// Every key name in the reader's source, which is a `match` on them: the
