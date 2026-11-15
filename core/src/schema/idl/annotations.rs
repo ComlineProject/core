@@ -260,6 +260,10 @@ impl FramingValue {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct HandshakeParam {
     pub key: &'static str,
+    /// What it decides, in a few words.
+    pub summary: &'static str,
+    /// What each of its values does.
+    pub doc: &'static str,
     /// Every value it can have, its default first.
     pub values: &'static [&'static str],
     /// A wire parameter changes what the two ends exchange, so both have to
@@ -270,10 +274,34 @@ pub struct HandshakeParam {
 
 /// `comline@2`'s parameters (runtime#15).
 pub const COMLINE2_PARAMS: &[HandshakeParam] = &[
-    HandshakeParam { key: "scope", values: &["protocol", "package"], wire: false },
-    HandshakeParam { key: "newer_consumer", values: &["degrade", "refuse"], wire: false },
-    HandshakeParam { key: "same_version_differs", values: &["refuse", "warn"], wire: false },
-    HandshakeParam { key: "exchange", values: &["offer", "symmetric"], wire: true },
+    HandshakeParam {
+        key: "scope",
+        summary: "Whether a refusal reaches the protocol or the connection",
+        doc: "Whether a protocol's refusal refuses that protocol alone (`protocol`) or the whole connection (`package`).",
+        values: &["protocol", "package"],
+        wire: false,
+    },
+    HandshakeParam {
+        key: "newer_consumer",
+        summary: "What a consumer with more functions gets",
+        doc: "When the consumer has functions the provider lacks: `degrade` connects, and calls to them fail locally; `refuse` refuses the protocol.",
+        values: &["degrade", "refuse"],
+        wire: false,
+    },
+    HandshakeParam {
+        key: "same_version_differs",
+        summary: "What equal versions with different shapes get",
+        doc: "When two versions are equal but their shapes differ: `refuse` refuses the protocol, `warn` connects and reports a warning, which gives up version honesty.",
+        values: &["refuse", "warn"],
+        wire: false,
+    },
+    HandshakeParam {
+        key: "exchange",
+        summary: "Who sends what in the handshake",
+        doc: "Who sends what: `offer` is a hello, an answer and a verdict, `symmetric` has each end send a hello and a verdict.",
+        values: &["offer", "symmetric"],
+        wire: true,
+    },
 ];
 
 /// The parameters the handshake `name` takes. Only `comline@2` takes any: a
