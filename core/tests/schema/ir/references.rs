@@ -9,7 +9,6 @@
 use comline_core::diagnostics::Diagnostic;
 use comline_core::package::build::PackageSources;
 use comline_core::package::config::idl::grammar as config_grammar;
-use comline_core::package::config::ir::compiler::interpret::interpret_context;
 use comline_core::package::config::ir::context::ProjectContext;
 use comline_core::schema::idl::grammar;
 use comline_core::schema::ir::compiler::references::{
@@ -39,7 +38,7 @@ fn add_schema(project: &mut ProjectContext, namespace: &[&str], source: &str) {
 }
 
 /// What the reference check says of the schema `namespace`.
-fn errors(project: &ProjectContext, namespace: &[&str]) -> Vec<Diagnostic> {
+fn reference_errors(project: &ProjectContext, namespace: &[&str]) -> Vec<Diagnostic> {
     let namespace: Vec<String> = namespace.iter().map(|s| s.to_string()).collect();
     let declarations = project
         .schema_contexts
@@ -62,7 +61,7 @@ fn api_errors(api: &str) -> Vec<Diagnostic> {
     let mut project = build_project();
     add_schema(&mut project, &["types"], TYPES);
     add_schema(&mut project, &["api"], api);
-    errors(&project, &["api"])
+    reference_errors(&project, &["api"])
 }
 
 /// `api` as `api` is after the one fix of the one error it has.
@@ -216,7 +215,7 @@ fn a_qualifier_is_a_root_or_a_name_in_scope() {
     add_schema(&mut project, &["billing", "api"], INVOICE);
     let skipping = "use package::billing\n\nstruct A {\n    i: api::Invoice\n}\n";
     add_schema(&mut project, &["app"], skipping);
-    let errors = errors(&project, &["app"]);
+    let errors = reference_errors(&project, &["app"]);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].code, QUALIFIER_NOT_IN_SCOPE);
     assert_eq!(
@@ -234,7 +233,7 @@ fn a_declaration_and_a_use_of_one_name_is_defined_twice() {
     let api = "use package::billing::api::Invoice\n\nstruct Invoice {\n    data: char[max 64]\n}\n";
     add_schema(&mut project, &["api"], api);
 
-    let errors = errors(&project, &["api"]);
+    let errors = reference_errors(&project, &["api"]);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].code, DEFINED_TWICE);
     assert_eq!(errors[0].code.id, "reference::defined-twice");
@@ -262,7 +261,7 @@ fn two_uses_of_one_name_are_defined_twice_and_the_same_use_twice_is_not() {
     add_schema(&mut project, &["b"], TYPES);
     let api = "use package::a::User\nuse package::b::User\n\nstruct A {\n    id: u64\n}\n";
     add_schema(&mut project, &["api"], api);
-    let errors = errors(&project, &["api"]);
+    let errors = reference_errors(&project, &["api"]);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].code, DEFINED_TWICE);
     // The later `use` takes the alias.
@@ -290,7 +289,7 @@ fn two_uses_of_one_name_are_defined_twice_and_the_same_use_twice_is_not() {
     }
 
     fn errors_of(project: &ProjectContext) -> Vec<Diagnostic> {
-        errors(project, &["api"])
+        reference_errors(project, &["api"])
     }
 }
 
@@ -302,7 +301,7 @@ fn every_error_is_reported_not_the_first() {
     add_schema(&mut project, &["types"], TYPES);
     let api = "use package::types\n\nstruct User {\n    id: u8\n}\n\nstruct A {\n    first: Order\n    second: nope::User\n    third: types::Order\n}\n";
     add_schema(&mut project, &["api"], api);
-    let errors = errors(&project, &["api"]);
+    let errors = reference_errors(&project, &["api"]);
     let codes: Vec<&str> = errors.iter().map(|e| e.code.id).collect();
     assert_eq!(
         codes,
@@ -341,7 +340,7 @@ fn a_use_that_fails_to_resolve_still_brings_its_name_in() {
         &["api"],
         "use modles::User\n\nstruct A {\n    u: User\n}\n",
     );
-    assert!(errors(&project, &["api"]).is_empty());
+    assert!(reference_errors(&project, &["api"]).is_empty());
     let error = compile(&[
         (&["models"], TYPES),
         (&["api"], "use modles::User\n\nstruct A {\n    u: User\n}\n"),
