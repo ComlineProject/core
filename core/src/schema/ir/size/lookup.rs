@@ -2,10 +2,10 @@
 //! types it holds written as the IR freezes them.
 
 use std::borrow::Cow;
-use std::collections::HashMap;
 
 use crate::schema::ir::frozen::types::TypeRef;
-use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, FrozenUnit};
+use crate::schema::ir::frozen::unit::{ConfigValue, FrozenUnit};
+use crate::schema::ir::resolve::Resolver;
 
 /// A declaration, as far as its size goes.
 #[derive(Debug, Clone, PartialEq)]
@@ -55,93 +55,36 @@ pub trait Lookup {
     fn resolve(&self, scope: Self::Scope, name: &str) -> Option<Resolved<'_, Self::Scope>>;
 }
 
-/// A [`Lookup`] over frozen schemas: the units of each, resolving a name
-/// through the schema's own declarations, its `use`s, a qualified path, and
-/// last any schema's declaration of that name, as `compat` finds the
-/// declarations a protocol reaches. Its scope is the index of the schema, from
+/// A [`Lookup`] over frozen schemas: the units of each, resolving a name as the
+/// validator accepted it, through [`Resolver`]: the schema's own declarations,
+/// its `use`s, aliases included, and a qualified path that is one of their
+/// paths, and nothing looser. Its scope is the index of the schema, from
 /// [`FrozenLookup::scope_of`].
 pub struct FrozenLookup<'a> {
-    schemas: Vec<(&'a str, &'a [FrozenUnit])>,
-    /// Each declared name's schemas, in order.
-    by_name: HashMap<&'a str, Vec<usize>>,
+    resolver: Resolver<'a>,
 }
 
 impl<'a> FrozenLookup<'a> {
     /// The schemas given (each starting with its `Namespace` unit, as the
-    /// frozen IR keeps them).
+    /// frozen IR keeps them), all of the package being sized.
     pub fn new(schemas: impl IntoIterator<Item = &'a [FrozenUnit]>) -> Self {
-        let schemas: Vec<(&str, &[FrozenUnit])> =
-            schemas.into_iter().map(|units| (schema_namespace(units).unwrap_or(""), units)).collect();
-        let mut by_name: HashMap<&str, Vec<usize>> = HashMap::new();
-        for (at, &(_, units)) in schemas.iter().enumerate() {
-            for unit in units {
-                if let Some(name) = declared_name(unit) {
-                    by_name.entry(name).or_default().push(at);
-                }
-            }
-        }
-        FrozenLookup { schemas, by_name }
+        Self::with_packages(schemas, Vec::<String>::new())
+    }
+
+    /// The schemas given, among them those of other packages: a dependency's
+    /// or `std`'s, whose namespaces begin with its name, one of `packages`.
+    /// What a schema of those uses is read in its own package.
+    pub fn with_packages(
+        schemas: impl IntoIterator<Item = &'a [FrozenUnit]>,
+        packages: impl IntoIterator<Item = impl Into<String>>,
+    ) -> Self {
+        FrozenLookup { resolver: Resolver::new(schemas, packages) }
     }
 
     /// The scope of the schema whose namespace is `namespace` (`api`,
     /// `billing::api`).
     pub fn scope_of(&self, namespace: &str) -> Option<usize> {
-        self.schemas.iter().position(|(ns, _)| *ns == namespace)
-    }
-
-    /// The declaration `name` in the schema `at`.
-    fn declared(&self, at: usize, name: &str) -> Option<(usize, &'a FrozenUnit)> {
-        let &(_, units) = self.schemas.get(at)?;
-        units.iter().find(|u| declared_name(u) == Some(name)).map(|u| (at, u))
-    }
-
-    fn find(&self, from: usize, name: &str) -> Option<(usize, &'a FrozenUnit)> {
-        let (path, last) = match name.rsplit_once("::") {
-            Some((path, last)) => (Some(path), last),
-            None => (None, name),
-        };
-        match path {
-            Some(path) => {
-                let in_path = |namespace: &str| {
-                    namespace == path
-                        || namespace.ends_with(&format!("::{path}"))
-                        || path.ends_with(&format!("::{namespace}"))
-                };
-                let found = (0..self.schemas.len())
-                    .filter(|at| in_path(self.schemas[*at].0))
-                    .find_map(|at| self.declared(at, last));
-                if found.is_some() {
-                    return found;
-                }
-            }
-            None => {
-                if let Some(found) = self.declared(from, last) {
-                    return Some(found);
-                }
-                if let Some(found) = self.imported(from, last) {
-                    return Some(found);
-                }
-            }
-        }
-        // As `compat` finds a name: any schema's declaration of it.
-        let at = *self.by_name.get(last)?.first()?;
-        self.declared(at, last)
-    }
-
-    /// What the schema `from`'s `use`s bring in as `name`.
-    fn imported(&self, from: usize, name: &str) -> Option<(usize, &'a FrozenUnit)> {
-        let &(_, units) = self.schemas.get(from)?;
-        units.iter().find_map(|unit| {
-            let FrozenUnit::Import(path, alias, _) = unit else { return None };
-            if let Some(glob) = path.strip_suffix("::*") {
-                return self.find(from, &format!("{glob}::{name}"));
-            }
-            let (_, last) = path.rsplit_once("::").unwrap_or(("", path));
-            if alias.as_deref().unwrap_or(last) != name {
-                return None;
-            }
-            self.find(from, path)
-        })
+        self.resolver.scope_of(namespace)
     }
 }
 
@@ -149,19 +92,10 @@ impl Lookup for FrozenLookup<'_> {
     type Scope = usize;
 
     fn resolve(&self, scope: usize, name: &str) -> Option<Resolved<'_, usize>> {
-        let (at, unit) = self.find(scope, name)?;
-        Some(Resolved { key: unit as *const FrozenUnit as usize, scope: at, decl: decl(unit) })
-    }
-}
-
-fn declared_name(unit: &FrozenUnit) -> Option<&str> {
-    match unit {
-        FrozenUnit::Struct { name, .. } | FrozenUnit::Enum { name, .. } | FrozenUnit::TypeAlias { name, .. } => {
-            Some(name)
-        }
-        // An error has no size of its own: a `throws` isn't sized, and one
-        // named as a field's type is refused by validation.
-        _ => None,
+        // A name that doesn't resolve can't be sized: a type written in an
+        // editor, or in a dependency's own dependency, which isn't here.
+        let found = self.resolver.resolve(scope, name).ok()?;
+        Some(Resolved { key: found.unit as *const FrozenUnit as usize, scope: found.schema, decl: decl(found.unit) })
     }
 }
 

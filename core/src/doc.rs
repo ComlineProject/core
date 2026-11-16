@@ -576,7 +576,10 @@ pub fn model(context: &ProjectContext, version: Option<String>) -> DocModel {
         .collect();
     let sizing = Sizing {
         formats: size_formats(context, &protocols),
-        lookup: FrozenLookup::new(compiled.iter().map(Vec::as_slice)),
+        lookup: FrozenLookup::with_packages(
+            compiled.iter().map(Vec::as_slice),
+            crate::compat::dependency_names(context.dependency_configs.iter().map(|(name, _)| name.as_str())),
+        ),
     };
 
     let mut modules = vec![];

@@ -40,14 +40,21 @@ fn shape(context: &ProjectContext, protocol: &str) -> String {
         .clone()
 }
 
-/// What `User` takes under `packed@1`, written in the schema `namespace`.
-fn size_of(context: &ProjectContext, namespace: &str, reference: &str) -> Option<size::Range> {
+/// What `reference` takes under `packed@1`, written in the schema `namespace`;
+/// `packages` are the names of the dependencies the context has.
+fn size_of(
+    context: &ProjectContext,
+    namespace: &str,
+    reference: &str,
+    packages: &[&str],
+) -> Option<size::Range> {
     let frozen: Vec<Vec<FrozenUnit>> = context
         .schema_contexts
         .iter()
         .filter_map(|s| s.borrow().frozen_schema.borrow().clone())
         .collect();
-    let lookup = FrozenLookup::new(frozen.iter().map(Vec::as_slice));
+    let lookup =
+        FrozenLookup::with_packages(frozen.iter().map(Vec::as_slice), packages.iter().copied());
     let scope = lookup.scope_of(namespace).expect("the schema");
     size::range(
         &TypeRef::Named(reference.to_string()),
@@ -62,7 +69,10 @@ fn size_of(context: &ProjectContext, namespace: &str, reference: &str) -> Option
 fn declared_here(user: &str) -> (String, Option<size::Range>) {
     let source = format!("{user}\n{}", users("", "User"));
     let context = compile(&[(&["app"], source)]);
-    (shape(&context, "Users"), size_of(&context, "app", "User"))
+    (
+        shape(&context, "Users"),
+        size_of(&context, "app", "User", &[]),
+    )
 }
 
 /// Schemas that hold the same name under namespaces that resemble each other,
@@ -121,7 +131,7 @@ fn a_name_resolves_to_the_declaration_the_schema_imports() {
                 if shape != expected.0 {
                     wrong.push(format!("compat: {label}, imports {path}, {form}"));
                 }
-                if size_of(&context, "app", &reference) != expected.1 {
+                if size_of(&context, "app", &reference, &[]) != expected.1 {
                     wrong.push(format!("sizer: {label}, imports {path}, {form}"));
                 }
             }
@@ -182,6 +192,15 @@ fn dependency_shape(field: &str, decoy: bool) -> String {
     shape(&context, "Q")
 }
 
+/// What `B` takes where `p1` imports it, as the sizer reads it.
+#[cfg(feature = "deps")]
+fn dependency_size(field: &str, decoy: bool) -> Option<size::Range> {
+    let tmp = consumer(field, decoy);
+    let context =
+        comline_core::package::build::compile_package(&tmp.path().join("p1")).expect("p1 builds");
+    size_of(&context, "s0", "B", &["p0", "std"])
+}
+
 #[cfg(feature = "deps")]
 #[test]
 fn a_dependencys_bare_name_is_not_the_consumers_declaration() {
@@ -195,4 +214,14 @@ fn a_dependencys_qualified_name_is_not_the_consumers_declaration() {
         dependency_shape("s0::A", true),
         dependency_shape("s0::A", false)
     );
+}
+
+#[cfg(feature = "deps")]
+#[test]
+fn the_sizer_reads_a_dependencys_names_in_its_package() {
+    for field in ["A", "s0::A"] {
+        let alone = dependency_size(field, false);
+        assert!(alone.is_some(), "`{field}` is sized");
+        assert_eq!(dependency_size(field, true), alone, "`{field}`");
+    }
 }
