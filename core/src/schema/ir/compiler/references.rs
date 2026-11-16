@@ -435,7 +435,7 @@ impl<'p> Scope<'p> {
                 self.bind(Binding {
                     name: alias.clone().unwrap_or(last),
                     kind: Kind::Unknown,
-                    path: parts,
+                    path: parts.clone(),
                     weak: false,
                     span,
                     single: true,
