@@ -118,6 +118,15 @@ const UNVERIFIED_VERSION_HONESTY: DiagnosticCode =
 /// Types come back already resolved through aliases in the schema that
 /// declares them.
 pub trait ImportLookup {
+    /// Whether the qualified name `name`, written as a type, is a path to a
+    /// declaration the project holds: `billing::api::Invoice`, which a
+    /// schema's `use package::billing` makes it write that way, or a full path
+    /// from a root with no `use` at all (core#290). A qualified type freezes as
+    /// its path from the package's root, so the schema needn't import it.
+    /// `false` when the lookup can't say.
+    fn reaches(&self, _name: &str) -> bool {
+        false
+    }
     /// The `for` targets of an imported validator, as written or qualified
     /// (`StringBounds`, `validators::StringBounds`).
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>>;
@@ -288,6 +297,24 @@ pub fn validate_with(
                 Ok(None) => {}
                 Err(diagnostic) => errors.push(diagnostic),
             }
+        }
+    }
+
+    // A qualified type that a `use` doesn't bring in whole is a path the
+    // project can reach on its own: an import of the schema, for what follows.
+    let mut paths: Vec<&str> = vec![];
+    for unit in units {
+        unit.for_each_type(&mut |ty| {
+            ty.for_each_name(&mut |name| {
+                if name.contains("::") {
+                    paths.push(name);
+                }
+            })
+        });
+    }
+    for name in paths {
+        if symbols.get(name).is_none() && imports.reaches(name) {
+            let _ = symbols.insert(name, SymbolType::Import, None);
         }
     }
 

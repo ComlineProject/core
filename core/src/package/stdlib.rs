@@ -13,6 +13,7 @@ use std::collections::HashMap;
 // Crate Uses
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::import_resolver::ImportResolver;
+use crate::schema::ir::compiler::references::named_types;
 
 /// The namespace every std schema lives under.
 pub const NAMESPACE: &str = "std";
@@ -65,7 +66,7 @@ fn std_imports(namespace: &[String], source: &str) -> Vec<Vec<String>> {
         return vec![];
     };
     let resolver = ImportResolver::new(vec![], HashMap::new(), None);
-    document
+    let mut targets: Vec<Vec<String>> = document
         .0
         .iter()
         .filter_map(|decl| match &decl.value {
@@ -74,7 +75,16 @@ fn std_imports(namespace: &[String], source: &str) -> Vec<Vec<String>> {
         })
         .map(|resolved| resolved.absolute_namespace)
         .filter(|target| target.first().map(String::as_str) == Some(NAMESPACE))
-        .collect()
+        .collect();
+    // A full path in a type position needs no `use`: `std::http::Request`
+    // (core#290).
+    targets.extend(
+        named_types(&document.0)
+            .into_iter()
+            .filter(|written| written.name.starts_with("std::"))
+            .map(|written| written.name.split("::").map(String::from).collect::<Vec<String>>()),
+    );
+    targets
 }
 
 /// The schema a `use` of `target` resolves to, the way the build matches it:
@@ -110,6 +120,14 @@ mod tests {
             ]),
             ["std::http", "std::validators"]
         );
+    }
+
+    #[test]
+    fn a_std_path_in_a_type_merges_its_schema_with_no_use() {
+        let sources = [schema(&["api"], "struct Call {\n    request: std::http::Request\n}\n")];
+        assert_eq!(namespaces(&sources), ["std::http"]);
+        // A name that only looks like one isn't.
+        assert!(namespaces(&[schema(&["api"], "struct Call {\n    request: stdlib::http::Request\n}\n")]).is_empty());
     }
 
     #[test]

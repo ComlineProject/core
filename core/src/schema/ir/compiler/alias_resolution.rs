@@ -30,6 +30,7 @@ use std::collections::{HashMap, HashSet};
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::{Declaration, Type};
 use crate::schema::ir::compiler::import_resolver::{find_schema_bringing_into_scope, schema_declares_symbol};
+use crate::schema::ir::compiler::references::Scope;
 use crate::schema::ir::validation::validator::is_primitive;
 use crate::diagnostics::{Diagnostic, DiagnosticCode};
 
@@ -245,6 +246,12 @@ fn first_unresolvable_name(
 
             if is_primitive(&bare) {
                 return None;
+            }
+            // A qualified name is read by the rule for them (core#290): a
+            // path from a name in scope, or from a root.
+            if let (true, Some((current_namespace, project_context))) = (full.contains("::"), use_context) {
+                let scope = Scope::new(declarations, current_namespace, project_context);
+                return (!scope.exists(&full)).then_some(full);
             }
             if alias_map.contains_key(&bare) {
                 return None;

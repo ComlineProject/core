@@ -7,6 +7,7 @@ use crate::schema::idl::grammar::{
     self, Annotation, AnnotationValue, Declaration, Expression, UsePath,
 };
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
+use crate::schema::ir::compiler::references::{check_references, Scope};
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::import_resolver::{size_constant, 
     check_imports, declared_symbol_names, find_schema_bringing_into_scope, resolve_use_to_schema,
@@ -49,7 +50,18 @@ impl IncrementalInterpreter {
         use_context: Option<(&[String], &ProjectContext)>,
     ) -> Result<Vec<FrozenUnit>, Vec<Diagnostic>> {
         if let Some((current_namespace, project_context)) = use_context {
-            check_imports(&declarations, current_namespace, project_context)?;
+            // Both are reported, as `comline build` reports them.
+            let mut errors = check_imports(&declarations, current_namespace, project_context)
+                .err()
+                .unwrap_or_default();
+            errors.extend(
+                check_references(&declarations, current_namespace, project_context)
+                    .err()
+                    .unwrap_or_default(),
+            );
+            if !errors.is_empty() {
+                return Err(errors);
+            }
         }
         check_aliases(&declarations, use_context)?;
         crate::schema::ir::compiler::bounds::check_bounds(&declarations, use_context)?;
@@ -360,6 +372,19 @@ impl IncrementalInterpreter {
                         span,
                     });
                 }
+            }
+        }
+
+        // A qualified type is frozen as its path from the package's root
+        // (core#290): `api::Invoice` after `use package::billing::api`, an
+        // alias's `b::Invoice` and a full `package::billing::api::Invoice` are
+        // all `billing::api::Invoice`. A bare name is frozen as written.
+        if let Some((namespace, project)) = use_context {
+            let scope = Scope::new(&size_declarations, namespace, project);
+            for unit in &mut frozen_units {
+                unit.for_each_type_mut(&mut |ty| {
+                    *ty = ty.map_named(&mut |name| scope.frozen(name).map(TypeRef::Named));
+                });
             }
         }
 

@@ -594,11 +594,29 @@ pub struct ProjectImports<'a> {
 }
 
 impl ProjectImports<'_> {
+    /// The schema that declares what `name` names, and its name there. A
+    /// qualified type is frozen as its path from the package's root (core#290),
+    /// so it is the schema by that namespace; one that isn't (a validator
+    /// called `validators::StringBounds`, as written) and a bare name are read
+    /// through the schema's `use`s.
     fn declaring_schema(&self, name: &str) -> Option<(Rc<RefCell<SchemaContext>>, String)> {
         let bare = name.rsplit("::").next()?.to_string();
+        if let Some(schema) = self.by_path(name) {
+            return Some((schema, bare));
+        }
         let schema =
             find_schema_bringing_into_scope(&bare, self.declarations, self.namespace, self.project)?;
         Some((schema, bare))
+    }
+
+    /// The schema whose namespace is the qualifier of `name`, when it
+    /// declares the name.
+    fn by_path(&self, name: &str) -> Option<Rc<RefCell<SchemaContext>>> {
+        let (qualifier, bare) = name.rsplit_once("::")?;
+        let parts: Vec<String> = qualifier.split("::").map(str::to_string).collect();
+        let (schema, remaining) = self.project.find_schema_by_import_namespace_parts(&parts)?;
+        let declared = remaining.is_empty() && importable_names(&schema.borrow()).iter().any(|n| n == bare);
+        declared.then_some(schema)
     }
 }
 
@@ -609,6 +627,10 @@ impl ImportLookup for ProjectImports<'_> {
     fn encodings(&self) -> crate::schema::ir::unverified::Encodings<'_> {
         crate::schema::ir::unverified::Encodings::of(self.project)
     }
+    fn reaches(&self, name: &str) -> bool {
+        self.by_path(name).is_some()
+    }
+
     fn validator_targets(&self, name: &str) -> Option<Vec<TypeRef>> {
         let (schema, bare) = self.declaring_schema(name)?;
         let schema = schema.borrow();
@@ -796,7 +818,12 @@ pub fn declared_symbol_names(schema_context: &SchemaContext) -> Vec<String> {
 
 /// Whether a `use` resolving to `resolved` (with `remaining` path segments
 /// left over after the longest-prefix schema match, and an optional `as`
-/// `alias`) brings the bare name `name` into scope. The branch order is
+/// `alias`) brings the bare name `name` into scope. This is the older, wider
+/// reading, where a whole-namespace `use` brings in every name the schema has:
+/// the names a schema's `use`s are still read for (validators, constants, the
+/// errors a function throws). A type's name is read by
+/// [`references::Scope`](super::references::Scope), where it brings in its own
+/// name only (core#290). The branch order is
 /// load-bearing - glob, then explicit multi-import symbols, then a
 /// whole-namespace `use`, then the remaining path/alias - and is the only
 /// correct statement of this rule; shared by [`find_schema_bringing_into_scope`]
@@ -907,6 +934,26 @@ pub fn absolute_first_segment(use_path: &UsePath) -> Option<&str> {
     (!matches!(first, "self" | "parent" | "package")).then_some(first)
 }
 
+/// Whether `parts` is a namespace that has no schema of its own: a
+/// dependency's name or `std` on its own, or a directory of the project's
+/// schemas (`billing`, with `billing::api` a schema).
+pub(crate) fn is_namespace(
+    project_context: &ProjectContext,
+    dependencies: &HashSet<String>,
+    parts: &[String],
+) -> bool {
+    if let [only] = parts {
+        if only == stdlib::NAMESPACE || dependencies.contains(only) {
+            return true;
+        }
+    }
+    !parts.is_empty()
+        && project_context.schema_contexts.iter().any(|schema| {
+            let schema = schema.borrow();
+            schema.namespace.len() > parts.len() && schema.namespace.starts_with(parts)
+        })
+}
+
 /// A `use` path as it is written, without its alias.
 fn written_path(use_path: &UsePath) -> String {
     match use_path {
@@ -951,22 +998,31 @@ fn bare_own_schema_path(
     .with_help(format!(
         "write `{write}`: a package's own schemas are reached as `package::...`, `parent::...` or `self::...`"
     ));
-    match own_path_fix(source, span, first, &write) {
+    match own_path_fix(source, span, first, &format!("Write `{write}`"), "package::", 0) {
         Some(fix) => diagnostic.with_fix(fix),
         None => diagnostic,
     }
 }
 
-/// Inserting `package::` where the `use` declaration at `span` names `first`,
-/// the first segment of its path; `None` when `source` isn't there, or the
-/// declaration isn't `use`, whitespace, and then `first`.
-fn own_path_fix(source: Option<&str>, span: (usize, usize), first: &str, write: &str) -> Option<Fix> {
+/// Replacing the `replaced` bytes where the `use` declaration at `span` names
+/// `first`, the first segment of its path, with `text` (inserting, for 0, as
+/// `package::` is put in front of a bare path); `None` when `source` isn't
+/// there, or the declaration isn't `use`, whitespace, and then `first`.
+fn own_path_fix(
+    source: Option<&str>,
+    span: (usize, usize),
+    first: &str,
+    title: &str,
+    text: &str,
+    replaced: usize,
+) -> Option<Fix> {
     let source = source?;
     let after_use = source.get(span.0..span.1)?.strip_prefix("use")?;
     let at = span.1 - after_use.trim_start().len();
-    source.get(at..)?.starts_with(first).then(|| {
-        Fix::replace(format!("Write `{write}`"), (at, at), "package::")
-    })
+    source
+        .get(at..)?
+        .starts_with(first)
+        .then(|| Fix::replace(title, (at, at + replaced), text))
 }
 
 /// Every `use` in `declarations` that doesn't resolve, as validation
@@ -1061,6 +1117,21 @@ pub fn check_imports(
                 continue;
             }
 
+            // A namespace with no schema of its own brings its name into
+            // scope, to qualify with (core#290): a dependency's name or `std`
+            // on its own, or a directory of schemas (`use package::billing`).
+            // A directory reached by a bare path is the same error as a schema.
+            if target.resolved.symbols.is_empty()
+                && is_namespace(project_context, &dependencies, &target.resolved.absolute_namespace)
+            {
+                if let Some(written) = absolute_first_segment(&use_stmt.path) {
+                    if written != stdlib::NAMESPACE && !dependencies.contains(written) {
+                        errors.push(bare_own_schema_path(&use_stmt.path, written, decl.span, source.as_deref()));
+                    }
+                }
+                continue;
+            }
+
             if first == stdlib::NAMESPACE {
                 errors.push(unresolved(unknown_std_path(&target.resolved.absolute_namespace)));
                 continue;
@@ -1070,13 +1141,37 @@ pub fn check_imports(
                 "no schema in this package or its dependencies matches '{}'",
                 target.resolved.absolute_namespace.join("::")
             );
+            let mut fix = None;
             if !top_level.contains(first) && !dependencies.contains(first) {
                 let known = top_level.iter().chain(&dependencies).map(String::as_str);
                 if let Some(suggestion) = closest(first, known) {
-                    context.push_str(&format!(" - did you mean '{suggestion}'?"));
+                    // One of the package's own schemas is reached through
+                    // `package::`, so that is what is suggested (core#286); a
+                    // dependency's name and `std` are absolute as they are.
+                    let own = top_level.contains(&suggestion)
+                        && !dependencies.contains(&suggestion)
+                        && suggestion != stdlib::NAMESPACE
+                        && absolute_first_segment(&use_stmt.path) == Some(first);
+                    if own {
+                        let written = written_path(&use_stmt.path);
+                        let corrected = format!("package::{suggestion}{}", &written[first.len()..]);
+                        context.push_str(&format!(" - did you mean '{corrected}'?"));
+                        fix = own_path_fix(
+                            source.as_deref(),
+                            decl.span,
+                            first,
+                            &format!("Write `{corrected}`"),
+                            &format!("package::{suggestion}"),
+                            first.len(),
+                        );
+                    } else {
+                        context.push_str(&format!(" - did you mean '{suggestion}'?"));
+                    }
                 }
             }
-            errors.push(unresolved(context));
+            let mut diagnostic = unresolved(context);
+            diagnostic.fix = fix;
+            errors.push(diagnostic);
             continue;
         };
 

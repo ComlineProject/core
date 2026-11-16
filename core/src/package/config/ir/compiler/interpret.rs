@@ -11,6 +11,7 @@ use crate::schema::ir::compiler::import_resolver::{
     check_imports, resolve_use_to_schema, use_brings_into_scope, ImportResolver, ProjectImports,
 };
 use crate::schema::ir::compiler::interpreter::IncrementalInterpreter;
+use crate::schema::ir::compiler::references::{check_references, Scope};
 use crate::schema::ir::compiler::settings::enforcement::check_settings_enforcement;
 use crate::schema::ir::compiler::settings::resolution::check_settings_conflicts;
 use crate::schema::ir::compiler::settings::severity::resolve_diagnostic_overrides;
@@ -90,6 +91,11 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         let declarations = { schema_context.borrow().declarations.clone() };
         let namespace = { schema_context.borrow().namespace.clone() };
 
+        // Every error of what the schema names is reported, not the first:
+        // the imports that don't resolve, and the names written that nothing
+        // brought into scope. A `use` that doesn't resolve still brings its
+        // name in, so the one never causes the other.
+        let mut unnamed = false;
         if let Err(errors) = check_imports(&declarations, &namespace, project_context) {
             let rendered: Vec<String> = errors
                 .iter()
@@ -100,6 +106,21 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
                 namespace.join("::"),
                 rendered.join("\n\n")
             ));
+            unnamed = true;
+        }
+        if let Err(errors) = check_references(&declarations, &namespace, project_context) {
+            let rendered: Vec<String> = errors
+                .iter()
+                .map(|error| schema_context.borrow().render(error))
+                .collect();
+            schema_errors.push(format!(
+                "Schema '{}' has names that aren't in scope:\n{}",
+                namespace.join("::"),
+                rendered.join("\n\n")
+            ));
+            unnamed = true;
+        }
+        if unnamed {
             continue;
         }
 
@@ -468,7 +489,9 @@ fn imports_foreign(
         });
     };
 
-    // A qualified name may name its schema outright.
+    // A qualified name is a path from the package's root (core#290): it names
+    // its schema outright, and no `use` of the schema is asked about it.
+    let mut named_outright = false;
     if let Some(qualifier) = qualifier {
         let parts: Vec<String> = qualifier.split("::").map(str::to_string).collect();
         if let Some((schema, remaining)) =
@@ -476,10 +499,11 @@ fn imports_foreign(
         {
             if remaining.is_empty() {
                 declares(&schema, bare);
+                named_outright = true;
             }
         }
     }
-    for decl in declarations {
+    for decl in declarations.iter().filter(|_| !named_outright) {
         let Declaration::Use(use_stmt) = &decl.value else {
             continue;
         };
@@ -593,6 +617,26 @@ fn schema_imports(project_context: &ProjectContext) -> HashMap<String, HashSet<S
         let schema_context = schema_context.borrow();
         let from_namespace = schema_context.namespace_joined();
         let mut depends_on = HashSet::new();
+
+        // What the schema writes in a type reaches a schema too, with no `use`
+        // for a full path (`package::billing::api::Invoice`): it is compiled
+        // after it, and the two can't import each other. A dependency's
+        // schemas arrive compiled, and are written against their own package.
+        if !schema_context.compile_state.borrow().complete {
+            let scope = Scope::new(
+                &schema_context.declarations,
+                &schema_context.namespace,
+                project_context,
+            );
+            for written in crate::schema::ir::compiler::references::named_types(&schema_context.declarations) {
+                if let Some(target) = scope.reaches(&written.name) {
+                    let to_namespace = target.join("::");
+                    if to_namespace != from_namespace {
+                        depends_on.insert(to_namespace);
+                    }
+                }
+            }
+        }
 
         for decl in &schema_context.declarations {
             if let Declaration::Use(use_stmt) = &decl.value {

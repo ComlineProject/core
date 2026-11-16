@@ -104,34 +104,47 @@ fn a_name_resolves_to_the_declaration_the_schema_imports() {
                 pair[imported].join("::"),
                 if imported == 0 { &big } else { &small },
             );
+            // What is written, and what it freezes as: a qualified name is
+            // frozen as its path from the package's root (core#290), however
+            // it was written.
             let forms = [
                 (
                     "bare",
                     format!("use package::{path}::User"),
+                    "User".to_string(),
                     "User".to_string(),
                 ),
                 (
                     "aliased",
                     format!("use package::{path}::User as Account"),
                     "Account".to_string(),
+                    "Account".to_string(),
                 ),
                 (
                     "qualified",
                     format!("use package::{path}::User"),
+                    format!("package::{path}::User"),
+                    format!("{path}::User"),
+                ),
+                (
+                    "qualified by a namespace",
+                    format!("use package::{path}"),
+                    format!("{}::User", pair[imported].last().unwrap()),
                     format!("{path}::User"),
                 ),
             ];
-            for (form, use_line, reference) in forms {
+            for (form, use_line, written, reference) in forms {
+                let reference = reference.as_str();
                 let context = compile(&[
                     (pair[0], BIG.to_string()),
                     (pair[1], SMALL.to_string()),
-                    (&["app"], users(&use_line, &reference)),
+                    (&["app"], users(&use_line, &written)),
                 ]);
                 let shape = shape(&context, "Users");
                 if shape != expected.0 {
                     wrong.push(format!("compat: {label}, imports {path}, {form}"));
                 }
-                if size_of(&context, "app", &reference, &[]) != expected.1 {
+                if size_of(&context, "app", reference, &[]) != expected.1 {
                     wrong.push(format!("sizer: {label}, imports {path}, {form}"));
                 }
             }
@@ -211,15 +224,15 @@ fn a_dependencys_bare_name_is_not_the_consumers_declaration() {
 #[test]
 fn a_dependencys_qualified_name_is_not_the_consumers_declaration() {
     assert_eq!(
-        dependency_shape("s0::A", true),
-        dependency_shape("s0::A", false)
+        dependency_shape("package::s0::A", true),
+        dependency_shape("package::s0::A", false)
     );
 }
 
 #[cfg(feature = "deps")]
 #[test]
 fn the_sizer_reads_a_dependencys_names_in_its_package() {
-    for field in ["A", "s0::A"] {
+    for field in ["A", "package::s0::A"] {
         let alone = dependency_size(field, false);
         assert!(alone.is_some(), "`{field}` is sized");
         assert_eq!(dependency_size(field, true), alone, "`{field}`");

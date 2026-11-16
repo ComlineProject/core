@@ -236,6 +236,20 @@ impl TypeRef {
         matches!(self, TypeRef::Array { .. })
     }
 
+    /// Every name this type is made of, through arrays and unions.
+    pub fn for_each_name<'a>(&'a self, f: &mut dyn FnMut(&'a str)) {
+        match self {
+            TypeRef::Named(name) => f(name),
+            TypeRef::Array { element, .. } => element.for_each_name(f),
+            TypeRef::Union(members) => {
+                for member in members {
+                    member.for_each_name(f);
+                }
+            }
+            TypeRef::Primitive(_) | TypeRef::Unit => {}
+        }
+    }
+
     /// `self` with every `Named` part replaced by what `resolve` maps it to
     /// (`None` keeps it). Used to see through `type` aliases.
     pub fn map_named(&self, resolve: &mut impl FnMut(&str) -> Option<TypeRef>) -> TypeRef {
