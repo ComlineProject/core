@@ -493,3 +493,73 @@ fn a_whole_namespace_use_and_a_qualified_name_freeze_as_they_always_did() {
     // what it was, whatever the file may now write.
     assert_eq!(imports, ["types", "types::User", "types::Order"]);
 }
+
+// ---- A qualified reference reaches the declaration it resolves to.
+
+/// The specification's `references/resolved-*` cases put an `Invoice` that holds
+/// an unbounded string in `archive` beside the bounded one in `billing::api`,
+/// to tell which a name reached by what it freezes as. Core holds a type no
+/// protocol reaches to be bounded (core#98), so there the one in `archive`
+/// is marked: a protocol of its own, `@unverified`.
+#[test]
+fn each_spelling_reaches_billing_and_not_the_decoy_in_archive() {
+    let config = "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n";
+    let archive = "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n";
+    let build = |use_line: &str, reference: &str| {
+        let api =
+            format!("{use_line}\n\nprotocol Orders {{\n    function send(i: {reference});\n}}\n");
+        PackageSources::new()
+            .config(config)
+            .schema(["archive"], archive)
+            .schema(["billing", "api"], INVOICE)
+            .schema(["api"], api)
+            .compile()
+            .map_err(|e| e.to_string())
+    };
+
+    let to_billing = [
+        ("use package::billing::api::Invoice", "Invoice"),
+        ("use package::billing::api", "api::Invoice"),
+        ("use package::billing", "billing::api::Invoice"),
+        ("use package::billing::api as b", "b::Invoice"),
+        ("", "package::billing::api::Invoice"),
+    ];
+    for (use_line, reference) in to_billing {
+        let project =
+            build(use_line, reference).unwrap_or_else(|e| panic!("{use_line} / {reference}: {e}"));
+        let schema = project
+            .schema_contexts
+            .iter()
+            .find(|s| s.borrow().namespace_joined() == "api")
+            .unwrap();
+        let frozen = schema.borrow().frozen_schema.borrow().clone().unwrap();
+        let given_up = frozen.iter().find_map(|u| match u {
+            FrozenUnit::Protocol {
+                name, parameters, ..
+            } if name == "Orders" => {
+                Some(comline_core::schema::ir::unverified::frozen_set(parameters).to_vec())
+            }
+            _ => None,
+        });
+        assert_eq!(
+            given_up,
+            Some(vec![]),
+            "{use_line} / {reference}: reached the bounded Invoice"
+        );
+    }
+
+    // The same, reaching the decoy: Orders is not marked, and `archive`'s
+    // Invoice holds an unbounded string.
+    for (use_line, reference) in [
+        ("use package::archive", "archive::Invoice"),
+        ("", "package::archive::Invoice"),
+    ] {
+        let error = build(use_line, reference)
+            .err()
+            .unwrap_or_else(|| panic!("{use_line} / {reference}: built"));
+        assert!(
+            error.contains("bounds::unbounded"),
+            "{use_line} / {reference}: {error}"
+        );
+    }
+}
