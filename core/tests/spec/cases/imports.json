@@ -35,7 +35,7 @@
         },
         {
             "id": "imports/bare-own-namespace",
-            "description": "a bare path to the package's own schema as a whole is an error",
+            "description": "a bare path to the package's own schema as a whole is an error, and so is the bare Blob after it, as a whole-namespace use brings in only its name: every error is reported",
             "packages": [
                 {
                     "name": "app",
@@ -59,6 +59,10 @@
                 "diagnostics": [
                     {
                         "code": "import::bare-own-schema-path",
+                        "severity": "error"
+                    },
+                    {
+                        "code": "reference::not-in-scope",
                         "severity": "error"
                     }
                 ]
@@ -409,7 +413,7 @@
         },
         {
             "id": "imports/unknown-first-segment",
-            "description": "a bare path that is neither a dependency, std nor one of the package's schemas is unresolved, not this error",
+            "description": "a bare path that is neither a dependency, std nor one of the package's schemas is unresolved, not this error; the use still brings Blob into scope, so the bare Blob after it is no second error, as in Rust",
             "packages": [
                 {
                     "name": "app",
@@ -499,7 +503,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                            "text": "struct Upload {\n    size: u32\n}\n"
                         }
                     ],
                     "dependencies": [
@@ -539,7 +543,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                            "text": "struct Upload {\n    size: u32\n}\n"
                         }
                     ],
                     "dependencies": [
@@ -579,7 +583,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                            "text": "struct Upload {\n    size: u32\n}\n"
                         }
                     ],
                     "dependencies": [
@@ -619,7 +623,7 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "struct Upload {\n    blob: Blob\n}\n"
+                            "text": "struct Upload {\n    size: u32\n}\n"
                         }
                     ],
                     "dependencies": [
