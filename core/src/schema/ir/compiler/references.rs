@@ -86,7 +86,6 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
                     names_in(
                         field.value.field_type(),
                         field.value.field_type_span(),
-                        false,
                         &mut out,
                     );
                 }
@@ -96,7 +95,6 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
                     names_in(
                         field.value.field_type(),
                         field.value.field_type_span(),
-                        false,
                         &mut out,
                     );
                 }
@@ -113,12 +111,7 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
                         }
                     }
                     if let Some(returns) = function.return_type() {
-                        names_in(
-                            returns.return_type(),
-                            returns.return_type_span(),
-                            false,
-                            &mut out,
-                        );
+                        names_in(returns.return_type(), returns.return_type_span(), &mut out);
                     }
                 }
             }
