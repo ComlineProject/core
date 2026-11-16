@@ -371,6 +371,110 @@
                 "builds": true,
                 "diagnostics": []
             }
+        },
+        {
+            "id": "bounded/unreached-unmarked",
+            "description": "a struct no protocol reaches, with a string without a maximum, is an error: it is a type another package can use",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: string\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/unreached-list-unmarked",
+            "description": "a struct no protocol reaches, with a list without a maximum, is an error too",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: u8[]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/unreached-allowed-still-unmarked",
+            "description": "allowing @unverified in the package doesn't cover a type no protocol reaches: nothing marked it",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: string\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "bounded/unreached-bounded",
+            "description": "a struct no protocol reaches, bounded, gives nothing up and builds",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: char[max 64]\n    tags: u8[max 16]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
         }
     ]
 }

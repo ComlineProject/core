@@ -2,6 +2,7 @@
 pub mod interpreter;
 pub mod interpreted;
 pub mod import_resolver;
+pub mod references;
 pub mod alias_resolution;
 pub mod annotation_forms;
 pub mod bounds;

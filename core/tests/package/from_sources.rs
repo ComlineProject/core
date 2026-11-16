@@ -52,11 +52,12 @@ fn multiple_schemas_are_all_interpreted() {
 
 #[test]
 fn cross_schema_use_resolves_across_the_added_schemas() {
-    // The bare name (`use ns::Name` -> `Name`), the qualified form (`ns::Name`),
-    // and an alias (`use ns::Name as X` -> `X`) all resolve.
+    // The bare name (`use ns::Name` -> `Name`), the qualified form (`ns::Name`
+    // after `use ns`, which brings in `ns`; core#290), and an alias
+    // (`use ns::Name as X` -> `X`) all resolve.
     let cases = [
         ("use package::types::User", "User"),
-        ("use package::types::User", "types::User"),
+        ("use package::types", "types::User"),
         ("use package::types::User as Account", "Account"),
     ];
     for (import, reference) in cases {

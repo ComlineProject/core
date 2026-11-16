@@ -6,13 +6,29 @@
 //!
 //! 1. a declaration of the schema itself, by its bare name;
 //! 2. a `use` of the schema: the name it brings in (its alias, else the last
-//!    segment of its path), or a qualified path that is its path exactly.
+//!    segment of its path), or a qualified path that is its path exactly;
+//! 3. a qualified name, which is a path from the package's root: the schema
+//!    of that namespace, and its declaration.
 //!
 //! There is no suffix match and no taking the first schema that declares the
 //! name: two schemas that declare `User` are told apart by which of them the
-//! schema imports. A name that nothing in the schema brings in is an
-//! [`Unresolved`], which a caller that already validated the schema takes for
-//! an internal error.
+//! schema imports, or by the path it writes. A name that nothing in the
+//! schema brings in is an [`Unresolved`], which a caller that already
+//! validated the schema takes for an internal error.
+//!
+//! A qualified name is a path because the compiler froze it as one (core#290):
+//! a qualified reference starts with a name a `use` brought into scope, or
+//! with a root (`package`, `parent`, `self`, `std`, a dependency's name), and is
+//! frozen as the path it resolved to, whichever it was written with. So
+//! `api::Invoice` after `use package::billing::api`, an alias's `b::Invoice`
+//! and a full `package::billing::api::Invoice` are all
+//! `billing::api::Invoice` here. Which names a schema may write is the
+//! compiler's rule, `compiler::references`, which refused the others before
+//! anything was frozen. This module reads what was frozen, including what an
+//! older compiler froze (a dependency's schemas, written when a whole-namespace
+//! `use` brought in every name of the schema, are frozen with one import for
+//! each), so it is the wider of the two: a name it takes is not always one the
+//! compiler would let a schema write now.
 //!
 //! The frozen IR holds what this needs: a schema's units are its declarations
 //! and its `Import`s, each import's path resolved to `namespace::Name` (and the
@@ -22,11 +38,6 @@
 //! The validator sees one schema at a time, so it asks only what a `use` of
 //! the schema brings in ([`Import::brings`]); [`Resolver`] goes on to the
 //! declaration, among the schemas it is given.
-//!
-//! Qualified references that start with a name a `use` brought into scope
-//! (core#290) are this module's to add: `Schema::reach` is where a name is
-//! read in its schema, and [`Import::brings`] the rule for what an import is
-//! a name for.
 
 use std::collections::{HashMap, HashSet};
 
@@ -67,7 +78,9 @@ impl<'a> Import<'a> {
     }
 
     /// Whether a name written in the schema is this import's: the name it
-    /// brings in, or its path written out.
+    /// brings in, or its path written out. Reading the frozen IR, so it takes
+    /// what any compiler froze; the Rust model's rule for what a schema may
+    /// write is `compiler::references`'s.
     pub fn brings(&self, name: &str) -> bool {
         self.bare() == Some(name) || self.path == name
     }
@@ -113,18 +126,20 @@ pub struct Found<'a> {
 }
 
 /// Why a name resolved to no declaration.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Unresolved<'a> {
-    /// Nothing the schema declares and no `use` of it brings the name in.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Unresolved {
+    /// Nothing the schema declares and no `use` of it brings the name in, and
+    /// it is no path.
     NotInScope,
-    /// A `use` brings it in, from a schema that wasn't given: a dependency's
-    /// own dependency, which what a dependency publishes doesn't hold.
-    NotLoaded(&'a str),
+    /// The name is a path (a `use`'s, or a qualified name's) into a schema
+    /// that wasn't given: a dependency's own dependency, which what a
+    /// dependency publishes doesn't hold.
+    NotLoaded(String),
     /// It is declared (or brought in), but not a type: a protocol, a
     /// constant, a validator, a namespace.
     NotAType,
-    /// A `use` brings it in from a schema that declares nothing of the name.
-    NotDeclared(&'a str),
+    /// The path is into a schema that declares nothing of the name.
+    NotDeclared(String),
 }
 
 /// The schemas a name can be resolved among, each as its units: the
@@ -147,14 +162,18 @@ struct Schema<'a> {
 
 impl<'a> Schema<'a> {
     /// What the name `name`, written in this schema, points at on its own:
-    /// one of its declarations, or the path a `use` of it brings in. `None`
-    /// where neither does.
+    /// one of its declarations, the path a `use` of it brings in, or, for a
+    /// qualified name no `use` is the path of, the path it is. `None` for a
+    /// bare name that none of those is.
     fn reach(&self, name: &str) -> Option<Reach<'a, '_>> {
         if let Some(unit) = self.declared.get(name) {
             return Some(Reach::Declared(unit));
         }
         let imports: Vec<&Import<'a>> = self.imports.iter().filter(|i| i.brings(name)).collect();
-        (!imports.is_empty()).then_some(Reach::Imported(imports))
+        if !imports.is_empty() {
+            return Some(Reach::Imported(imports));
+        }
+        name.contains("::").then_some(Reach::Path)
     }
 }
 
@@ -163,6 +182,9 @@ enum Reach<'a, 's> {
     Declared(&'a FrozenUnit),
     /// Each `use` that brings it in, in order.
     Imported(Vec<&'s Import<'a>>),
+    /// A qualified name, which is the path of its declaration from the
+    /// package's root.
+    Path,
 }
 
 impl<'a> Resolver<'a> {
@@ -226,11 +248,12 @@ impl<'a> Resolver<'a> {
 
     /// The declaration `name` names, written in the schema `from`: the one
     /// the validator accepted it for.
-    pub fn resolve(&self, from: usize, name: &str) -> Result<Found<'a>, Unresolved<'a>> {
+    pub fn resolve(&self, from: usize, name: &str) -> Result<Found<'a>, Unresolved> {
         let schema = &self.schemas[from];
         match schema.reach(name).ok_or(Unresolved::NotInScope)? {
             Reach::Declared(unit) if is_type(unit) => Ok(Found { schema: from, unit }),
             Reach::Declared(_) => Err(Unresolved::NotAType),
+            Reach::Path => self.locate(schema, name),
             // The first of the `use`s that brings the name in and leads to a
             // declaration; where none does, why the first didn't.
             Reach::Imported(imports) => {
@@ -250,7 +273,7 @@ impl<'a> Resolver<'a> {
 
     /// The declaration the path `namespace::Name` of a `use` in `schema`
     /// names.
-    fn locate(&self, schema: &Schema<'a>, path: &'a str) -> Result<Found<'a>, Unresolved<'a>> {
+    fn locate(&self, schema: &Schema<'a>, path: &str) -> Result<Found<'a>, Unresolved> {
         let Some((namespace, name)) = path.rsplit_once("::") else {
             return Err(Unresolved::NotAType);
         };
@@ -272,11 +295,11 @@ impl<'a> Resolver<'a> {
             }
             None => self.scope_of(namespace),
         };
-        let at = at.ok_or(Unresolved::NotLoaded(path))?;
+        let at = at.ok_or_else(|| Unresolved::NotLoaded(path.to_string()))?;
         match self.schemas[at].declared.get(name) {
             Some(unit) if is_type(unit) => Ok(Found { schema: at, unit }),
             Some(_) => Err(Unresolved::NotAType),
-            None => Err(Unresolved::NotDeclared(path)),
+            None => Err(Unresolved::NotDeclared(path.to_string())),
         }
     }
 }
@@ -310,7 +333,7 @@ mod tests {
         schemas: &'a [Vec<FrozenUnit>],
         from: &str,
         name: &str,
-    ) -> Result<&'a str, Unresolved<'a>> {
+    ) -> Result<&'a str, Unresolved> {
         let from = resolver.scope_of(from).unwrap();
         let found = resolver.resolve(from, name)?;
         Ok(schema_namespace(&schemas[found.schema]).unwrap())
@@ -356,22 +379,60 @@ mod tests {
         let resolver = Resolver::new(schemas.iter().map(Vec::as_slice), Vec::<String>::new());
         let at = |name| namespace_of(&resolver, &schemas, "app", name);
         // `api::User` is a path no schema has: not `rapi`'s, not `v1::api`'s.
-        assert_eq!(at("User"), Err(Unresolved::NotLoaded("api::User")));
-        assert_eq!(at("api::User"), Err(Unresolved::NotLoaded("api::User")));
-        // Not through the schema's imports: not in scope, whatever declares it.
-        assert_eq!(at("v1::api::User"), Err(Unresolved::NotInScope));
+        assert_eq!(at("User"), Err(Unresolved::NotLoaded("api::User".into())));
+        assert_eq!(
+            at("api::User"),
+            Err(Unresolved::NotLoaded("api::User".into()))
+        );
+        // A full path is the schema of that namespace, which an import of
+        // the schema isn't needed for: `v1::api`, not `rapi` or `api`.
+        assert_eq!(at("v1::api::User"), Ok("v1::api"));
+        assert_eq!(at("rapi::User"), Ok("rapi"));
+        // A bare name that nothing brings in is not in scope, whatever
+        // declares it.
         assert_eq!(at("Other"), Err(Unresolved::NotInScope));
         assert_eq!(at("api"), Err(Unresolved::NotInScope));
     }
 
+    /// A schema that declares what a `use` of it brings in is one the compiler
+    /// refuses (`reference::defined-twice`, core#290), so it is never frozen.
+    /// A resolver handed one anyway (a dependency's IR from before the rule)
+    /// reads the declaration: the name is the schema's own.
     #[test]
-    fn a_declaration_shadows_an_import_of_its_name() {
+    fn a_declaration_is_preferred_to_an_import_of_its_name() {
         let schemas = vec![
             schema("other", vec![unit("User")]),
             schema("app", vec![import("other::User", None), unit("User")]),
         ];
         let resolver = Resolver::new(schemas.iter().map(Vec::as_slice), Vec::<String>::new());
         assert_eq!(namespace_of(&resolver, &schemas, "app", "User"), Ok("app"));
+    }
+
+    #[test]
+    fn a_qualified_name_is_the_path_it_is() {
+        let schemas = vec![
+            schema("billing::api", vec![unit("Invoice")]),
+            schema("archive", vec![unit("Invoice")]),
+            // Frozen as `billing::api::Invoice` whichever way it was written:
+            // after `use package::billing::api` as `api::Invoice`, after
+            // `use package::billing` as `billing::api::Invoice`, as
+            // `package::billing::api::Invoice` with no `use`, or `b::Invoice`.
+            schema("app", vec![import("billing::api", None), unit("Own")]),
+        ];
+        let resolver = Resolver::new(schemas.iter().map(Vec::as_slice), Vec::<String>::new());
+        let at = |name| namespace_of(&resolver, &schemas, "app", name);
+        assert_eq!(at("billing::api::Invoice"), Ok("billing::api"));
+        assert_eq!(at("archive::Invoice"), Ok("archive"), "no import of it");
+        assert_eq!(
+            at("billing::api::Gone"),
+            Err(Unresolved::NotDeclared("billing::api::Gone".into()))
+        );
+        assert_eq!(
+            at("billing::nowhere::Invoice"),
+            Err(Unresolved::NotLoaded("billing::nowhere::Invoice".into()))
+        );
+        // A bare name is still what the schema declares or imports, nothing else.
+        assert_eq!(at("Invoice"), Err(Unresolved::NotInScope));
     }
 
     #[test]
@@ -397,7 +458,10 @@ mod tests {
         let resolver = Resolver::new(schemas.iter().map(Vec::as_slice), Vec::<String>::new());
         let at = |name| namespace_of(&resolver, &schemas, "app", name);
         assert_eq!(at("LIMIT"), Err(Unresolved::NotAType));
-        assert_eq!(at("Gone"), Err(Unresolved::NotDeclared("limits::Gone")));
+        assert_eq!(
+            at("Gone"),
+            Err(Unresolved::NotDeclared("limits::Gone".into()))
+        );
         assert_eq!(at("limits"), Err(Unresolved::NotAType));
     }
 
@@ -427,7 +491,7 @@ mod tests {
         assert_eq!(at("s0::A"), Ok("p0::s0"));
         assert_eq!(at("Request"), Ok("std::http"), "std, as written");
         // A package of its own that the consumer doesn't hold isn't guessed at.
-        assert_eq!(at("Gone"), Err(Unresolved::NotLoaded("base::Gone")));
+        assert_eq!(at("Gone"), Err(Unresolved::NotLoaded("base::Gone".into())));
         assert!(resolver.is_other_package(resolver.scope_of("p0::s1").unwrap()));
         assert!(!resolver.is_other_package(resolver.scope_of("s0").unwrap()));
     }

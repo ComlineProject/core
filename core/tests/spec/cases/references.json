@@ -1,0 +1,1269 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "references",
+    "cases": [
+        {
+            "id": "references/namespace-qualified",
+            "description": "after use package::types, types::User reaches the item",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types\n\nstruct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/namespace-bare-refused",
+            "description": "after use package::types a bare User is not in scope: the use brings in only types (fix, offered because User is declared in types: add use package::types::User, or write types::User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types\n\nstruct Account {\n    owner: User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/namespace-alias-qualified",
+            "description": "after use package::types as t, t::User reaches the item",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types as t\n\nstruct Account {\n    owner: t::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/namespace-alias-original-refused",
+            "description": "after use package::types as t only the alias t is in scope, not types, which the alias replaces (fix: write t::User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types as t\n\nstruct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/item-bare",
+            "description": "after use package::types::User, User reaches the item",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::User\n\nstruct Account {\n    owner: User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/item-qualified-refused",
+            "description": "after use package::types::User, types is not in scope (fix: write User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::User\n\nstruct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/braces-bare",
+            "description": "after use package::types::{User, Order}, User reaches the item",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::{User, Order}\n\nstruct Account {\n    owner: User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/braces-qualified-refused",
+            "description": "after use package::types::{User, Order}, types is not in scope (fix: write User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::{User, Order}\n\nstruct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/glob-bare",
+            "description": "after use package::types::*, User reaches the item",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::*\n\nstruct Account {\n    owner: User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/glob-qualified-refused",
+            "description": "after use package::types::*, types is not in scope (fix: write User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types::*\n\nstruct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/no-use-bare-refused",
+            "description": "a bare User with no use is not in scope (fix, offered because User is declared in package::types: add use package::types::User, or write package::types::User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/no-use-qualified-refused",
+            "description": "types::User with no use is not rooted in a name in scope (fix, offered because the package declares types::User: add use package::types, or write package::types::User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/nowhere-bare-refused",
+            "description": "a bare Nowhere that no schema of the package or its dependencies declares is not in scope (no fix that adds a use is offered: nothing declares it)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::types\n\nstruct Account {\n    owner: Nowhere\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/nowhere-qualified-refused",
+            "description": "nope::types::User, whose first segment matches no name in scope, root or schema, is not in scope (no fix that adds a use is offered: nothing is named nope)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: nope::types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/defined-twice-local-and-use",
+            "description": "use package::billing::Invoice and struct Invoice in the same schema define Invoice twice (fix: rename one, or import with an alias: use package::billing::Invoice as BillingInvoice)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing::api::Invoice\n\nstruct Invoice {\n    data: char[max 64]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::defined-twice",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/defined-twice-two-uses",
+            "description": "use package::a::User and use package::b::User bring in User twice (fix: rename one, or import with an alias: use package::b::User as BUser)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/a.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/b.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::a::User\nuse package::b::User\n\nstruct Account {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::defined-twice",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/alias-resolves-local-clash",
+            "description": "use package::billing::api::Invoice as BillingInvoice beside a local Invoice defines each name once",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing::api::Invoice as BillingInvoice\n\nstruct Invoice {\n    data: char[max 64]\n}\n\nstruct Account {\n    billed: BillingInvoice\n    own: Invoice\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/alias-resolves-two-uses",
+            "description": "use package::a::User beside use package::b::User as BUser defines each name once",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/a.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/b.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::a::User\nuse package::b::User as BUser\n\nstruct Account {\n    first: User\n    second: BUser\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-package",
+            "description": "package::types::User in a field needs no use",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: package::types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-package-nested",
+            "description": "package:: reaches a schema in a directory from one beside it, in a field",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/shapes/api.ids",
+                            "text": "struct Account {\n    owner: package::shapes::types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-parent",
+            "description": "parent::common::Error in a field reaches a schema one level up from the importing schema's namespace",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/common.ids",
+                            "text": "struct Error {\n    code: u32\n}\n"
+                        },
+                        {
+                            "path": "src/shapes/api.ids",
+                            "text": "struct Account {\n    owner: parent::common::Error\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-self",
+            "description": "self::nested::Type in a field reaches a schema under the importing schema's own namespace",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: self::nested::Type\n}\n"
+                        },
+                        {
+                            "path": "src/api/nested.ids",
+                            "text": "struct Type {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-std",
+            "description": "std::http::Request in a field needs no use",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: std::http::Request\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-dependency",
+            "description": "a dependency's greeting::hello::Greeting in a field needs no use",
+            "packages": [
+                {
+                    "name": "greeting",
+                    "config": "congregation greeting\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/hello.ids",
+                            "text": "struct Greeting {\n    text: char[max 64]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    greeting = {\n        path = \"../greeting\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: greeting::hello::Greeting\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "greeting"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/full-own-schema-unrooted-refused",
+            "description": "a full path to the package's own schema that doesn't start at package, parent or self is not rooted (fix, offered because the schema exists: write package::shapes::types::User)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/shapes/types.ids",
+                            "text": "struct User {\n    id: u32\n}\n\nstruct Order {\n    id: u32\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "struct Account {\n    owner: shapes::types::User\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/descend-namespace",
+            "description": "after use package::billing, billing::api::Invoice reaches the nested schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing\n\nstruct Account {\n    owner: billing::api::Invoice\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/descend-alias",
+            "description": "after use package::billing as b, b::api::Invoice reaches the nested schema",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing as b\n\nstruct Account {\n    owner: b::api::Invoice\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/descend-dependency",
+            "description": "after use greeting::hello, hello::Greeting reaches the dependency's item",
+            "packages": [
+                {
+                    "name": "greeting",
+                    "config": "congregation greeting\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/hello.ids",
+                            "text": "struct Greeting {\n    text: char[max 64]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    greeting = {\n        path = \"../greeting\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use greeting::hello\n\nstruct Account {\n    owner: hello::Greeting\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "greeting"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/descend-dependency-name",
+            "description": "after use greeting, a dependency's name on its own, greeting::hello::Greeting reaches the dependency's item",
+            "packages": [
+                {
+                    "name": "greeting",
+                    "config": "congregation greeting\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/hello.ids",
+                            "text": "struct Greeting {\n    text: char[max 64]\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                },
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\ndependencies = {\n    greeting = {\n        path = \"../greeting\"\n    }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "use greeting\n\nstruct Account {\n    owner: greeting::hello::Greeting\n}\n"
+                        }
+                    ],
+                    "dependencies": [
+                        {
+                            "name": "greeting"
+                        }
+                    ]
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "references/descend-skips-a-segment-refused",
+            "description": "after use package::billing, api is not in scope (fix, offered because billing::api exists: write billing::api::Invoice, or add use package::billing::api)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\n",
+                    "schemas": [
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing\n\nstruct Account {\n    owner: api::Invoice\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "reference::qualifier-not-in-scope",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-item",
+            "description": "use package::billing::api::Invoice, then Invoice, reaches billing::api::Invoice",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing::api::Invoice\n\nprotocol Orders {\n    function send(i: Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-namespace",
+            "description": "use package::billing::api, then api::Invoice, reaches billing::api::Invoice",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing::api\n\nprotocol Orders {\n    function send(i: api::Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-descent",
+            "description": "use package::billing, then billing::api::Invoice, reaches billing::api::Invoice",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing\n\nprotocol Orders {\n    function send(i: billing::api::Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-alias",
+            "description": "use package::billing::api as b, then b::Invoice, reaches billing::api::Invoice",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::billing::api as b\n\nprotocol Orders {\n    function send(i: b::Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-full-path",
+            "description": "package::billing::api::Invoice with no use reaches billing::api::Invoice",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Orders {\n    function send(i: package::billing::api::Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/resolved-decoy",
+            "description": "use package::archive, then archive::Invoice, reaches the unbounded Invoice, which an unmarked protocol can't use: the other cases reached billing's",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/archive.ids",
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
+                        },
+                        {
+                            "path": "src/billing/api.ids",
+                            "text": "struct Invoice {\n    data: char[max 64]\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::archive\n\nprotocol Orders {\n    function send(i: archive::Invoice);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "bounds::unbounded",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "references/existing-package-unchanged",
+            "description": "use package::models and models::Blob, as written before the rule, freezes the same protocols as the item use does in bounded/other-schema-marked",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/models.ids",
+                            "text": "struct Blob {\n    data: string\n}\n\n@unverified = \"the uploader streams whatever it's given\"\nprotocol Upload {\n    function put(b: Blob);\n}\n"
+                        },
+                        {
+                            "path": "src/api.ids",
+                            "text": "use package::models\n\n@unverified = \"orders carry the upload\"\nprotocol Orders {\n    function send(b: models::Blob);\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Upload",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the uploader streams whatever it's given"
+                            }
+                        ]
+                    },
+                    {
+                        "name": "Orders",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "orders carry the upload"
+                            }
+                        ]
+                    }
+                ],
+                "builds": true,
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
+            }
+        }
+    ]
+}

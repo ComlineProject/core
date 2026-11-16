@@ -12,3 +12,4 @@ pub mod dataless_arrays;
 pub mod compat_rules;
 pub mod bounds;
 pub mod type_resolution;
+pub mod references;

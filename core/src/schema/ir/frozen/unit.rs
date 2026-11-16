@@ -254,6 +254,80 @@ pub enum FrozenUnit {
     Unverified(Vec<Guarantee>),
 }
 
+impl FrozenUnit {
+    /// Every type this unit holds, and the units under it: a field's, a
+    /// function's arguments and return, an alias's target, a validator's
+    /// targets and properties, a constant's.
+    pub fn for_each_type<'a>(&'a self, f: &mut dyn FnMut(&'a TypeRef)) {
+        match self {
+            FrozenUnit::Constant { ty, .. } | FrozenUnit::Field { ty, .. } => f(ty),
+            FrozenUnit::TypeAlias { target, .. } => f(target),
+            FrozenUnit::Struct { fields, .. } | FrozenUnit::Error { fields, .. } => {
+                for field in fields {
+                    field.for_each_type(f);
+                }
+            }
+            FrozenUnit::Protocol { functions, .. } => {
+                for function in functions {
+                    function.for_each_type(f);
+                }
+            }
+            FrozenUnit::Function { arguments, _return, .. } => {
+                for argument in arguments {
+                    f(&argument.ty);
+                }
+                if let Some(ty) = _return {
+                    f(ty);
+                }
+            }
+            FrozenUnit::Validator { properties, targets, .. } => {
+                for property in properties {
+                    property.for_each_type(f);
+                }
+                for target in targets {
+                    f(target);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// [`for_each_type`](Self::for_each_type), to change them.
+    pub fn for_each_type_mut(&mut self, f: &mut dyn FnMut(&mut TypeRef)) {
+        match self {
+            FrozenUnit::Constant { ty, .. } | FrozenUnit::Field { ty, .. } => f(ty),
+            FrozenUnit::TypeAlias { target, .. } => f(target),
+            FrozenUnit::Struct { fields, .. } | FrozenUnit::Error { fields, .. } => {
+                for field in fields {
+                    field.for_each_type_mut(f);
+                }
+            }
+            FrozenUnit::Protocol { functions, .. } => {
+                for function in functions {
+                    function.for_each_type_mut(f);
+                }
+            }
+            FrozenUnit::Function { arguments, _return, .. } => {
+                for argument in arguments {
+                    f(&mut argument.ty);
+                }
+                if let Some(ty) = _return {
+                    f(ty);
+                }
+            }
+            FrozenUnit::Validator { properties, targets, .. } => {
+                for property in properties {
+                    property.for_each_type_mut(f);
+                }
+                for target in targets {
+                    f(target);
+                }
+            }
+            _ => {}
+        }
+    }
+}
+
 /// What an `@key = value` annotation was written as, preserved rather than
 /// rendered to text.
 ///

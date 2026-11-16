@@ -190,7 +190,8 @@ fn test_unknown_namespace_is_rejected_with_a_suggestion() {
 
     let error = interpret_context(&project).expect_err("an unresolved import should fail").to_string();
     assert!(error.contains("no schema in this package or its dependencies matches 'typse::User'"), "{error}");
-    assert!(error.contains("did you mean 'types'?"), "{error}");
+    // One of the package's own schemas, so the path that reaches it (core#286).
+    assert!(error.contains("did you mean 'package::types::User'?"), "{error}");
 }
 
 #[test]
@@ -346,6 +347,57 @@ fn test_a_declared_dependency_without_merged_schemas_is_unresolved() {
 }
 
 #[test]
+fn test_a_typo_in_an_own_schemas_name_suggests_the_path_that_reaches_it() {
+    // core#286: one of the package's own schemas is reached through `package::`,
+    // so the suggestion, and its fix, say so and don't lead to the next error.
+    let cases = [
+        ("use typse::User\n\nstruct R {\n    u: User\n}\n", "package::types::User", "use package::types::User\n\nstruct R {\n    u: User\n}\n"),
+        ("use typse::*\n\nstruct R {\n    u: User\n}\n", "package::types::*", "use package::types::*\n\nstruct R {\n    u: User\n}\n"),
+        (
+            "use typse::{User, Post}\n\nstruct R {\n    u: User\n}\n",
+            "package::types::{User, Post}",
+            "use package::types::{User, Post}\n\nstruct R {\n    u: User\n}\n",
+        ),
+        (
+            "use typse::User as Account\n\nstruct R {\n    u: Account\n}\n",
+            "package::types::User",
+            "use package::types::User as Account\n\nstruct R {\n    u: Account\n}\n",
+        ),
+        ("use typse\n\nstruct R {\n    u: types::User\n}\n", "package::types", "use package::types\n\nstruct R {\n    u: types::User\n}\n"),
+    ];
+    for (source, suggested, fixed) in cases {
+        let mut project = build_project();
+        add_schema(&mut project, &["types"], TYPES);
+        add_schema(&mut project, &["api"], source);
+
+        let errors = bare_path_errors(&project, &["api"]);
+        assert_eq!(errors.len(), 1, "{source}: {errors:?}");
+        assert!(errors[0].context.contains(&format!("did you mean '{suggested}'?")), "{source}: {}", errors[0].context);
+        let fix = errors[0].fix.as_ref().unwrap_or_else(|| panic!("{source}: no fix"));
+        assert_eq!(fix.title, format!("Write `{suggested}`"), "{source}");
+        assert_eq!(fix.apply(source), fixed, "{source}");
+
+        // What the fix writes builds.
+        let mut project = build_project();
+        add_schema(&mut project, &["types"], TYPES);
+        add_schema(&mut project, &["api"], fixed);
+        assert!(bare_path_errors(&project, &["api"]).is_empty(), "{fixed}");
+        interpret_context(&project).unwrap_or_else(|e| panic!("{fixed}: {e}"));
+    }
+}
+
+#[test]
+fn test_a_typo_in_a_dependency_name_stays_absolute_and_has_no_package_fix() {
+    let mut project = build_project_with_dependency();
+    add_schema(&mut project, &["api"], "use shard::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
+    let errors = bare_path_errors(&project, &["api"]);
+    assert_eq!(errors.len(), 1, "{errors:?}");
+    assert!(errors[0].context.contains("did you mean 'shared'?"), "{}", errors[0].context);
+    assert!(!errors[0].context.contains("package::"), "{}", errors[0].context);
+    assert!(errors[0].fix.is_none());
+}
+
+#[test]
 fn test_a_typo_in_a_dependency_name_is_rejected_with_a_suggestion() {
     let mut project = build_project_with_dependency();
     add_schema(&mut project, &["api"], "use shard::models::Thing\n\nstruct R {\n    t: Thing\n}\n");
@@ -382,17 +434,19 @@ fn test_whole_namespace_import_allows_qualified_field_reference() {
 }
 
 #[test]
-fn test_glob_import_allows_qualified_field_reference() {
+fn test_glob_import_allows_the_bare_field_reference() {
+    // A glob brings in the names of the namespace, not the namespace (core#290):
+    // this was `user: types::User`, which is `reference::qualifier-not-in-scope`.
     let mut project = build_project();
     add_schema(&mut project, &["types"], "struct User {\n    id: u64\n}\n");
     add_schema(
         &mut project,
         &["api"],
-        "use package::types::*\n\nstruct Response {\n    user: types::User\n}\n",
+        "use package::types::*\n\nstruct Response {\n    user: User\n}\n",
     );
 
     interpret_context(&project).expect(
-        "a field qualified with a glob-imported namespace should resolve, now that glob \
+        "a field named by a glob-imported name should resolve, now that glob \
          imports expand into per-symbol Import units",
     );
 }
@@ -631,7 +685,7 @@ fn test_cross_file_type_alias_keeps_its_name_via_single_symbol_use() {
 }
 
 #[test]
-fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
+fn test_cross_file_type_alias_keeps_its_name_via_the_use_of_it() {
     use comline_core::schema::ir::frozen::types::TypeRef;
 
     let mut project = build_project();
@@ -639,9 +693,9 @@ fn test_cross_file_type_alias_keeps_its_name_via_whole_namespace_use() {
     add_schema(
         &mut project,
         &["api"],
-        // bare `id: UserId`, not `id: types::UserId` - exercises the
-        // `declared_symbol_names` whole-namespace expansion path.
-        "use package::types\n\nstruct Response {\n    id: UserId\n}\n",
+        // Was `use package::types` with a bare `id: UserId`, which brings in
+        // only `types` now (core#290): the `use` names the alias.
+        "use package::types::UserId\n\nstruct Response {\n    id: UserId\n}\n",
     );
 
     interpret_context(&project).expect("compilation should succeed");
@@ -913,5 +967,8 @@ fn test_a_path_that_matches_nothing_is_unresolved_not_a_bare_own_path() {
     let errors = bare_path_errors(&project, &["api"]);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].code.id, "import::unresolved");
-    assert!(errors[0].fix.is_none());
+    // Its fix is the typo's (core#286), not the bare path's: it writes the
+    // schema it was close to, with `package::`.
+    let fix = errors[0].fix.as_ref().expect("the typo's fix");
+    assert_eq!(fix.title, "Write `package::types::User`");
 }
