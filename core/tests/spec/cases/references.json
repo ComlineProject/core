@@ -907,11 +907,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
@@ -929,12 +929,30 @@
             "expect": {
                 "protocols": [
                     {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
                         "name": "Orders",
                         "given_up": []
                     }
                 ],
                 "builds": true,
-                "diagnostics": []
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
             }
         },
         {
@@ -943,11 +961,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
@@ -965,12 +983,30 @@
             "expect": {
                 "protocols": [
                     {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
                         "name": "Orders",
                         "given_up": []
                     }
                 ],
                 "builds": true,
-                "diagnostics": []
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
             }
         },
         {
@@ -979,11 +1015,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
@@ -1001,12 +1037,30 @@
             "expect": {
                 "protocols": [
                     {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
                         "name": "Orders",
                         "given_up": []
                     }
                 ],
                 "builds": true,
-                "diagnostics": []
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
             }
         },
         {
@@ -1015,11 +1069,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
@@ -1037,12 +1091,30 @@
             "expect": {
                 "protocols": [
                     {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
                         "name": "Orders",
                         "given_up": []
                     }
                 ],
                 "builds": true,
-                "diagnostics": []
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
             }
         },
         {
@@ -1051,11 +1123,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
@@ -1073,12 +1145,30 @@
             "expect": {
                 "protocols": [
                     {
+                        "name": "Dump",
+                        "given_up": [
+                            "bounded_size"
+                        ],
+                        "acknowledged": [
+                            {
+                                "guarantee": "bounded_size",
+                                "scope": "protocol",
+                                "reason": "the archive keeps what it is given"
+                            }
+                        ]
+                    },
+                    {
                         "name": "Orders",
                         "given_up": []
                     }
                 ],
                 "builds": true,
-                "diagnostics": []
+                "diagnostics": [
+                    {
+                        "code": "unverified::bounded-size",
+                        "severity": "warning"
+                    }
+                ]
             }
         },
         {
@@ -1087,11 +1177,11 @@
             "packages": [
                 {
                     "name": "app",
-                    "config": "congregation app\nspecification_version = 1\n",
+                    "config": "congregation app\nspecification_version = 1\nsettings = { annotations = { unverified = { allowed = true } } }\n",
                     "schemas": [
                         {
                             "path": "src/archive.ids",
-                            "text": "struct Invoice {\n    data: string\n}\n"
+                            "text": "struct Invoice {\n    data: string\n}\n\n@unverified = \"the archive keeps what it is given\"\nprotocol Dump {\n    function put(i: Invoice);\n}\n"
                         },
                         {
                             "path": "src/billing/api.ids",
