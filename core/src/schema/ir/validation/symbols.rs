@@ -1,6 +1,8 @@
 // use crate::schema::ir::frozen::unit::FrozenUnit;
 use std::collections::{HashMap, HashSet};
 
+use crate::schema::ir::resolve::Import;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SymbolType {
     Struct,
@@ -88,6 +90,10 @@ pub struct SymbolTable<'a> {
     /// `symbols` so it never causes a "duplicate definition" and a real local
     /// declaration always shadows it.
     bare_imports: HashSet<&'a str>,
+    /// The `use`s themselves, which decide what a name written in a type may
+    /// be besides a declaration (see [`Import::brings`]): the rule `compat`
+    /// and the sizer resolve a name by too.
+    imports: Vec<Import<'a>>,
 }
 
 impl<'a> SymbolTable<'a> {
@@ -95,7 +101,23 @@ impl<'a> SymbolTable<'a> {
         Self {
             symbols: HashMap::new(),
             bare_imports: HashSet::new(),
+            imports: Vec::new(),
         }
+    }
+
+    /// Record a `use`: the name it brings into scope bare, if it has one, and
+    /// the path it can be written out as.
+    pub fn add_import(&mut self, import: Import<'a>) {
+        if let Some(bare) = import.bare() {
+            self.add_bare_import(bare);
+        }
+        self.imports.push(import);
+    }
+
+    /// Whether a `use` brings `name` into scope: as the name it binds bare, or
+    /// as its own path.
+    pub fn is_imported(&self, name: &str) -> bool {
+        self.imports.iter().any(|import| import.brings(name))
     }
 
     /// Record a bare name made available by a `use`.

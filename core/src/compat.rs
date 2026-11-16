@@ -68,6 +68,7 @@ use crate::schema::ir::diff::{
 };
 use crate::schema::ir::frozen::types::TypeRef;
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, FrozenUnit};
+use crate::schema::ir::resolve::{Found, Resolver, Unresolved};
 use crate::schema::ir::unverified::Encodings;
 
 // External Uses
@@ -1003,59 +1004,64 @@ pub fn encoding(kind: &str, name: &str, params: BTreeMap<String, String>) -> Enc
 
 // ---------- the wire shape ----------
 
-/// Declarations by qualified and bare name, to resolve what a protocol
-/// reaches.
+/// The declarations a protocol can reach, resolved as the validator resolved
+/// the names that reach them.
 struct Index<'a> {
-    qualified: HashMap<String, &'a FrozenUnit>,
-    bare: HashMap<String, Vec<(&'a str, &'a FrozenUnit)>>,
+    resolver: Resolver<'a>,
     /// Errors by ordinal, per namespace.
     errors: HashMap<(String, u16), &'a FrozenUnit>,
 }
 
 impl<'a> Index<'a> {
     fn of(loaded: &'a Loaded) -> Self {
-        let mut index = Index { qualified: HashMap::new(), bare: HashMap::new(), errors: HashMap::new() };
+        // The names of the other packages the schemas are of: what a
+        // dependency's schemas are namespaced under, and `std`.
+        let packages: BTreeSet<&str> = loaded
+            .dependencies
+            .iter()
+            .flatten()
+            .filter_map(|units| schema_namespace(units))
+            .filter_map(|ns| ns.split("::").next())
+            .collect();
+        let resolver = Resolver::new(loaded.all().flatten().map(Vec::as_slice), packages);
+        let mut errors = HashMap::new();
         for schemas in loaded.all() {
             for units in schemas {
                 let ns = schema_namespace(units).unwrap_or("");
                 for unit in units {
-                    let name = match unit {
-                        FrozenUnit::Struct { name, .. }
-                        | FrozenUnit::Enum { name, .. }
-                        | FrozenUnit::Error { name, .. }
-                        | FrozenUnit::TypeAlias { name, .. } => name,
-                        _ => continue,
-                    };
                     if let FrozenUnit::Error { ordinal, .. } = unit {
-                        index.errors.insert((ns.to_string(), *ordinal), unit);
+                        errors.insert((ns.to_string(), *ordinal), unit);
                     }
-                    if matches!(unit, FrozenUnit::Error { imported_from: Some(_), .. }) {
-                        continue;
-                    }
-                    index.qualified.insert(format!("{ns}::{name}"), unit);
-                    index.bare.entry(name.clone()).or_default().push((ns, unit));
                 }
             }
         }
-        index
+        Index { resolver, errors }
     }
 
-    /// The declaration `name` names, written in `namespace`.
-    fn find(&self, name: &str, namespace: &str) -> Option<&'a FrozenUnit> {
-        if let Some(unit) = self.qualified.get(name) {
-            return Some(unit);
+    /// The schema whose namespace is `namespace`, as the resolver numbers it.
+    fn scope_of(&self, namespace: &str) -> usize {
+        self.resolver
+            .scope_of(namespace)
+            .unwrap_or_else(|| panic!("internal error: no schema '{namespace}' among those a protocol reaches"))
+    }
+
+    /// The declaration `name` names, written in the schema `from`, and the
+    /// schema it is declared in. `None` for a name in a dependency whose
+    /// declaration is in a package the dependency has and the version doesn't
+    /// hold (its own dependency's, which it doesn't publish).
+    ///
+    /// Every other name resolved when its schema was validated, so one that
+    /// doesn't is a bug here, not in the schema.
+    fn find(&self, name: &str, from: usize) -> Option<Found<'a>> {
+        match self.resolver.resolve(from, name) {
+            Ok(found) => Some(found),
+            Err(Unresolved::NotLoaded(_)) if self.resolver.is_other_package(from) => None,
+            Err(why) => panic!(
+                "internal error: the name '{name}' written in the schema '{}' names no declaration ({why:?}), \
+                 though the schema was validated",
+                self.resolver.namespace(from)
+            ),
         }
-        let last = name.rsplit_once("::").map_or(name, |(_, l)| l);
-        let candidates = self.bare.get(last)?;
-        candidates
-            .iter()
-            .find(|(ns, _)| *ns == namespace)
-            .or_else(|| {
-                let prefix = name.rsplit_once("::").map(|(p, _)| p);
-                candidates.iter().find(|(ns, _)| prefix.is_some_and(|p| ns.ends_with(p)))
-            })
-            .or(candidates.first())
-            .map(|(_, u)| *u)
     }
 }
 
@@ -1128,7 +1134,8 @@ struct Builder<'a, 'i> {
 }
 
 impl<'a, 'i> Builder<'a, 'i> {
-    fn ty(&mut self, ty: &TypeRef, namespace: &str, depth: usize) -> Ty {
+    /// `ty`, written in the schema `from`.
+    fn ty(&mut self, ty: &TypeRef, from: usize, depth: usize) -> Ty {
         if depth > 64 {
             return Ty::Unresolved(ty.to_string());
         }
@@ -1137,24 +1144,29 @@ impl<'a, 'i> Builder<'a, 'i> {
             TypeRef::Unit => Ty::Unit,
             // A maximum is part of the wire contract (core#98).
             TypeRef::Array { element, length, max } => {
-                let element = Box::new(self.ty(element, namespace, depth + 1));
+                let element = Box::new(self.ty(element, from, depth + 1));
                 match max {
                     Some(max) => Ty::Bounded(element, *max),
                     None => Ty::Array(element, *length),
                 }
             }
             TypeRef::Union(types) => {
-                Ty::Union(types.iter().map(|t| self.ty(t, namespace, depth + 1)).collect())
+                Ty::Union(types.iter().map(|t| self.ty(t, from, depth + 1)).collect())
             }
-            TypeRef::Named(name) => match self.index.find(name, namespace) {
-                Some(FrozenUnit::TypeAlias { target, .. }) => self.ty(target, namespace, depth + 1),
-                Some(unit) => Ty::Declared(self.declare(unit, namespace, depth)),
+            // A declaration's own names are written in its own schema, which
+            // is where an alias's target is read too.
+            TypeRef::Named(name) => match self.index.find(name, from) {
+                Some(Found { unit: FrozenUnit::TypeAlias { target, .. }, schema }) => {
+                    self.ty(target, schema, depth + 1)
+                }
+                Some(Found { unit, schema }) => Ty::Declared(self.declare(unit, schema, depth)),
                 None => Ty::Unresolved(name.rsplit_once("::").map_or(name.as_str(), |(_, l)| l).to_string()),
             },
         }
     }
 
-    fn declare(&mut self, unit: &'a FrozenUnit, namespace: &str, depth: usize) -> u32 {
+    /// The declaration `unit`, of the schema `from`.
+    fn declare(&mut self, unit: &'a FrozenUnit, from: usize, depth: usize) -> u32 {
         let key = unit as *const FrozenUnit;
         if let Some(i) = self.seen.get(&key) {
             return *i;
@@ -1164,7 +1176,7 @@ impl<'a, 'i> Builder<'a, 'i> {
         self.declared.push(None);
         let declared = match unit {
             FrozenUnit::Struct { fields, parameters, .. } => {
-                let fields = self.fields(fields, namespace, depth);
+                let fields = self.fields(fields, from, depth);
                 match max_depth(parameters) {
                     Some(max) => Declared::DepthLimited(fields, max),
                     None => Declared::Struct(fields),
@@ -1173,7 +1185,7 @@ impl<'a, 'i> Builder<'a, 'i> {
             FrozenUnit::Error { fields, ordinal, name, .. } => Declared::Error {
                 ordinal: *ordinal,
                 name: name.clone(),
-                fields: self.fields(fields, namespace, depth),
+                fields: self.fields(fields, from, depth),
             },
             FrozenUnit::Enum { variants, .. } => {
                 let mut names: Vec<String> = variants
@@ -1194,7 +1206,7 @@ impl<'a, 'i> Builder<'a, 'i> {
         i
     }
 
-    fn fields(&mut self, fields: &'a [FrozenUnit], namespace: &str, depth: usize) -> Vec<Field> {
+    fn fields(&mut self, fields: &'a [FrozenUnit], from: usize, depth: usize) -> Vec<Field> {
         // Sorted before they're walked, so what they reach is numbered in
         // an order their declaration order doesn't decide.
         let mut fields: Vec<&'a FrozenUnit> = fields.iter().collect();
@@ -1209,7 +1221,7 @@ impl<'a, 'i> Builder<'a, 'i> {
             .filter_map(|f| match f {
                 FrozenUnit::Field { name, ty, optional, .. } => Some(Field {
                     name: name.clone(),
-                    ty: self.ty(ty, namespace, depth + 1),
+                    ty: self.ty(ty, from, depth + 1),
                     optional: *optional,
                 }),
                 _ => None,
@@ -1272,6 +1284,7 @@ fn shape_hash_with(
     let states = |p: Option<&crate::encodings::Profile>, fact: &str, values: &[&str]| {
         p.and_then(|p| p.facts.get(fact)).is_some_and(|f| values.contains(&f.value.as_str()))
     };
+    let from = index.scope_of(namespace);
     let mut builder = Builder {
         index,
         fields_ordered: !states(format, fact::STRUCT_FIELDS, &["by_name"]),
@@ -1292,12 +1305,12 @@ fn shape_hash_with(
             continue;
         };
         let arguments =
-            arguments.iter().map(|a| (a.name.clone(), builder.ty(&a.ty, namespace, 0))).collect();
-        let returns = _return.as_ref().map(|t| builder.ty(t, namespace, 0));
+            arguments.iter().map(|a| (a.name.clone(), builder.ty(&a.ty, from, 0))).collect();
+        let returns = _return.as_ref().map(|t| builder.ty(t, from, 0));
         let throws = throws
             .iter()
             .map(|o| match index.errors.get(&(namespace.to_string(), *o)) {
-                Some(unit) => Ty::Declared(builder.declare(unit, namespace, 0)),
+                Some(unit) => Ty::Declared(builder.declare(unit, from, 0)),
                 None => Ty::Unresolved(format!("error #{o}")),
             })
             .collect();

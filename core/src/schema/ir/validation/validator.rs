@@ -7,6 +7,7 @@ use super::symbols::{SymbolTable, SymbolType};
 use crate::schema::ir::frozen::unit::{schema_namespace, ConfigValue, DeprecatedValue, FrozenUnit};
 use crate::schema::ir::compiler::interpreter::incremental::{NOT_AN_ERROR_PREFIX, UNRESOLVED_PREFIX};
 use crate::schema::ir::frozen::types::{Literal, PrimitiveType, TypeRef};
+use crate::schema::ir::resolve::Import;
 use super::constants::{Constants, Problem, Resolution, ResolvedConstant};
 use crate::utils::text::{closest, levenshtein_distance};
 use crate::config_value::{self, ValueType};
@@ -207,14 +208,10 @@ pub fn validate_with(
         // resolves), and the bare name a `use` brought into scope goes in a
         // separate set (so it never conflicts and a local declaration shadows
         // it). Redundant identical `use`s are fine, hence `let _`.
-        if let FrozenUnit::Import(path, alias, _span) = unit {
-            let _ = symbols.insert(path.as_str(), SymbolType::Import, Some(*_span));
-            let bare = match alias {
-                Some(a) => Some(a.as_str()),
-                None => path.rsplit("::").next().filter(|s| *s != path.as_str()),
-            };
-            if let Some(bare) = bare {
-                symbols.add_bare_import(bare);
+        if let FrozenUnit::Import(path, _, span) = unit {
+            let _ = symbols.insert(path.as_str(), SymbolType::Import, Some(*span));
+            if let Some(import) = Import::of(unit) {
+                symbols.add_import(import);
             }
             continue;
         }
@@ -2484,11 +2481,11 @@ fn validate_type(
             // and `field: SomeValidator` all type-checked, and adding errors
             // to the table would have quietly extended that to them.
             //
-            // A name the bare-import set brought into scope is opaque - the
+            // A name a `use` brought into scope is opaque - the
             // schema it came from is not necessarily parsed here - so it is
             // accepted without a kind.
             let found = symbols.get(name);
-            let imported_bare = symbols.is_imported_bare(name);
+            let imported = symbols.is_imported(name);
 
             if let Some(kind) = found.filter(|k| !k.usable_as_type()) {
                 errors.push(
@@ -2499,7 +2496,7 @@ fn validate_type(
                     .with_context(context.to_string())
                     .with_span(span),
                 );
-            } else if found.is_none() && !imported_bare {
+            } else if found.is_none() && !imported {
                 // A text-type hint says exactly what to write; a "did you
                 // mean" alongside it would only contradict it (`str` is one
                 // edit from `s8`).
