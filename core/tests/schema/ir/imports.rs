@@ -967,5 +967,8 @@ fn test_a_path_that_matches_nothing_is_unresolved_not_a_bare_own_path() {
     let errors = bare_path_errors(&project, &["api"]);
     assert_eq!(errors.len(), 1, "{errors:?}");
     assert_eq!(errors[0].code.id, "import::unresolved");
-    assert!(errors[0].fix.is_none());
+    // Its fix is the typo's (core#286), not the bare path's: it writes the
+    // schema it was close to, with `package::`.
+    let fix = errors[0].fix.as_ref().expect("the typo's fix");
+    assert_eq!(fix.title, "Write `package::types::User`");
 }

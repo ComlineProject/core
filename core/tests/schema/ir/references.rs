@@ -409,8 +409,8 @@ fn what_is_written_the_same_gives_the_same_frozen_schema_whichever_the_spelling(
         field_of_a(&project, "app").to_string()
     };
     assert_eq!(
-        frozen("use package::billing::api\n\nstruct A {\n    i: api::Invoice[]\n}\n"),
-        frozen("struct A {\n    i: package::billing::api::Invoice[]\n}\n"),
+        frozen("use package::billing::api\n\nstruct A {\n    i: api::Invoice[max 4]\n}\n"),
+        frozen("struct A {\n    i: package::billing::api::Invoice[max 4]\n}\n"),
     );
 }
 

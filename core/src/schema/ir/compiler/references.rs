@@ -73,13 +73,14 @@ pub struct Written {
 }
 
 /// Every type name written in `declarations`, in source order, as it is
-/// written (`User`, `types::User`). Primitives, and a validator's `any`, are
-/// not names.
+/// written (`User`, `types::User`). Primitives, and `any`, are not names:
+/// `any` is a keyword in a validator's `for`, and validation says where else
+/// it may not stand.
 pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Written> {
     let mut out = vec![];
     for decl in declarations {
         match &decl.value {
-            Declaration::Const(c) => names_in(c.type_def(), c.type_def_span(), false, &mut out),
+            Declaration::Const(c) => names_in(c.type_def(), c.type_def_span(), &mut out),
             Declaration::Struct(s) => {
                 for field in s.fields() {
                     names_in(
@@ -105,10 +106,10 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
                     let function = &function.value;
                     if let Some(list) = function.args() {
                         let first = list.first();
-                        names_in(first.arg_type(), first.arg_type_span(), false, &mut out);
+                        names_in(first.arg_type(), first.arg_type_span(), &mut out);
                         for rest in list.rest() {
                             let arg = rest.arg_type();
-                            names_in(arg.arg_type(), arg.arg_type_span(), false, &mut out);
+                            names_in(arg.arg_type(), arg.arg_type_span(), &mut out);
                         }
                     }
                     if let Some(returns) = function.return_type() {
@@ -121,19 +122,17 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
                     }
                 }
             }
-            Declaration::TypeAlias(a) => {
-                names_in(a.target_type(), a.target_type_span(), false, &mut out)
-            }
+            Declaration::TypeAlias(a) => names_in(a.target_type(), a.target_type_span(), &mut out),
             Declaration::Validator(v) => {
                 if let Some(targets) = &v.targets {
-                    names_in(&targets.first.value, targets.first.span, true, &mut out);
+                    names_in(&targets.first.value, targets.first.span, &mut out);
                     for rest in &targets.rest {
-                        names_in(&rest.target.value, rest.target.span, true, &mut out);
+                        names_in(&rest.target.value, rest.target.span, &mut out);
                     }
                 }
                 for property in v.properties() {
                     let ty = &property.value.property_type;
-                    names_in(&ty.value, ty.span, false, &mut out);
+                    names_in(&ty.value, ty.span, &mut out);
                 }
             }
             _ => {}
@@ -143,20 +142,20 @@ pub fn named_types(declarations: &[rust_sitter::Spanned<Declaration>]) -> Vec<Wr
 }
 
 /// The names in `ty`, in the order they are written. `any` is a keyword in a
-/// validator's `for`, where `any_is_keyword`.
-fn names_in(ty: &Type, within: (usize, usize), any_is_keyword: bool, out: &mut Vec<Written>) {
+/// validator's `for` (core#290 leaves where it may stand to validation).
+fn names_in(ty: &Type, within: (usize, usize), out: &mut Vec<Written>) {
     match ty {
         Type::Named(id) => {
             let name = id.text.clone();
-            if PrimitiveType::from_name(&name).is_some() || (any_is_keyword && name == "any") {
+            if PrimitiveType::from_name(&name).is_some() || name == "any" {
                 return;
             }
             out.push(Written { name, within });
         }
-        Type::Array(array) => names_in(array.elem_type(), within, any_is_keyword, out),
+        Type::Array(array) => names_in(array.elem_type(), within, out),
         Type::Union(union) => {
             for member in union.members() {
-                names_in(member, within, any_is_keyword, out);
+                names_in(member, within, out);
             }
         }
         _ => {}
