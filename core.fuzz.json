@@ -1,31 +1,31 @@
 {
   "commit": "69039e7ab05953760bb7a6818f61e98c14b43922",
   "toolchain": "rustc 1.102.0-nightly (ac8310ba6 2026-11-09)",
-  "date": "2026-11-24T14:31:54Z",
-  "run": "https://github.com/ComlineProject/core/actions/runs/45412542513",
+  "date": "2026-11-25T13:45:45Z",
+  "run": "https://github.com/ComlineProject/core/actions/runs/45624473657",
   "targets": {
     "idp_parse": {
-      "seconds": 602,
-      "executions": 138265,
-      "corpus": 1409,
+      "seconds": 603,
+      "executions": 150948,
+      "corpus": 1428,
       "findings": 0
     },
     "ids_compile": {
-      "seconds": 611,
-      "executions": 134888,
-      "corpus": 1784,
+      "seconds": 617,
+      "executions": 104375,
+      "corpus": 1820,
       "findings": 0
     },
     "ids_parse": {
-      "seconds": 603,
-      "executions": 146058,
-      "corpus": 1383,
+      "seconds": 615,
+      "executions": 89277,
+      "corpus": 1392,
       "findings": 0
     },
     "unverified_oracle": {
-      "seconds": 608,
-      "executions": 34995,
-      "corpus": 709,
+      "seconds": 607,
+      "executions": 34095,
+      "corpus": 730,
       "findings": 0
     }
   },
