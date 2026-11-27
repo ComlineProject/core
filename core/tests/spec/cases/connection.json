@@ -1,0 +1,1150 @@
+{
+    "$schema": "../../specs/gen/compiler.schema.json",
+    "group": "connection",
+    "cases": [
+        {
+            "id": "connection/no-annotation",
+            "description": "a package whose protocols carry no @connection builds as before, on the one default connection",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Ops {\n    function restart();\n}\n\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/old-wire-no-annotation",
+            "description": "a package on comline@1 and datagram@2 with no @connection is unchanged and builds",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nwire = { framing = \"datagram@2\" }\nhandshake = \"comline@1\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Ops {\n    function restart();\n}\n\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/one-name",
+            "description": "@connection with one name puts each protocol in its own set",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/list",
+            "description": "@connection with a list puts a protocol in several sets",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = [admin, public]\nprotocol Health {\n    function ping();\n}\n\n@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Health",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/name-snake-case",
+            "description": "a set's name is lowercase snake_case: letters, digits and underscores",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin_api2\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/unassigned",
+            "description": "one protocol annotated and another on a connection left out: nothing reaches a connection without a decision (fix: add @connection to Chat)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unassigned",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/unassigned-other-schema",
+            "description": "all or nothing holds across the package's schemas: a protocol in another schema, left out, is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/admin.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n"
+                        },
+                        {
+                            "path": "src/chat.ids",
+                            "text": "protocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unassigned",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/duplicate-set",
+            "description": "a set named twice in one list is refused (fix: name it once)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = [admin, admin]\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::duplicate-set",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/empty-list",
+            "description": "an empty list names no set and is refused, not read as a protocol left out (fix: name at least one set)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = []\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::empty-list",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/quoted-name",
+            "description": "a set is named by a bare identifier, never a string: @connection = \"admin\" is the annotation value error (core may hint to drop the quotes; the case holds the code only)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = \"admin\"\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "validation::annotation-value-mismatch",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/not-a-name",
+            "description": "an annotation value that is neither a name nor a list of names, here a number, is the annotation value error",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = 3\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "validation::annotation-value-mismatch",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/lockstep-left-out",
+            "description": "a lockstep datagram protocol runs on no connection, so it needn't be annotated once others are",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { framing = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@framing = \"datagram\"\n@handshake = \"comline@1\"\nprotocol Dump {\n    function put();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Dump",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/not-on-a-connection",
+            "description": "@connection on a protocol that runs on no connection (the lockstep datagram) is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { framing = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = admin\n@framing = \"datagram\"\n@handshake = \"comline@1\"\nprotocol Dump {\n    function put();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::not-on-a-connection",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-uppercase",
+            "description": "a set's name that isn't lowercase is refused (fix: admin)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = Admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-keyword-rust",
+            "description": "a set named like a Rust keyword is refused: it would be a module of that name",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = loop\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-keyword-typescript",
+            "description": "a set named like a TypeScript keyword, not a Rust one, is refused too: a keyword of any target",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = interface\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-module-item-serve",
+            "description": "a set named serve would collide with the connection module's own serve and is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = serve\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-module-item-services",
+            "description": "a set named services would collide with the connection module's own services and is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = services\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/old-wire-refused",
+            "description": "a set on comline@1 with datagram@2 is refused: the handshake hashes the whole schema and the framing numbers by position (the message says both)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nwire = { framing = \"datagram@2\" }\nhandshake = \"comline@1\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/comline1-datagram3-refused",
+            "description": "a set on comline@1 is refused with any framing, here datagram@3: the handshake hashes the whole schema, so a change in one set would refuse every set (fix: comline@2)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@1\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/comline2-datagram2-refused",
+            "description": "a set on datagram@2 is refused with any handshake, here comline@2: the framing numbers protocols by position (fix: datagram@3)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nwire = { framing = \"datagram@2\" }\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/handshake-none-refused",
+            "description": "a member with no handshake is refused in a set, though it says why it gives the handshake up: with no Hello nothing enforces the set",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { unverified = { allowed = true } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = \"none\"\n@unverified = \"the admin console predates Comline\"\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/table-overrides-old-wire",
+            "description": "the check is per set: a package on the old wire can give its sets comline@2 and datagram@3 in the connections table, and is no error once every protocol is in a set",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nwire = { framing = \"datagram@2\" }\nhandshake = \"comline@1\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n    public = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/table-inherits-old-wire",
+            "description": "a set the table doesn't state takes the package's wire and handshake, here the old wire, and is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nwire = { framing = \"datagram@2\" }\nhandshake = \"comline@1\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/table-states-old-wire",
+            "description": "a set that states comline@1 with datagram@2 in the table is refused, whatever the package says",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { framing = \"datagram@2\" } handshake = { name = \"comline@1\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unsupported-encoding",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/member-framing-agrees",
+            "description": "a member that pins the framing its set has is fine",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { framing = { allowed = true } } }\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@framing = \"datagram@3\"\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/member-handshake-agrees",
+            "description": "a member that writes out the handshake its set has, a default included, is fine",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = { name = \"comline@2\" , exchange = \"offer\" }\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/member-handshake-policy-differs",
+            "description": "a member's @handshake may differ from its set's in a policy parameter (scope, newer_consumer, same_version_differs), which isn't on the wire: only the name and the wire parameters (exchange) must match",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = { name = \"comline@2\" , scope = \"package\" , newer_consumer = \"refuse\" }\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/member-handshake-disagrees",
+            "description": "a member whose @handshake isn't its set's, here another exchange, which both ends must agree on, is refused (fix: remove @handshake, or change the set's)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = { name = \"comline@2\" , exchange = \"symmetric\" }\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::encoding-mismatch",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/shared-unpinned",
+            "description": "a protocol in two sets whose handshakes differ in exchange takes each set's, so long as it pins none",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" exchange = \"offer\" } }\n    public = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" exchange = \"symmetric\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = [admin, public]\nprotocol Health {\n    function ping();\n}\n\n@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Health",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/shared-pinned-differs",
+            "description": "a protocol in two sets whose handshakes differ can't pin one, though it matches one of the sets (fix: remove @handshake)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" exchange = \"offer\" } }\n    public = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" exchange = \"symmetric\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = { name = \"comline@2\" , exchange = \"offer\" }\n@connection = [admin, public]\nprotocol Health {\n    function ping();\n}\n\n@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::encoding-mismatch",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/shared-pinned-same",
+            "description": "a protocol in two sets whose handshakes agree may pin the handshake they have",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n    public = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@handshake = \"comline@2\"\n@connection = [admin, public]\nprotocol Health {\n    function ping();\n}\n\n@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Health",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/table-unknown-set",
+            "description": "the table names a set no protocol uses (fix: remove the entry, or annotate a protocol)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    reports = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unknown-set",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/table-without-annotation",
+            "description": "with no protocol annotated there are no sets, so any set the table names is unknown",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Ops {\n    function restart();\n}\n\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::unknown-set",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/table-defaults-from-package",
+            "description": "a set the table states only a format for takes the package's handshake, here exchange symmetric: a member writing it out agrees",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = { name = \"comline@2\" exchange = \"symmetric\" }\nconnections = {\n    admin = { wire = { format = \"json@1\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = { name = \"comline@2\" , exchange = \"symmetric\" }\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/table-defaults-mismatch",
+            "description": "a set the table states only a format for takes the package's handshake, so a member writing another exchange is refused",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = { name = \"comline@2\" exchange = \"symmetric\" }\nconnections = {\n    admin = { wire = { format = \"json@1\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\n@handshake = { name = \"comline@2\" , exchange = \"offer\" }\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::encoding-mismatch",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/table-format-per-set",
+            "description": "each set may state its own format, which is package-wide without sets",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nconnections = {\n    admin = { wire = { format = \"json@1\" } }\n    public = { wire = { format = \"msgpack@1\" } }\n}\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/setting-forbids",
+            "description": "annotations.connection.allowed = false refuses @connection",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { connection = { allowed = false } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "settings::forbidden",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/setting-forbids-unused",
+            "description": "annotations.connection.allowed = false is nothing to a package that never writes @connection",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\nsettings = { annotations = { connection = { allowed = false } } }\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "protocol Ops {\n    function restart();\n}\n\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        }
+    ]
+}

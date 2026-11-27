@@ -4,6 +4,7 @@ mod compiler_cases;
 mod dependency_pin;
 #[cfg(feature = "deps")]
 mod git_dependency_checkout;
+mod connection_sets;
 mod encodings;
 mod fail_closed_imports;
 mod from_sources;

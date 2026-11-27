@@ -174,6 +174,19 @@ pub fn interpret_assignment(
             };
             interpret_assignment_wire(&items.assignments)?
         }
+        // Each set's own encodings, checked here for what they are; the sets
+        // themselves are known only once the package's protocols are read, so
+        // `compiler::connection_sets` judges them. Not frozen: what a set is
+        // and who is in it enters the IR with core#302.
+        "connections" => {
+            let Value::Dictionary(items) = &node.value else {
+                return Err("'connections' should be a dictionary, like \
+                            { admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } } }"
+                    .into());
+            };
+            connections_table(&items.assignments)?;
+            vec![]
+        }
         "encodings" => {
             let Value::Dictionary(items) = &node.value else {
                 return Err("'encodings' should be a dictionary, like \
@@ -226,6 +239,110 @@ fn interpret_assignment_handshake(
         units.push(FrozenUnit::HandshakeParams(written.into_iter().collect()));
     }
     Ok(units)
+}
+
+/// What `connections` states for one set: each part is `None` where the set
+/// leaves it to the package's `wire` and `handshake`.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SetEncodings {
+    /// `wire.format`, canonical, as `wire` takes it.
+    pub format: Option<String>,
+    /// `wire.framing`, canonical.
+    pub framing: Option<String>,
+    /// `handshake`: its name, canonical, and the parameters written with it.
+    pub handshake: Option<(String, std::collections::BTreeMap<String, String>)>,
+}
+
+/// `connections = { <set> = { wire = { ... } handshake = ... } }`: the
+/// encodings each set states, in the order written, `wire` and `handshake`
+/// read as the package's own are. An entry the set leaves out is the
+/// package's.
+pub fn connections_table(
+    items: &[rust_sitter::Spanned<Assignment>],
+) -> Result<Vec<(String, SetEncodings)>, Box<dyn snafu::Error>> {
+    use crate::package::config::dependency::strip_quotes;
+    use crate::schema::idl::annotations::check_handshake_or_namespaced;
+
+    let mut sets: Vec<(String, SetEncodings)> = vec![];
+    for entry in items {
+        let set = entry.value.key.text();
+        let Value::Dictionary(fields) = &entry.value.value else {
+            return Err(format!(
+                "'connections.{set}' should be a dictionary, like \
+                 {{ wire = {{ framing = \"datagram@3\" }} handshake = {{ name = \"comline@2\" }} }}"
+            )
+            .into());
+        };
+        if sets.iter().any(|(known, _)| *known == set) {
+            return Err(format!("'connections.{set}' is set twice").into());
+        }
+        let mut encodings = SetEncodings::default();
+        let (mut wire_seen, mut handshake_seen) = (false, false);
+        for field in &fields.assignments {
+            let key = field.value.key.text();
+            let in_set = |e: Box<dyn snafu::Error>| -> Box<dyn snafu::Error> {
+                format!("in 'connections.{set}': {e}").into()
+            };
+            match key.as_str() {
+                "wire" => {
+                    if std::mem::replace(&mut wire_seen, true) {
+                        return Err(format!("'connections.{set}.wire' is set twice").into());
+                    }
+                    let Value::Dictionary(wire) = &field.value.value else {
+                        return Err(format!("'connections.{set}.wire' should be a dictionary, like \
+                                            {{ format = \"packed@1\", framing = \"datagram@3\" }}")
+                            .into());
+                    };
+                    for unit in interpret_assignment_wire(&wire.assignments).map_err(in_set)? {
+                        if let FrozenUnit::Wire { format, framing } = unit {
+                            encodings.format = format;
+                            encodings.framing = framing;
+                        }
+                    }
+                }
+                "handshake" => {
+                    if std::mem::replace(&mut handshake_seen, true) {
+                        return Err(format!("'connections.{set}.handshake' is set twice").into());
+                    }
+                    let units = match &field.value.value {
+                        Value::String(name) => {
+                            let name = check_handshake_or_namespaced(&strip_quotes(&name.value))
+                                .map_err(|m| format!("in 'connections.{set}': {m}"))?;
+                            vec![FrozenUnit::Handshake(name)]
+                        }
+                        Value::Dictionary(handshake) => {
+                            interpret_assignment_handshake(&handshake.assignments).map_err(in_set)?
+                        }
+                        _ => {
+                            return Err(format!(
+                                "'connections.{set}.handshake' should be a string, like \"comline@2\", or a \
+                                 dictionary, like {{ name = \"comline@2\" scope = \"package\" }}"
+                            )
+                            .into())
+                        }
+                    };
+                    let mut name = None;
+                    let mut params = std::collections::BTreeMap::new();
+                    for unit in units {
+                        match unit {
+                            FrozenUnit::Handshake(written) => name = Some(written),
+                            FrozenUnit::HandshakeParams(written) => params = written,
+                            _ => {}
+                        }
+                    }
+                    encodings.handshake = name.map(|name| (name, params));
+                }
+                other => {
+                    return Err(format!(
+                        "'{other}' is not allowed in 'connections.{set}': expected `wire` or `handshake`"
+                    )
+                    .into())
+                }
+            }
+        }
+        sets.push((set, encodings));
+    }
+    Ok(sets)
 }
 
 /// `unverified = "..."` or `unverified = { schema_agreement = "..." }`: frozen

@@ -256,7 +256,7 @@ fn grammar(kind: EncodingKind, name: &str, encodings: &Encodings) -> Option<Stri
 }
 
 /// What the framing `name` states as `fact`, or `None` if it isn't known here.
-fn framing_fact(name: &str, fact: &str, encodings: &Encodings) -> Option<String> {
+pub(crate) fn framing_fact(name: &str, fact: &str, encodings: &Encodings) -> Option<String> {
     if let Some(profile) = official::profile(EncodingKind::Framing, name) {
         return profile.stated(fact);
     }

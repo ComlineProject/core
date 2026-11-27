@@ -515,6 +515,11 @@ pub fn package_default_handshake<'a>(
     });
     if all { DEFAULT_HANDSHAKE } else { IMPLICIT_HANDSHAKE }
 }
+/// The annotation that puts a protocol in a named set of protocols
+/// (`@connection`). Read from the parsed schema and checked there, and never
+/// frozen into the IR: set membership is recorded with core#302.
+pub const CONNECTION: &str = "connection";
+
 /// The official "no handshake": nothing sent, nothing checked.
 pub const HANDSHAKE_NONE: &str = comline_catalog::encoding::NONE;
 
@@ -702,6 +707,31 @@ fn known_annotations() -> Vec<AnnotationInfo> {
         consumed_by: &["comline-rust's generator", "comline-typescript's generator"],
     },
     AnnotationInfo {
+        key: CONNECTION,
+        scopes: &[AnnotationScope::Leading],
+        authority: AnnotationAuthority::Core,
+        description: "Puts this protocol in a named set of protocols that runs on a connection of \
+                       its own, with its own `Services`, `connect` and `serve` and a Hello that \
+                       lists only the set's members: a bare name, `@connection = admin`, or a \
+                       list for a protocol in several sets, `@connection = [admin, public]`. A \
+                       set is named by a bare identifier, never a string: lowercase \
+                       `snake_case`, and not a keyword of a target language or a name the \
+                       connection module has. All or nothing: once one protocol is in a set, \
+                       every protocol that runs on a connection must be, and one that runs on \
+                       none can't be. A set needs a handshake that compares protocol by protocol \
+                       and a framing whose protocol numbers don't depend on position, read from \
+                       the encodings' facts (today `comline@2` with `datagram@3`); its \
+                       encodings are the package's `wire` and `handshake`, or the set's own in \
+                       `config.idp`'s `connections`. A member's own `@framing` and `@handshake` \
+                       must agree with its set's. Forbidden with \
+                       `annotations.connection.allowed = false`. Not part of the frozen schema \
+                       (core#302). No effect on a struct.",
+        default: "no sets: every protocol that runs on a connection is on the package's one \
+                  connection",
+        value: ValueType::AnyOf(&[ValueType::Name, ValueType::NameList]),
+        consumed_by: &["core's connection-set checks (`schema::ir::compiler::connection_sets`)"],
+    },
+    AnnotationInfo {
         key: "unverified",
         scopes: &[
             AnnotationScope::Leading,
@@ -832,9 +862,9 @@ mod tests {
         let mut argument: Vec<_> = for_scope(AnnotationScope::Argument).map(|a| a.key).collect();
         argument.sort();
         assert_eq!(argument, ["settings", "unverified"]);
-        // id, max_depth, framing, provider, consumer, handshake, unverified,
-        // deprecated (all Leading), plus settings (Universal).
-        assert_eq!(for_scope(AnnotationScope::Leading).count(), 9);
+        // id, max_depth, framing, provider, consumer, handshake, connection,
+        // unverified, deprecated (all Leading), plus settings (Universal).
+        assert_eq!(for_scope(AnnotationScope::Leading).count(), 10);
         // validators, deprecated, max_depth, plus settings (Universal).
         let mut alias: Vec<_> = for_scope(AnnotationScope::TypeAlias).map(|a| a.key).collect();
         alias.sort();

@@ -17,6 +17,13 @@
         "handshake-comline2/offer-line-mismatch",
         "handshake-comline2/offer-package-mismatch"
       ]
+    },
+    "schema_comparison": {
+      "value": "per_protocol",
+      "proven_by": [
+        "handshake-comline2/offer-accept",
+        "handshake-comline2/offer-line-mismatch"
+      ]
     }
   }
 }
