@@ -77,98 +77,27 @@ const FRAMING_NEEDS: &[(&str, &str, &str)] = &[
 
 /// Words a set's name can't be because a target language has them as keywords:
 /// a set is a module of that name in the generated code. Rust's, strict and
-/// reserved, then TypeScript's reserved and strict-mode words and the names of
-/// its primitive types. Only lowercase words are here: a set's name is
-/// lowercase `snake_case`, so the others can't clash.
+/// reserved; and TypeScript's reserved words, its strict-mode reserved words
+/// that a namespace can't be (`interface`; not the access modifiers, which a
+/// set may be named like: `public` is the commonest set there is) and the
+/// names of its predefined types. Only lowercase words are here: a set's name
+/// is lowercase `snake_case`, so the others can't clash.
+#[rustfmt::skip]
 const KEYWORDS: &[(&str, &[&str])] = &[
-    (
-        "Rust",
-        &[
-            "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum",
-            "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod",
-            "move", "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait",
-            "true", "type", "unsafe", "use", "where", "while", "abstract", "become", "box", "do",
-            "final", "gen", "macro", "override", "priv", "try", "typeof", "unsized", "virtual",
-            "yield",
-        ],
-    ),
-    (
-        "TypeScript",
-        &[
-            "any",
-            "as",
-            "async",
-            "await",
-            "bigint",
-            "boolean",
-            "break",
-            "case",
-            "catch",
-            "class",
-            "const",
-            "continue",
-            "debugger",
-            "declare",
-            "default",
-            "delete",
-            "do",
-            "else",
-            "enum",
-            "export",
-            "extends",
-            "false",
-            "finally",
-            "for",
-            "from",
-            "function",
-            "get",
-            "if",
-            "implements",
-            "import",
-            "in",
-            "infer",
-            "instanceof",
-            "interface",
-            "is",
-            "keyof",
-            "let",
-            "module",
-            "namespace",
-            "never",
-            "new",
-            "null",
-            "number",
-            "object",
-            "of",
-            "package",
-            "private",
-            "protected",
-            "public",
-            "readonly",
-            "require",
-            "return",
-            "set",
-            "static",
-            "string",
-            "super",
-            "switch",
-            "symbol",
-            "this",
-            "throw",
-            "true",
-            "try",
-            "type",
-            "typeof",
-            "undefined",
-            "unique",
-            "unknown",
-            "var",
-            "void",
-            "while",
-            "with",
-            "yield",
-        ],
-    ),
+    ("Rust", &[
+        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
+        "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
+        "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
+        "where", "while", "abstract", "become", "box", "do", "final", "gen", "macro", "override", "priv",
+        "try", "typeof", "unsized", "virtual", "yield",
+    ]),
+    ("TypeScript", &[
+        "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
+        "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "import", "in",
+        "instanceof", "new", "null", "return", "super", "switch", "this", "throw", "true", "try", "typeof",
+        "var", "void", "while", "with", "await", "implements", "interface", "let", "package", "yield",
+        "any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "undefined", "unknown",
+    ]),
 ];
 
 /// What a set's generated module already holds, in `snake_case`: the names
@@ -936,6 +865,8 @@ mod tests {
         assert!(bad_name("loop").unwrap().contains("Rust"));
         assert!(bad_name("interface").unwrap().contains("TypeScript"));
         assert!(bad_name("default").unwrap().contains("TypeScript"));
+        // The commonest set of all is a TypeScript access modifier.
+        assert!(bad_name("public").is_none());
         assert!(bad_name("serve").unwrap().contains("connection module"));
         assert!(bad_name("services").unwrap().contains("connection module"));
         assert!(bad_name("client_services")
