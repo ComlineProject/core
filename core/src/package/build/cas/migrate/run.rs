@@ -51,6 +51,18 @@ pub struct Report {
     pub resumed: bool,
 }
 
+impl Report {
+    /// `--map FILE`: the old and new hash of every commit, one `<old> <new>`
+    /// line each, oldest first. For anything outside the store that recorded
+    /// a commit's hash (a CI log, a note, `comline doc`'s cache).
+    pub fn map_file(&self) -> String {
+        self.map
+            .iter()
+            .map(|(old, new)| format!("{old} {new}\n"))
+            .collect()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Migrated {
     /// The store is in the current format, or there is none.

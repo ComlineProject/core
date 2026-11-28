@@ -214,8 +214,8 @@ impl std::fmt::Display for StoreError {
                 f,
                 "`.comline/FORMAT_VERSION` is in conflict between IR format {ours} and format \
                  {theirs}: a Git merge joined stores in two formats. Nothing was changed and \
-                 nothing is resolved for you. Migrate both sides first: check out each branch, \
-                 run `{MIGRATE_COMMAND}` on it, then merge."
+                 nothing is resolved for you: migrate both sides first (check out each branch, \
+                 run `{MIGRATE_COMMAND}` on it), then merge."
             ),
             Self::Interrupted { what: Interrupted::Migration } => write!(
                 f,
