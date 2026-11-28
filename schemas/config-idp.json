@@ -180,6 +180,156 @@
       }
     },
     {
+      "description": "The encodings each set of protocols (`@connection = admin`) runs on, keyed by the set's name: `connections = { admin = { wire = { framing = \"datagram@3\" } handshake = { name = \"comline@2\" } } }`. What a set leaves out is the package's `wire` or `handshake`. A set needs a handshake that compares protocol by protocol and a framing whose protocol numbers don't depend on position, today `comline@2` with `datagram@3`. A set no protocol is in is an error.",
+      "key": "connections",
+      "summary": "The encodings of each named connection set",
+      "value": {
+        "entry": {
+          "description": "The set's `wire` and `handshake`, each of which replaces the package's.",
+          "key": "<set name>",
+          "summary": "One set's own encodings",
+          "value": {
+            "fields": [
+              {
+                "description": "The set's wire format and framing, which a key left out takes from the package's `wire`. Every protocol in the set speaks them.",
+                "key": "wire",
+                "summary": "The set's wire format and framing",
+                "value": {
+                  "fields": [
+                    {
+                      "description": "How values are encoded, `\"packed@1\"` where left out: fixed-width fields and no tags for `packed@1`, UTF-8 JSON for `json@1`, MessagePack for `msgpack@1`, or a namespaced format the package or a dependency declares under `encodings`. JSON-RPC protocols always speak JSON.",
+                      "key": "format",
+                      "summary": "How values are encoded",
+                      "value": {
+                        "default": "packed@1",
+                        "kind": "choice",
+                        "namespaced": true,
+                        "values": [
+                          "packed@1",
+                          "json@1",
+                          "msgpack@1"
+                        ]
+                      }
+                    },
+                    {
+                      "description": "How calls are framed, for every protocol with no `@framing` of its own; `\"datagram@3\"` where left out. The `datagram` framings are Comline's own binary one: `datagram@3` and `datagram@2` are a connection, where either end can call and several protocols share one transport (`datagram@3` addresses a call by its wire number), `datagram@1` is lockstep, one protocol per transport. `jsonrpc@1` is JSON-RPC 2.0. Or a namespaced framing a package declares under `encodings`.",
+                      "key": "framing",
+                      "summary": "How calls are framed",
+                      "value": {
+                        "default": "datagram@3",
+                        "kind": "choice",
+                        "namespaced": true,
+                        "values": [
+                          "jsonrpc",
+                          "datagram",
+                          "datagram@2",
+                          "datagram@3"
+                        ]
+                      }
+                    }
+                  ],
+                  "kind": "dictionary"
+                }
+              },
+              {
+                "description": "The handshake the set's protocols run, which the package's `handshake` is where left out. A member's own `@handshake` must agree with it in name and wire parameters.",
+                "key": "handshake",
+                "summary": "The set's handshake",
+                "value": {
+                  "alternatives": [
+                    {
+                      "kind": "choice",
+                      "namespaced": true,
+                      "values": [
+                        "comline@1",
+                        "comline@2",
+                        "none"
+                      ]
+                    },
+                    {
+                      "fields": [
+                        {
+                          "description": "Which handshake the package's protocols run. The same as the plain form: `handshake = \"comline@2\"` is `{ name = \"comline@2\" }`.",
+                          "key": "name",
+                          "required": true,
+                          "summary": "The handshake",
+                          "value": {
+                            "kind": "choice",
+                            "namespaced": true,
+                            "values": [
+                              "comline@1",
+                              "comline@2",
+                              "none"
+                            ]
+                          }
+                        },
+                        {
+                          "description": "Whether a protocol's refusal refuses that protocol alone (`protocol`) or the whole connection (`package`). A parameter of `comline@2`, `protocol` where left out. Each end applies it on its own.",
+                          "key": "scope",
+                          "summary": "Whether a refusal reaches the protocol or the connection",
+                          "value": {
+                            "default": "protocol",
+                            "kind": "choice",
+                            "values": [
+                              "protocol",
+                              "package"
+                            ]
+                          }
+                        },
+                        {
+                          "description": "When the consumer has functions the provider lacks: `degrade` connects, and calls to them fail locally; `refuse` refuses the protocol. A parameter of `comline@2`, `degrade` where left out. Each end applies it on its own.",
+                          "key": "newer_consumer",
+                          "summary": "What a consumer with more functions gets",
+                          "value": {
+                            "default": "degrade",
+                            "kind": "choice",
+                            "values": [
+                              "degrade",
+                              "refuse"
+                            ]
+                          }
+                        },
+                        {
+                          "description": "When two versions are equal but their shapes differ: `refuse` refuses the protocol, `warn` connects and reports a warning, which gives up version honesty. A parameter of `comline@2`, `refuse` where left out. Each end applies it on its own.",
+                          "key": "same_version_differs",
+                          "summary": "What equal versions with different shapes get",
+                          "value": {
+                            "default": "refuse",
+                            "kind": "choice",
+                            "values": [
+                              "refuse",
+                              "warn"
+                            ]
+                          }
+                        },
+                        {
+                          "description": "Who sends what: `offer` is a hello, an answer and a verdict, `symmetric` has each end send a hello and a verdict. A parameter of `comline@2`, `offer` where left out. Both ends must agree on it.",
+                          "key": "exchange",
+                          "summary": "Who sends what in the handshake",
+                          "value": {
+                            "default": "offer",
+                            "kind": "choice",
+                            "values": [
+                              "offer",
+                              "symmetric"
+                            ]
+                          }
+                        }
+                      ],
+                      "kind": "dictionary"
+                    }
+                  ],
+                  "kind": "oneOf"
+                }
+              }
+            ],
+            "kind": "dictionary"
+          }
+        },
+        "kind": "map"
+      }
+    },
+    {
       "description": "Acknowledges, for the whole package, the guarantees its protocols give up through the package's handshake, wire or settings: one reason, `unverified = \"the gateway pins schemas by contract\"`, or a reason for each guarantee, `unverified = { schema_agreement = \"...\" }`. A protocol's own `@unverified` wins where both say.",
       "key": "unverified",
       "summary": "Guarantees the package gives up, with a reason",

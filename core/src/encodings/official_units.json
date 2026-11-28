@@ -155,7 +155,7 @@
     "Encoding": {
       "name": "comline@1",
       "kind": "handshake",
-      "profile_hash": "4a4eef3c568d4f81e12bb1ff76dc2d4f53e0cc30ff666fe9deeb841e629e76b5",
+      "profile_hash": "92c76fd8ddae66d55ce321466ebdf3a5641e7cf49b140984832a55229e4c9ac2",
       "map": {
         "rust": {
           "type": "comline_runtime::handshake::ComlineHandshake",
@@ -179,7 +179,7 @@
     "Encoding": {
       "name": "comline@2",
       "kind": "handshake",
-      "profile_hash": "7946ded8ba5e006a0e44391038088399e91df4bbbdcddd200b187353518efb63",
+      "profile_hash": "d6350e6b0148771e620d0bb487d663cb19075f7e0e0f1c93a163ed012aa99113",
       "map": {
         "rust": {
           "type": "comline_runtime::handshake::comline2::Comline2Handshake",

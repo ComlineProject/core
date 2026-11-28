@@ -583,6 +583,13 @@ pub(crate) fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
             units.push(FrozenUnit::Deprecated(deprecated_value(a)));
             continue;
         }
+        // `@connection` is read and checked from the parsed schema
+        // (`compiler::connection_sets`) and is not frozen: set membership
+        // enters the frozen IR with core#302, so a package hashes the same
+        // with the annotation as without it.
+        if a.key() == crate::schema::idl::annotations::CONNECTION {
+            continue;
+        }
         // `@key(name = value, ...)` freezes as `@key = { name = value, ... }`.
         if let (None, Some(entries)) = (&a.assignment, a.keyed()) {
             units.push(FrozenUnit::Property {
@@ -638,7 +645,7 @@ pub(crate) fn annotation_units(annotations: &[&Annotation]) -> Vec<FrozenUnit> {
 /// call arguments - which previously took *different* text renderings of
 /// the same expression (`render` strips a string's quotes, `as_text` keeps
 /// them), so the two disagreed about what a value even was.
-fn config_value_of(expression: &Expression) -> ConfigValue {
+pub(crate) fn config_value_of(expression: &Expression) -> ConfigValue {
     use crate::schema::idl::grammar::BoolLiteral;
     match expression {
         Expression::Bool(BoolLiteral::True) => ConfigValue::Bool(true),

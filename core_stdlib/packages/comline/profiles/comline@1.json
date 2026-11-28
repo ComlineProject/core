@@ -16,6 +16,13 @@
         "handshake/check-agree",
         "handshake/check-reject-ir-hash"
       ]
+    },
+    "schema_comparison": {
+      "value": "whole_schema",
+      "proven_by": [
+        "handshake/check-agree",
+        "handshake/check-reject-ir-hash"
+      ]
     }
   }
 }

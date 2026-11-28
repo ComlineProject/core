@@ -232,6 +232,20 @@ mod tests {
         }
     }
 
+    /// What each official handshake states about how it compares schemas
+    /// (`schema_comparison`): `comline@2` per protocol, `comline@1` the whole
+    /// schema, and nothing for a format or a framing, or for `none`, which has
+    /// no profile.
+    #[test]
+    fn the_official_handshakes_state_how_they_compare_schemas() {
+        let read = |kind, written| profile(kind, written).and_then(|p| p.compares_per_protocol());
+        assert_eq!(read(EncodingKind::Handshake, "comline@1"), Some(false));
+        assert_eq!(read(EncodingKind::Handshake, "comline@2"), Some(true));
+        assert_eq!(read(EncodingKind::Handshake, "none"), None);
+        assert_eq!(read(EncodingKind::Framing, "datagram@3"), None);
+        assert_eq!(read(EncodingKind::Format, "packed@1"), None);
+    }
+
     #[test]
     fn the_snapshot_is_what_freezes() {
         let frozen = units();

@@ -300,6 +300,44 @@ pub fn keys() -> Vec<ConfigKey> {
         ]),
     );
 
+    // A set's own `wire` and `handshake`: the same keys the package's take,
+    // each set's replacing the package's for what it states.
+    let connections = ConfigKey::new(
+        "connections",
+        "The encodings of each named connection set",
+        "The encodings each set of protocols (`@connection = admin`) runs on, keyed by the set's \
+         name: `connections = { admin = { wire = { framing = \"datagram@3\" } handshake = { name \
+         = \"comline@2\" } } }`. What a set leaves out is the package's `wire` or `handshake`. A \
+         set needs a handshake that compares protocol by protocol and a framing whose protocol \
+         numbers don't depend on position, today `comline@2` with `datagram@3`. A set no \
+         protocol is in is an error."
+            .into(),
+        ConfigShape::Map(Box::new(dictionary_entry(
+            "<set name>",
+            "One set's own encodings",
+            "The set's `wire` and `handshake`, each of which replaces the package's.",
+            vec![
+                ConfigKey::new(
+                    "wire",
+                    "The set's wire format and framing",
+                    "The set's wire format and framing, which a key left out takes from the \
+                     package's `wire`. Every protocol in the set speaks them."
+                        .into(),
+                    wire.value.clone(),
+                ),
+                ConfigKey::new(
+                    "handshake",
+                    "The set's handshake",
+                    "The handshake the set's protocols run, which the package's `handshake` is \
+                     where left out. A member's own `@handshake` must agree with it in name and \
+                     wire parameters."
+                        .into(),
+                    handshake.value.clone(),
+                ),
+            ],
+        ))),
+    );
+
     let guarantees: Vec<ConfigKey> = comline_catalog::sets::GUARANTEES
         .iter()
         .map(|id| {
@@ -520,6 +558,7 @@ pub fn keys() -> Vec<ConfigKey> {
         code_generation,
         wire,
         handshake,
+        connections,
         unverified,
         settings,
         encodings,
@@ -642,9 +681,15 @@ mod reader_tests {
                 let mut entries: Vec<String> = keys
                     .iter()
                     .map(|k| {
-                        let value =
-                            samples(&format!("{path}.{}", k.key), &k.value, poisoned).remove(0);
-                        format!("{} = {value}", k.key)
+                        // The first alternative, but where the poisoned
+                        // dictionary is one of them (a set's `handshake`
+                        // is a name or a dictionary), that one.
+                        let mut options = samples(&format!("{path}.{}", k.key), &k.value, poisoned);
+                        let at = options
+                            .iter()
+                            .position(|v| poisoned.is_some() && v.contains("zz_not_a_key"))
+                            .unwrap_or(0);
+                        format!("{} = {}", k.key, options.swap_remove(at))
                     })
                     .collect();
                 if poisoned == Some(path) {

@@ -52,6 +52,10 @@ pub enum ValueType {
     BoolOrStr,
     /// A list of validator calls (`@validators = [StringBounds(min = 3)]`).
     ValidatorList,
+    /// A list of bare names (`@connection = [admin, public]`). [`check`]
+    /// answers only that a list was written; its items are the annotation's
+    /// to judge.
+    NameList,
     /// Any one of these (`@framing`: a name, or a dictionary naming it).
     AnyOf(&'static [ValueType]),
     /// `{ key = value, ... }` with these keys. [`check`] answers only that a
@@ -109,7 +113,7 @@ pub enum ValueForm<'a> {
     Path(&'a str),
     /// An f-string.
     FString(&'a str),
-    /// A list (of validator calls, today).
+    /// A list (of validator calls, or of names).
     List,
     /// A nested dictionary - a `settings` subtree, never a leaf value.
     Dict,
@@ -173,7 +177,7 @@ pub fn check(expected: &ValueType, found: ValueForm<'_>) -> Result<(), TypeMisma
         (ValueType::Keyword(allowed), ValueForm::Name(n)) => allowed.contains(&n),
         (ValueType::Name, ValueForm::Name(_)) => true,
         (ValueType::BoolOrStr, ValueForm::Bool(_) | ValueForm::Str(_)) => true,
-        (ValueType::ValidatorList, ValueForm::List) => true,
+        (ValueType::ValidatorList | ValueType::NameList, ValueForm::List) => true,
         (ValueType::AnyOf(types), found) => types.iter().any(|ty| check(ty, found).is_ok()),
         (ValueType::Dict(_), ValueForm::Dict) => true,
         _ => false,
@@ -213,6 +217,7 @@ pub fn describe(ty: &ValueType) -> String {
         ValueType::Name => "a bare name".to_string(),
         ValueType::BoolOrStr => "a boolean or a string message".to_string(),
         ValueType::ValidatorList => "a list of validator calls".to_string(),
+        ValueType::NameList => "a list of bare names".to_string(),
         // `, or` keeps each type's own `a or b` readable.
         ValueType::AnyOf(types) => types.iter().map(describe).collect::<Vec<_>>().join(", or "),
         ValueType::Dict(keys) => {

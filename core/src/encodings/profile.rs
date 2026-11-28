@@ -176,6 +176,30 @@ impl Profile {
         self.framing_fact_is(fact::DIRECTIONS, "both", "one")
     }
 
+    /// What a handshake compares to judge two ends' schemas
+    /// (`schema_comparison`): `per_protocol` or `whole_schema`, as the profile
+    /// states it, else the catalog's default for a profile that leaves it out
+    /// (`whole_schema`, the safe reading). `None` for a profile that isn't a
+    /// handshake's.
+    pub fn schema_comparison(&self) -> Option<String> {
+        if self.kind != ProfileKind::Handshake {
+            return None;
+        }
+        self.facts
+            .get(fact::SCHEMA_COMPARISON)
+            .map(|f| f.value.clone())
+            .or_else(|| comline_catalog::fact(fact::SCHEMA_COMPARISON)?.default.map(String::from))
+    }
+
+    /// Whether a handshake judges each protocol on its own, by its line and
+    /// shape (`schema_comparison = per_protocol`), so a change in one
+    /// protocol refuses that protocol and not the rest. Sets of protocols on
+    /// connections of their own need it. `None` for a profile that isn't a
+    /// handshake's.
+    pub fn compares_per_protocol(&self) -> Option<bool> {
+        self.schema_comparison().map(|value| value == "per_protocol")
+    }
+
     /// A framing's two-valued `fact`: `Some(true)` when it states `yes`,
     /// `Some(false)` when it states `no`, else `None`.
     fn framing_fact_is(&self, fact: &str, yes: &str, no: &str) -> Option<bool> {
@@ -242,6 +266,8 @@ mod tests {
             (fact::PAYLOAD, "json"),
             (fact::SCHEMA_AGREEMENT, "true"),
             (fact::ENCODING_AGREEMENT, "true"),
+            (fact::SCHEMA_COMPARISON, "per_protocol"),
+            (fact::SCHEMA_COMPARISON, "whole_schema"),
         ];
         for (name, value) in relied_on {
             let known = comline_catalog::fact(name).unwrap();

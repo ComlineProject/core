@@ -5,6 +5,7 @@ pub mod import_resolver;
 pub mod references;
 pub mod alias_resolution;
 pub mod annotation_forms;
+pub mod connection_sets;
 pub mod bounds;
 pub mod settings;
 pub mod strict;

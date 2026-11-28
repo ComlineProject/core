@@ -7,6 +7,7 @@ use std::rc::Rc;
 use crate::package::config::ir::context::ProjectContext;
 use crate::schema::idl::grammar::Declaration;
 use crate::schema::ir::compiler::alias_resolution::check_aliases;
+use crate::schema::ir::compiler::connection_sets;
 use crate::schema::ir::compiler::import_resolver::{
     check_imports, resolve_use_to_schema, use_brings_into_scope, ImportResolver, ProjectImports,
 };
@@ -58,6 +59,68 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         .collect();
     let wire = PackageWire::of(own_config, own_protocols.iter().map(Vec::as_slice));
     check_package_encodings(project_context, own_format.as_deref(), &wire.framing, &wire.handshake)?;
+    // Named connection sets (core#301): what the protocols write, what
+    // `connections` says and each set's encodings, every error collected. Not
+    // in the frozen IR (core#302).
+    let own_schemas: Vec<Rc<RefCell<SchemaContext>>> = project_context
+        .schema_contexts
+        .iter()
+        .filter(|s| !s.borrow().compile_state.borrow().complete)
+        .cloned()
+        .collect();
+    let connection_table = package_connections(project_context)?;
+    let mut connection_protocols = vec![];
+    for (index, schema) in own_schemas.iter().enumerate() {
+        for declaration in schema.borrow().declarations.iter() {
+            if let Declaration::Protocol(protocol) = &declaration.value {
+                let annotations = protocol.annotations();
+                connection_protocols.push(connection_sets::Protocol::read(
+                    index,
+                    &protocol.name(),
+                    declaration.span,
+                    &annotations,
+                    crate::schema::ir::compiler::interpreter::incremental::annotation_units(&annotations),
+                ));
+            }
+        }
+    }
+    check_connection_encodings_declared(project_context, &connection_table)?;
+    let connection_findings = connection_sets::check(
+        &connection_protocols,
+        &connection_sets::Package {
+            wire: &wire,
+            table: &connection_table,
+            schemas: &own_schemas.iter().map(|s| s.borrow().namespace.clone()).collect::<Vec<_>>(),
+            encodings: &crate::schema::ir::unverified::Encodings::of(project_context),
+        },
+    );
+    for (schema, findings) in connection_findings_by_schema(&connection_findings) {
+        match schema {
+            Some(index) => {
+                let schema = own_schemas[index].borrow();
+                let rendered: Vec<String> =
+                    findings.iter().map(|diagnostic| schema.render(diagnostic)).collect();
+                schema_errors.push(format!(
+                    "Schema '{}' has invalid connection sets:\n{}",
+                    schema.namespace_joined(),
+                    rendered.join("\n\n")
+                ));
+            }
+            None => {
+                let source = match &project_context.origin {
+                    crate::package::config::ir::context::Origin::Disk(path) => {
+                        std::fs::read_to_string(path).unwrap_or_default()
+                    }
+                    _ => String::new(),
+                };
+                let rendered: Vec<String> = findings
+                    .iter()
+                    .map(|diagnostic| crate::diagnostics::render(diagnostic, "config.idp", &source))
+                    .collect();
+                schema_errors.push(format!("config.idp's `connections` is invalid:\n{}", rendered.join("\n\n")));
+            }
+        }
+    }
     // What the package says of what its own settings give up, for every
     // protocol that takes them.
     let package_unverified = crate::package::config::ir::frozen::unverified(own_config);
@@ -340,8 +403,15 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
             }
         }
 
+        // `@connection` isn't frozen, so the gate is handed it beside the
+        // frozen units: `annotations.connection.allowed` governs it like any
+        // annotation.
+        let gated_units = match own_schemas.iter().position(|s| Rc::ptr_eq(s, schema_context)) {
+            Some(index) => connection_sets::with_gate_units(&written_units, &connection_protocols, index),
+            None => written_units.clone(),
+        };
         if let Err(errors) =
-            check_settings_enforcement(&written_units, &own_settings, &package_settings_spans)
+            check_settings_enforcement(&gated_units, &own_settings, &package_settings_spans)
         {
             let rendered: Vec<String> = errors
                 .iter()
@@ -415,6 +485,69 @@ fn check_package_encodings(
         }
     }
     Ok(())
+}
+
+/// The package's `connections` table, as `config.idp` states it. Its entries
+/// were read when the config froze, which refused a malformed one; this reads
+/// them again for the sets' own encodings.
+fn package_connections(
+    project_context: &ProjectContext,
+) -> Result<Vec<(String, crate::package::config::ir::interpreter::freezing::SetEncodings)>> {
+    use crate::package::config::idl::grammar::Value;
+
+    let Some(assignment) = project_context
+        .config
+        .assignments
+        .iter()
+        .find(|assignment| assignment.value.key.text() == "connections")
+    else {
+        return Ok(vec![]);
+    };
+    let Value::Dictionary(items) = &assignment.value.value else {
+        return Ok(vec![]);
+    };
+    crate::package::config::ir::interpreter::freezing::connections_table(&items.assignments)
+        .map_err(|e| eyre::eyre!("config.idp's `connections`: {e}"))
+}
+
+/// The encodings each set of `connections` states, held to the names a package
+/// can declare, as the package's own are ([`check_package_encodings`]).
+fn check_connection_encodings_declared(
+    project_context: &ProjectContext,
+    table: &[(String, crate::package::config::ir::interpreter::freezing::SetEncodings)],
+) -> Result<()> {
+    use crate::encodings::{is_declared, undeclared, EncodingKind};
+
+    for (set, encodings) in table {
+        let names = [
+            (EncodingKind::Format, encodings.format.as_deref(), "wire.format"),
+            (EncodingKind::Framing, encodings.framing.as_deref(), "wire.framing"),
+            (EncodingKind::Handshake, encodings.handshake.as_ref().map(|(name, _)| name.as_str()), "handshake"),
+        ];
+        for (kind, name, key) in names {
+            let Some(name) = name else { continue };
+            if !is_declared(project_context, kind, name) {
+                bail!("config.idp's `connections.{set}.{key}`: {}", undeclared(kind, name));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The findings grouped by the schema they are about, in the order of its
+/// first, and those about `config.idp` (`None`) last.
+fn connection_findings_by_schema(
+    findings: &[connection_sets::Finding],
+) -> Vec<(Option<usize>, Vec<crate::diagnostics::Diagnostic>)> {
+    let mut grouped: Vec<(Option<usize>, Vec<crate::diagnostics::Diagnostic>)> = vec![];
+    for finding in findings {
+        match grouped.iter_mut().find(|(schema, _)| *schema == finding.schema) {
+            Some((_, diagnostics)) => diagnostics.push(finding.diagnostic.clone()),
+            None => grouped.push((finding.schema, vec![finding.diagnostic.clone()])),
+        }
+    }
+    grouped.sort_by_key(|(schema, _)| schema.is_none());
+    grouped
 }
 
 /// The package's `unverified`, judged without its protocols: allowed by the
