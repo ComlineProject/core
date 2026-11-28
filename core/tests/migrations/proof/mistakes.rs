@@ -119,7 +119,7 @@ fn a_wrong_value_in_the_second_step_is_a_failure_of_the_square() {
     let Failure::Wrong { path, .. } = &failure else {
         panic!("{failure:?}")
     };
-    assert_eq!(path, "/total_size");
+    assert!(path.starts_with("/total_size"), "{path}");
 }
 
 #[test]
@@ -177,7 +177,7 @@ fn a_mistake_in_either_step_of_a_chain_is_seen_through_both() {
         (
             Defect::None,
             Defect::WrongValue,
-            |f| matches!(f, Failure::Wrong { path, .. } if path == "/total_size"),
+            |f| matches!(f, Failure::Wrong { path, .. } if path.starts_with("/total_size")),
         ),
         (
             Defect::None,

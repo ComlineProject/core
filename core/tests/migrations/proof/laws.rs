@@ -425,11 +425,17 @@ fn a_payload_with_the_same_bytes_keeps_its_hash_and_what_the_user_owns_is_the_sa
             // The `meta` blob has the same bytes in 80 and 81 (the same
             // type): the same object.
             assert_eq!(meta_hash(&old, i), meta_hash(&new, j), "{}", history.name);
-            // The commit itself moved, because its tree did: the map says so.
+            // The commit moves exactly when its tree does (a package with
+            // no scalars has the same tree in both formats): the map says so.
             assert!(report
                 .map
                 .contains(&(old.commits[i].hash, new.commits[j].hash)));
-            assert_ne!(old.commits[i].hash, new.commits[j].hash);
+            assert_eq!(
+                old.commits[i].hash == new.commits[j].hash,
+                old.commits[i].commit.tree == new.commits[j].commit.tree,
+                "{}",
+                history.name
+            );
         }
     }
 }
