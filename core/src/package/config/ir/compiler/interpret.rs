@@ -90,6 +90,7 @@ pub fn interpret_context(project_context: &ProjectContext) -> Result<()> {
         &connection_sets::Package {
             wire: &wire,
             table: &connection_table,
+            schemas: &own_schemas.iter().map(|s| s.borrow().namespace.clone()).collect::<Vec<_>>(),
             encodings: &crate::schema::ir::unverified::Encodings::of(project_context),
         },
     );

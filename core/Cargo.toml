@@ -27,7 +27,7 @@ comline-ir-formats = { path = "formats" }
 # The specification's catalog of shared names: guarantees, facts and their
 # values, the official encodings' aliases and frozen spellings. no_std and
 # dependency-free, so the IR-only build has it too.
-comline-catalog = { git = "https://github.com/ComlineProject/specification", rev = "d2f7602be7602c98db49edc5a0dedc1f0921ccb4" }
+comline-catalog = { git = "https://github.com/ComlineProject/specification", rev = "af1e9d3340d7fd6b48cd967c96401c3bac4b340a" }
 
 # General
 eyre = "0.6.8"

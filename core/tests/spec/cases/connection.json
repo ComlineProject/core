@@ -419,8 +419,62 @@
             }
         },
         {
+            "id": "connection/name-trailing-underscore",
+            "description": "a set's name ending in an underscore isn't lowercase snake_case and is refused (fix: admin)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin_\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-double-underscore",
+            "description": "a set's name with a doubled underscore isn't lowercase snake_case and is refused (fix: admin_api)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin__api\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::bad-set-name",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
             "id": "connection/name-keyword-rust",
-            "description": "a set named like a Rust keyword is refused: it would be a module of that name",
+            "description": "a set named like a Rust keyword builds: the generated name is loop_connection, never escaped",
             "packages": [
                 {
                     "name": "app",
@@ -436,18 +490,23 @@
             ],
             "build": "app",
             "expect": {
-                "builds": false,
-                "diagnostics": [
+                "protocols": [
                     {
-                        "code": "connection::bad-set-name",
-                        "severity": "error"
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
                     }
-                ]
+                ],
+                "builds": true,
+                "diagnostics": []
             }
         },
         {
             "id": "connection/name-keyword-typescript",
-            "description": "a set named like a TypeScript keyword, not a Rust one, is refused too: a keyword of any target",
+            "description": "a set named like a TypeScript keyword, not a Rust one, builds",
             "packages": [
                 {
                     "name": "app",
@@ -463,18 +522,87 @@
             ],
             "build": "app",
             "expect": {
-                "builds": false,
-                "diagnostics": [
+                "protocols": [
                     {
-                        "code": "connection::bad-set-name",
-                        "severity": "error"
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
                     }
-                ]
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/name-keyword-python",
+            "description": "a set named like a Python keyword builds",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = lambda\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/name-keyword-lua",
+            "description": "a set named like a Lua keyword builds",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = end\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
             }
         },
         {
             "id": "connection/name-module-item-serve",
-            "description": "a set named serve would collide with the connection module's own serve and is refused",
+            "description": "a set named serve builds: the generated name is serve_connection, which is not the connection module's serve",
             "packages": [
                 {
                     "name": "app",
@@ -490,18 +618,23 @@
             ],
             "build": "app",
             "expect": {
-                "builds": false,
-                "diagnostics": [
+                "protocols": [
                     {
-                        "code": "connection::bad-set-name",
-                        "severity": "error"
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
                     }
-                ]
+                ],
+                "builds": true,
+                "diagnostics": []
             }
         },
         {
             "id": "connection/name-module-item-services",
-            "description": "a set named services would collide with the connection module's own services and is refused",
+            "description": "a set named services builds: the generated name is services_connection, which is not the connection module's services",
             "packages": [
                 {
                     "name": "app",
@@ -509,7 +642,43 @@
                     "schemas": [
                         {
                             "path": "src/api.ids",
-                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = services\nprotocol Chat {\n    function send();\n}\n"
+                            "text": "@connection = services\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "Chat",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
+            }
+        },
+        {
+            "id": "connection/name-taken-schema",
+            "description": "a set shop whose generated name shop_connection is the name of a schema is refused (fix: rename the set or the schema)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = shop\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol Chat {\n    function send();\n}\n"
+                        },
+                        {
+                            "path": "src/shop_connection.ids",
+                            "text": "struct Item {\n    id: u32\n}\n"
                         }
                     ],
                     "dependencies": []
@@ -520,10 +689,73 @@
                 "builds": false,
                 "diagnostics": [
                     {
-                        "code": "connection::bad-set-name",
+                        "code": "connection::name-taken",
                         "severity": "error"
                     }
                 ]
+            }
+        },
+        {
+            "id": "connection/name-taken-protocol",
+            "description": "a set public whose generated name PublicConnection is the name of a protocol is refused (fix: rename the set or the protocol)",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = admin\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol PublicConnection {\n    function send();\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "builds": false,
+                "diagnostics": [
+                    {
+                        "code": "connection::name-taken",
+                        "severity": "error"
+                    }
+                ]
+            }
+        },
+        {
+            "id": "connection/name-not-taken",
+            "description": "names that only look like the generated one are no collision: a schema shop_connections and a protocol PublicConn beside the sets shop and public",
+            "packages": [
+                {
+                    "name": "app",
+                    "config": "congregation app\nspecification_version = 1\nhandshake = \"comline@2\"\n",
+                    "schemas": [
+                        {
+                            "path": "src/api.ids",
+                            "text": "@connection = shop\nprotocol Ops {\n    function restart();\n}\n\n@connection = public\nprotocol PublicConn {\n    function send();\n}\n"
+                        },
+                        {
+                            "path": "src/shop_connections.ids",
+                            "text": "struct Item {\n    id: u32\n}\n"
+                        }
+                    ],
+                    "dependencies": []
+                }
+            ],
+            "build": "app",
+            "expect": {
+                "protocols": [
+                    {
+                        "name": "Ops",
+                        "given_up": []
+                    },
+                    {
+                        "name": "PublicConn",
+                        "given_up": []
+                    }
+                ],
+                "builds": true,
+                "diagnostics": []
             }
         },
         {

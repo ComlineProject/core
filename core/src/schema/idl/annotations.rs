@@ -715,8 +715,8 @@ fn known_annotations() -> Vec<AnnotationInfo> {
                        lists only the set's members: a bare name, `@connection = admin`, or a \
                        list for a protocol in several sets, `@connection = [admin, public]`. A \
                        set is named by a bare identifier, never a string: lowercase \
-                       `snake_case`, and not a keyword of a target language or a name the \
-                       connection module has. All or nothing: once one protocol is in a set, \
+                       `snake_case`, and not the name of a schema or protocol the generated \
+                       `<set>_connection` would collide with. All or nothing: once one protocol is in a set, \
                        every protocol that runs on a connection must be, and one that runs on \
                        none can't be. A set needs a handshake that compares protocol by protocol \
                        and a framing whose protocol numbers don't depend on position, read from \

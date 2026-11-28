@@ -44,6 +44,7 @@ use crate::schema::ir::unverified::{framing_fact, Encodings};
 const UNASSIGNED: DiagnosticCode = DiagnosticCode::error("connection::unassigned");
 const NOT_ON_A_CONNECTION: DiagnosticCode =
     DiagnosticCode::error("connection::not-on-a-connection");
+const NAME_TAKEN: DiagnosticCode = DiagnosticCode::error("connection::name-taken");
 const BAD_SET_NAME: DiagnosticCode = DiagnosticCode::error("connection::bad-set-name");
 const UNSUPPORTED_ENCODING: DiagnosticCode =
     DiagnosticCode::error("connection::unsupported-encoding");
@@ -73,46 +74,6 @@ const FRAMING_NEEDS: &[(&str, &str, &str)] = &[
         "by_id",
         "a protocol's number must not depend on its position",
     ),
-];
-
-/// Words a set's name can't be because a target language has them as keywords:
-/// a set is a module of that name in the generated code. Rust's, strict and
-/// reserved; and TypeScript's reserved words, its strict-mode reserved words
-/// that a namespace can't be (`interface`; not the access modifiers, which a
-/// set may be named like: `public` is the commonest set there is) and the
-/// names of its predefined types. Only lowercase words are here: a set's name
-/// is lowercase `snake_case`, so the others can't clash.
-#[rustfmt::skip]
-const KEYWORDS: &[(&str, &[&str])] = &[
-    ("Rust", &[
-        "as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern",
-        "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub",
-        "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use",
-        "where", "while", "abstract", "become", "box", "do", "final", "gen", "macro", "override", "priv",
-        "try", "typeof", "unsized", "virtual", "yield",
-    ]),
-    ("TypeScript", &[
-        "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do",
-        "else", "enum", "export", "extends", "false", "finally", "for", "function", "if", "import", "in",
-        "instanceof", "new", "null", "return", "super", "switch", "this", "throw", "true", "try", "typeof",
-        "var", "void", "while", "with", "await", "implements", "interface", "let", "package", "yield",
-        "any", "bigint", "boolean", "never", "number", "object", "string", "symbol", "undefined", "unknown",
-    ]),
-];
-
-/// What a set's generated module already holds, in `snake_case`: the names
-/// of the items of `connection::<set>` (`Services`, `ClientServices`,
-/// `accept`, `serve`, `connect`, `Connection`, `Framing`, `Format`), so a set
-/// with one of them would collide with it.
-const MODULE_ITEMS: &[&str] = &[
-    "services",
-    "client_services",
-    "accept",
-    "serve",
-    "connect",
-    "connection",
-    "framing",
-    "format",
 ];
 
 /// A set's name as written in a `@connection`, where.
@@ -187,6 +148,9 @@ pub struct Package<'a> {
     pub wire: &'a PackageWire,
     /// `connections` in `config.idp`: each set that states its own.
     pub table: &'a [(String, SetEncodings)],
+    /// The namespaces of the package's own schemas (`src/shop_connection.ids`
+    /// is `shop_connection`), which a set's generated name can't be.
+    pub schemas: &'a [Vec<String>],
     /// The encodings a name can be declared by.
     pub encodings: &'a Encodings<'a>,
 }
@@ -438,8 +402,12 @@ fn fix_with_supported(encodings: &Encodings) -> String {
     )
 }
 
-/// Why `name` can't name a set, or `None` if it can: it's a module's name in
-/// each target, so it has to be one.
+/// Why `name` can't name a set, or `None` if it can: lowercase `snake_case`,
+/// which is all. A keyword of a target, or an item of the connection module,
+/// is fine: generated code names a set `<set>` + "connection" in the target's
+/// casing (`public_connection`, `PublicConnection`), never escaped, so there
+/// is nothing for a set to collide with but what the package itself names
+/// that ([`taken_by`]).
 fn bad_name(name: &str) -> Option<String> {
     let snake_case = name.starts_with(|c: char| c.is_ascii_lowercase())
         && name
@@ -447,27 +415,41 @@ fn bad_name(name: &str) -> Option<String> {
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_')
         && !name.ends_with('_')
         && !name.contains("__");
-    if !snake_case {
-        return Some(format!(
+    (!snake_case).then(|| {
+        format!(
             "`{name}` isn't lowercase snake_case: lowercase letters, digits and single underscores, \
              starting with a letter"
-        ));
+        )
+    })
+}
+
+/// `snake_case` as `PascalCase`: `public_api` is `PublicApi`.
+fn pascal_case(name: &str) -> String {
+    name.split('_')
+        .filter(|part| !part.is_empty())
+        .map(|part| {
+            let mut chars = part.chars();
+            chars.next().map_or(String::new(), |first| {
+                first.to_ascii_uppercase().to_string() + chars.as_str()
+            })
+        })
+        .collect()
+}
+
+/// What the package already names what a set generates, or `None`: a schema
+/// whose namespace ends in `<set>_connection` (the module the Rust target
+/// writes, the file the TypeScript one does), or a protocol named
+/// `<Set>Connection` (the type).
+fn taken_by(set: &str, protocols: &[Protocol], package: &Package) -> Option<String> {
+    let module = format!("{set}_connection");
+    if let Some(namespace) = package.schemas.iter().find(|ns| ns.last() == Some(&module)) {
+        return Some(format!("the schema `{}`", namespace.join("::")));
     }
-    for (target, words) in KEYWORDS {
-        if words.contains(&name) {
-            return Some(format!(
-                "`{name}` is a keyword of {target}, and a set is a module of that name"
-            ));
-        }
-    }
-    if MODULE_ITEMS.contains(&name) {
-        return Some(format!(
-            "`{name}` is a name the connection module already has (`{}`), so a set of that name \
-             would collide with it",
-            MODULE_ITEMS.join("`, `")
-        ));
-    }
-    None
+    let ty = format!("{}Connection", pascal_case(set));
+    protocols
+        .iter()
+        .find(|p| p.name == ty)
+        .map(|p| format!("the protocol `{}`", p.name))
 }
 
 /// Whether `protocol` runs on a connection: its framing, its own or the
@@ -520,6 +502,7 @@ pub fn check(protocols: &[Protocol], package: &Package) -> Vec<Finding> {
     // set is wrong with it, not with its members.
     let mut used: BTreeSet<String> = BTreeSet::new();
     let mut named_badly: BTreeSet<String> = BTreeSet::new();
+    let mut taken_checked: BTreeSet<String> = BTreeSet::new();
     let mut set_checked: BTreeSet<String> = BTreeSet::new();
 
     for protocol in protocols {
@@ -612,10 +595,34 @@ pub fn check(protocols: &[Protocol], package: &Package) -> Vec<Finding> {
                 if named_badly.insert(set.text.clone()) {
                     push(
                         Some(protocol.schema),
-                        Diagnostic::new(BAD_SET_NAME, format!("`{}` can't name a set: {why}", set.text))
-                            .with_context(context.clone())
-                            .with_help("rename the set to a lowercase snake_case name that isn't a keyword or a name of the connection module")
-                            .with_span(set.span),
+                        Diagnostic::new(
+                            BAD_SET_NAME,
+                            format!("`{}` can't name a set: {why}", set.text),
+                        )
+                        .with_context(context.clone())
+                        .with_help("rename the set to lowercase snake_case, such as `admin_api`")
+                        .with_span(set.span),
+                    );
+                }
+            }
+            if taken_checked.insert(set.text.clone()) {
+                if let Some(clash) = taken_by(&set.text, protocols, package) {
+                    push(
+                        Some(protocol.schema),
+                        Diagnostic::new(
+                            NAME_TAKEN,
+                            format!(
+                                "set `{}` would generate `{}_connection` (`{}Connection`), which is already the name of {clash}",
+                                set.text,
+                                set.text,
+                                pascal_case(&set.text)
+                            ),
+                        )
+                        .with_context(context.clone())
+                        .with_help(format!(
+                            "rename the set, or {clash}: generated code names a set `<set>_connection`"
+                        ))
+                        .with_span(set.span),
                     );
                 }
             }
@@ -860,18 +867,28 @@ mod tests {
         }
     }
 
+    /// No keyword list: generated code names a set `<set>_connection`, so a
+    /// keyword of a target or an item of the connection module is a fine name.
     #[test]
-    fn a_keyword_of_any_target_is_refused_and_the_message_says_whose() {
-        assert!(bad_name("loop").unwrap().contains("Rust"));
-        assert!(bad_name("interface").unwrap().contains("TypeScript"));
-        assert!(bad_name("default").unwrap().contains("TypeScript"));
-        // The commonest set of all is a TypeScript access modifier.
-        assert!(bad_name("public").is_none());
-        assert!(bad_name("serve").unwrap().contains("connection module"));
-        assert!(bad_name("services").unwrap().contains("connection module"));
-        assert!(bad_name("client_services")
-            .unwrap()
-            .contains("connection module"));
+    fn a_keyword_or_a_module_item_is_a_fine_name() {
+        for name in [
+            "public",
+            "loop",
+            "interface",
+            "default",
+            "serve",
+            "services",
+            "connect",
+            "client_services",
+        ] {
+            assert!(bad_name(name).is_none(), "{name}");
+        }
+    }
+
+    #[test]
+    fn a_set_becomes_a_pascal_case_type_name() {
+        assert_eq!(pascal_case("public"), "Public");
+        assert_eq!(pascal_case("admin_api2"), "AdminApi2");
     }
 
     /// The rule is the facts': it holds today's encodings to what the

@@ -102,16 +102,41 @@ fn a_refused_encoding_says_whether_it_is_the_handshake_or_the_framing() {
 }
 
 #[test]
-fn a_bad_set_name_says_why() {
+fn a_bad_set_name_is_only_one_that_is_not_snake_case() {
     let named = |name: &str| {
         let schema =
             format!("@connection = {name}\nprotocol Ops {{\n    function restart();\n}}\n");
-        error_of("handshake = \"comline@2\"\n", &schema).unwrap()
+        error_of("handshake = \"comline@2\"\n", &schema)
     };
-    assert!(named("Admin").contains("snake_case"));
-    assert!(named("loop").contains("keyword of Rust"));
-    assert!(named("interface").contains("keyword of TypeScript"));
-    assert!(named("serve").contains("connection module"));
+    assert!(named("Admin").unwrap().contains("snake_case"));
+    // No keyword list: a set is `<set>_connection` in generated code.
+    for fine in ["public", "loop", "interface", "serve", "services"] {
+        assert!(named(fine).is_none(), "{fine}");
+    }
+}
+
+#[test]
+fn a_set_whose_generated_name_is_taken_says_by_what() {
+    let config = "handshake = \"comline@2\"\n";
+    let protocol = "@connection = public\nprotocol PublicConnection {\n    function send();\n}\n";
+    let error = error_of(config, protocol).unwrap();
+    assert!(error.contains("connection::name-taken"), "{error}");
+    assert!(error.contains("the protocol `PublicConnection`"), "{error}");
+
+    let tmp = tempfile::tempdir().unwrap();
+    write(
+        tmp.path(),
+        config,
+        "@connection = shop\nprotocol Ops {\n    function restart();\n}\n",
+    );
+    std::fs::write(
+        tmp.path().join("src/shop_connection.ids"),
+        "struct Item {\n    id: u32\n}\n",
+    )
+    .unwrap();
+    let error = format!("{:?}", compile_package(tmp.path()).unwrap_err());
+    assert!(error.contains("connection::name-taken"), "{error}");
+    assert!(error.contains("the schema `shop_connection`"), "{error}");
 }
 
 #[test]
