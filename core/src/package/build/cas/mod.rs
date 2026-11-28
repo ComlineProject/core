@@ -23,15 +23,14 @@
 pub mod storage;       // Hash type and compression utilities
 pub mod object_store;  // CAS operations (read/write)
 pub mod objects;       // Blob, Tree, Commit types
-#[cfg(feature = "compiler")]
 pub mod refs;          // Git-style references management
 #[cfg(feature = "compiler")]
 pub mod build;         // Build process implementation
 pub mod version;       // Version bump types
 pub mod entries;       // Entries reserved for unknowns and who wrote a version
+pub mod migrate;       // Migrating a store between IR formats, and `comline store` (core#268)
 #[cfg(feature = "compiler")]
 pub mod release;       // Releases on top of builds
-#[cfg(feature = "compiler")]
 pub mod reconcile;     // Joining two heads after a Git merge
 #[cfg(feature = "compiler")]
 mod package;
@@ -41,7 +40,6 @@ mod schema;
 // Re-exports
 pub use storage::{Hash, compress, decompress};
 pub use object_store::ObjectStore;
-#[cfg(feature = "compiler")]
 pub use refs::{update_ref, read_ref, ref_exists, REF_HEAD_MAIN_FILENAME};
 pub use version::VersionBump;
 

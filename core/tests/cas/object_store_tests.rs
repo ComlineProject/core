@@ -180,8 +180,7 @@ fn the_messages_say_what_was_found_that_nothing_changed_and_what_to_do() {
     assert!(older.contains(&format!("format {current}")), "{older}");
     assert!(older.contains("Nothing was changed"), "{older}");
     assert!(older.contains("`comline store reset`"), "{older}");
-    // That command is named but doesn't exist yet, and the text says so.
-    assert!(older.contains("not in this release yet"), "{older}");
+    assert!(!older.contains("not in this release yet"), "{older}");
 
     let newer = StoreError::Newer { found: 9 }.to_string();
     assert!(newer.contains("IR format 9"), "{newer}");

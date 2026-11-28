@@ -400,13 +400,19 @@ fn core_deletes_and_moves_no_store() {
         }
     }
 
-    // Only `package/deps.rs` deletes or renames anything, and only the
+    // Only two files delete or rename anything. `package/deps.rs`: the
     // checkout of one git dependency and its `.partial` staging directory
-    // inside `deps-cache/`: a cache entry that is re-fetched when it is
-    // dirty or half made. It never touches the store or the cache as a
-    // whole. A new file here is a new way to delete something: review it
-    // against the rule before adding it.
-    let allowed = std::collections::BTreeSet::from(["package/deps.rs".to_string()]);
+    // inside `deps-cache/`, a cache entry that is re-fetched when it is dirty
+    // or half made; it never touches the store or the cache as a whole.
+    // `package/build/cas/migrate/disk.rs`: the one place the engine behind
+    // `comline store migrate`, `reset` and `prune` moves or removes anything
+    // of a store (core#268), each call reached only from an operation that
+    // takes the user's `Consent`. A new file here is a new way to delete
+    // something: review it against the rule before adding it.
+    let allowed = std::collections::BTreeSet::from([
+        "package/build/cas/migrate/disk.rs".to_string(),
+        "package/deps.rs".to_string(),
+    ]);
     assert_eq!(
         found, allowed,
         "files that delete or move files in core's source"

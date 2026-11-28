@@ -62,19 +62,36 @@ pub enum StoreState {
     Current,
 }
 
+/// What was interrupted, when [`StoreError::Interrupted`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Interrupted {
+    /// A `comline store migrate`: `.comline.migrating/` exists, or the new
+    /// store is in place and its journal is still there.
+    Migration,
+    /// A `comline store reset`: `.comline.resetting/` exists.
+    Reset,
+}
+
 /// Why a `.comline/` can't be used as it is. **Nothing was changed** in any
-/// of these cases, and nothing in core changes it afterwards: the store is
-/// not deleted, moved or rewritten to change its format. Core is a library,
-/// so the caller decides how to show this: a CLI prints it, the language
-/// server makes it a diagnostic.
+/// of these cases, and nothing in core changes it afterwards on its own: the
+/// store is not deleted, moved, migrated or rewritten to change its format.
+/// Only the user's `comline store migrate` and `comline store reset` do
+/// that (core#268, `docs/proposals/ir-migrations`). Core is a library, so the
+/// caller decides how to show this: a CLI prints it (and on a terminal may
+/// ask whether to run [`StoreError::offer`]), the language server makes it a
+/// diagnostic.
 ///
 /// It is a `std::error::Error`, so it travels in an `eyre::Report` and is
 /// recovered with `downcast_ref::<StoreError>()`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum StoreError {
-    /// Stamped with an older format than this binary writes, and no
-    /// migration from it exists (there are no steps yet).
+    /// Stamped with an older format than this binary writes, and no chain
+    /// of migration steps reaches the current one. The user's way on is
+    /// `comline store reset`.
     Older { found: u32 },
+    /// Stamped with an older format than this binary writes, and a chain of
+    /// migration steps reaches the current one: `comline store migrate`.
+    NeedsMigration { found: u32 },
     /// Stamped with a newer format than this binary reads: a newer comline
     /// wrote it.
     Newer { found: u32 },
@@ -84,14 +101,71 @@ pub enum StoreError {
     UnreadableStamp { reason: String },
     /// `FORMAT_VERSION` doesn't hold a format number.
     InvalidStamp { text: String },
+    /// `FORMAT_VERSION` holds Git conflict markers around two different
+    /// formats: a merge joined stores in two formats.
+    MergedFormats { ours: u32, theirs: u32 },
+    /// A migration or a reset was interrupted and has to be finished first.
+    Interrupted { what: Interrupted },
 }
 
-/// `comline store reset` doesn't exist yet: step 1.3 of core#268 builds the
-/// engine and `comline store`. Until then the message says so and tells
-/// the user what to do by hand; 1.3 changes this one text.
-const RESET_HINT: &str = "To start a new history, `comline store reset` will move `.comline/` aside \
-     (to `.comline.format-<its format>.bak/`) and keep `deps-cache/`, but that command is not in this \
-     release yet: until it is, move `.comline/` aside yourself.";
+/// What a command on a terminal may offer to run, in place of stopping: the
+/// exact command and the question to put to the user. The command is never
+/// run without a yes, and never with no terminal to ask on (CI fails with the
+/// error's message). See [`StoreError::offer`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offer {
+    /// The command, as the user would type it.
+    pub command: &'static str,
+    /// The question to ask, which names that command and what it does.
+    pub question: String,
+}
+
+pub(super) const MIGRATE_COMMAND: &str = "comline store migrate";
+pub(super) const RESET_COMMAND: &str = "comline store reset";
+
+const RESET_HINT: &str = "To start a new history, run `comline store reset`: it moves `.comline/` \
+     aside (to `.comline.format-<its format>.bak/`), keeps `deps-cache/` and deletes nothing.";
+
+impl StoreError {
+    /// The command that fixes this, if there is one. Named in the message.
+    pub fn command(&self) -> Option<&'static str> {
+        match self {
+            Self::Older { .. }
+            | Self::Unstamped
+            | Self::UnreadableStamp { .. }
+            | Self::InvalidStamp { .. }
+            | Self::Interrupted { what: Interrupted::Reset } => Some(RESET_COMMAND),
+            Self::NeedsMigration { .. } | Self::Interrupted { what: Interrupted::Migration } => {
+                Some(MIGRATE_COMMAND)
+            }
+            Self::Newer { .. } | Self::MergedFormats { .. } => None,
+        }
+    }
+
+    /// What a command run on a terminal may ask the user whether to run
+    /// instead of stopping: the migration, for a store that has a chain to the
+    /// current format or a migration to finish. **Never a reset**: a reset is
+    /// the user's own command and is never offered inline. The command does
+    /// nothing unless the user says yes; with no terminal, the command fails
+    /// with this error's message.
+    pub fn offer(&self) -> Option<Offer> {
+        let question = match self {
+            Self::NeedsMigration { found } => format!(
+                "`.comline/` is in IR format {found} and this comline writes format {}. Run \
+                 `{MIGRATE_COMMAND}` now? It writes a new store beside the old one, verifies it, \
+                 and keeps the old one as `.comline.format-{found}.bak/` until \
+                 `comline store prune`.",
+                CURRENT_IR_FORMAT_VERSION
+            ),
+            Self::Interrupted { what: Interrupted::Migration } => format!(
+                "A migration of `.comline/` was interrupted. Run `{MIGRATE_COMMAND}` now to \
+                 finish it? Nothing is deleted."
+            ),
+            _ => return None,
+        };
+        Some(Offer { command: MIGRATE_COMMAND, question })
+    }
+}
 
 impl std::fmt::Display for StoreError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -104,6 +178,13 @@ impl std::fmt::Display for StoreError {
                  Nothing was changed. To keep the history, use the comline that wrote it. \
                  {RESET_HINT}"
             ),
+            Self::NeedsMigration { found } => write!(
+                f,
+                "the version history in `.comline/` is in IR format {found}, but this comline \
+                 writes format {current}. Nothing was changed. Run `{MIGRATE_COMMAND}` to \
+                 migrate it (`{MIGRATE_COMMAND} --check` shows what it would do first): the old \
+                 store is kept as `.comline.format-{found}.bak/` until `comline store prune`."
+            ),
             Self::Newer { found } => write!(
                 f,
                 "the version history in `.comline/` is in IR format {found}, which a newer \
@@ -114,7 +195,8 @@ impl std::fmt::Display for StoreError {
                 f,
                 "`.comline/` holds a version history but no `FORMAT_VERSION` stamp, so its IR \
                  format is unknown (it predates the stamp, or the file was lost). Nothing was \
-                 changed. {RESET_HINT}"
+                 changed. If you know its format, `{MIGRATE_COMMAND} --assume-format <N>` \
+                 migrates it from there. {RESET_HINT}"
             ),
             Self::UnreadableStamp { reason } => write!(
                 f,
@@ -128,6 +210,25 @@ impl std::fmt::Display for StoreError {
                  the format of the version history is unknown (the file may be damaged, or \
                  written by a comline this one doesn't know). Nothing was changed. {RESET_HINT}"
             ),
+            Self::MergedFormats { ours, theirs } => write!(
+                f,
+                "`.comline/FORMAT_VERSION` is in conflict between IR format {ours} and format \
+                 {theirs}: a Git merge joined stores in two formats. Nothing was changed and \
+                 nothing is resolved for you: migrate both sides first (check out each branch, \
+                 run `{MIGRATE_COMMAND}` on it), then merge."
+            ),
+            Self::Interrupted { what: Interrupted::Migration } => write!(
+                f,
+                "a migration of `.comline/` was interrupted: `.comline.migrating/` or the \
+                 migration's journal is still there. Nothing was changed and nothing resumes on \
+                 its own. Run `{MIGRATE_COMMAND}` to finish it."
+            ),
+            Self::Interrupted { what: Interrupted::Reset } => write!(
+                f,
+                "a `{RESET_COMMAND}` was interrupted: `.comline.resetting/` is still there. \
+                 Nothing was changed and nothing resumes on its own. Run `{RESET_COMMAND}` to \
+                 finish it."
+            ),
         }
     }
 }
@@ -139,44 +240,140 @@ fn has_entries(dir: &Path) -> bool {
     fs::read_dir(dir).is_ok_and(|mut entries| entries.next().is_some())
 }
 
-/// Classify the `.comline/` under `project_root` against
-/// [`CURRENT_IR_FORMAT_VERSION`]. **Read-only**: it never creates, moves,
-/// rewrites or deletes anything, in any outcome. Call it before trusting
-/// anything already in `.comline/` (before deciding whether a previous commit
-/// exists to diff against), and before writing to it.
-///
-/// - no `.comline/`, or an unstamped one with no history: [`StoreState::Fresh`]
-/// - the current stamp: [`StoreState::Current`]
-/// - an older stamp, a newer one, a missing stamp on a store with history, a
-///   stamp that can't be read or isn't a number: the matching [`StoreError`]
-///
-/// `deps-cache/` is not part of the store: a `.comline/` holding only it is
-/// fresh, and an error here never touches it.
-pub fn ensure_compatible_store(project_root: &Path) -> Result<StoreState, StoreError> {
+/// A stamp's text as a format number: decimal digits and nothing else.
+pub(super) fn parse_stamp(text: &str) -> Option<u32> {
+    Some(text.trim())
+        .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
+        .and_then(|t| t.parse::<u32>().ok())
+}
+
+/// The two formats in a stamp that Git left in conflict (`<<<<<<<`, ours,
+/// `=======`, theirs, `>>>>>>>`; a `|||||||` base section is skipped).
+fn conflicted_stamp(text: &str) -> Option<(u32, u32)> {
+    if !text.lines().any(|line| line.starts_with("<<<<<<<")) {
+        return None;
+    }
+    let (mut ours, mut theirs, mut side) = (None, None, 0u8);
+    for line in text.lines() {
+        let line = line.trim();
+        if line.starts_with("<<<<<<<") {
+            side = 1;
+        } else if line.starts_with("|||||||") {
+            side = 3;
+        } else if line.starts_with("=======") {
+            side = 2;
+        } else if line.starts_with(">>>>>>>") {
+            side = 0;
+        } else if side == 1 {
+            ours = parse_stamp(line);
+        } else if side == 2 {
+            theirs = parse_stamp(line);
+        }
+    }
+    Some((ours?, theirs?))
+}
+
+/// What `.comline/FORMAT_VERSION` says, without judging it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) enum Stamp {
+    /// No `.comline/`, or one with no history in it.
+    NoHistory,
+    /// A format number.
+    Format(u32),
+    /// History and no stamp.
+    Unstamped,
+    /// The file can't be read.
+    Unreadable(String),
+    /// The file holds something that is not a format number.
+    Invalid(String),
+    /// Git left it in conflict between two different formats.
+    Merged(u32, u32),
+}
+
+/// Read the stamp of the `.comline/` under `project_root`. **Read-only.**
+pub(super) fn read_stamp(project_root: &Path) -> Stamp {
     let comline_dir = project_root.join(".comline");
     if !comline_dir.exists() {
-        return Ok(StoreState::Fresh); // first build ever - nothing to check
+        return Stamp::NoHistory;
     }
-
     let text = match fs::read_to_string(format_version_path(project_root)) {
         Ok(text) => text,
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
             let has_history =
                 has_entries(&comline_dir.join("refs")) || has_entries(&comline_dir.join("objects"));
-            return if has_history { Err(StoreError::Unstamped) } else { Ok(StoreState::Fresh) };
+            return if has_history { Stamp::Unstamped } else { Stamp::NoHistory };
         }
-        Err(e) => return Err(StoreError::UnreadableStamp { reason: e.to_string() }),
+        Err(e) => return Stamp::Unreadable(e.to_string()),
     };
+    if let Some((ours, theirs)) = conflicted_stamp(&text) {
+        if ours != theirs {
+            return Stamp::Merged(ours, theirs);
+        }
+    }
+    match parse_stamp(&text) {
+        Some(found) => Stamp::Format(found),
+        None => Stamp::Invalid(text.trim().chars().take(64).collect()),
+    }
+}
 
-    let trimmed = text.trim();
-    let found = Some(trimmed)
-        .filter(|t| !t.is_empty() && t.bytes().all(|b| b.is_ascii_digit()))
-        .and_then(|t| t.parse::<u32>().ok());
-    match found {
-        Some(found) if found == CURRENT_IR_FORMAT_VERSION => Ok(StoreState::Current),
-        Some(found) if found < CURRENT_IR_FORMAT_VERSION => Err(StoreError::Older { found }),
-        Some(found) => Err(StoreError::Newer { found }),
-        None => Err(StoreError::InvalidStamp { text: trimmed.chars().take(64).collect() }),
+/// Classify the `.comline/` under `project_root` against
+/// [`CURRENT_IR_FORMAT_VERSION`], with the steps this comline has
+/// ([`Registry::current`](super::migrate::Registry::current)). See
+/// [`ensure_compatible_store_with`].
+pub fn ensure_compatible_store(project_root: &Path) -> Result<StoreState, StoreError> {
+    ensure_compatible_store_with(project_root, &super::migrate::Registry::current())
+}
+
+/// Classify the `.comline/` under `project_root` against the target of
+/// `registry`. **Read-only**: it never creates, moves, rewrites or deletes
+/// anything, in any outcome. Call it before trusting anything already in
+/// `.comline/` (before deciding whether a previous commit exists to diff
+/// against), and before writing to it.
+///
+/// - an interrupted migration or reset: [`StoreError::Interrupted`]
+/// - no `.comline/`, or an unstamped one with no history: [`StoreState::Fresh`]
+/// - the current stamp: [`StoreState::Current`]
+/// - an older stamp: [`StoreError::NeedsMigration`] if `registry` has steps
+///   from it to the current format, else [`StoreError::Older`]
+/// - a newer stamp, a missing stamp on a store with history, a stamp that
+///   can't be read or isn't a number, a stamp Git left in conflict: the
+///   matching [`StoreError`]
+///
+/// `deps-cache/` is not part of the store: a `.comline/` holding only it is
+/// fresh, and an error here never touches it.
+pub fn ensure_compatible_store_with(
+    project_root: &Path,
+    registry: &super::migrate::Registry,
+) -> Result<StoreState, StoreError> {
+    use super::migrate::{journal_path, migrating_dir, resetting_dir};
+
+    // Between the two renames of a swap there is no `.comline/`: that is an
+    // interrupted migration, not a first build.
+    if resetting_dir(project_root).exists() {
+        return Err(StoreError::Interrupted { what: Interrupted::Reset });
+    }
+    if migrating_dir(project_root).exists()
+        || journal_path(&project_root.join(".comline")).exists()
+    {
+        return Err(StoreError::Interrupted { what: Interrupted::Migration });
+    }
+
+    let target = registry.target();
+    match read_stamp(project_root) {
+        Stamp::NoHistory => Ok(StoreState::Fresh),
+        Stamp::Format(found) if found == target => Ok(StoreState::Current),
+        Stamp::Format(found) if found < target => {
+            if registry.can_migrate_from(found) {
+                Err(StoreError::NeedsMigration { found })
+            } else {
+                Err(StoreError::Older { found })
+            }
+        }
+        Stamp::Format(found) => Err(StoreError::Newer { found }),
+        Stamp::Unstamped => Err(StoreError::Unstamped),
+        Stamp::Unreadable(reason) => Err(StoreError::UnreadableStamp { reason }),
+        Stamp::Invalid(text) => Err(StoreError::InvalidStamp { text }),
+        Stamp::Merged(ours, theirs) => Err(StoreError::MergedFormats { ours, theirs }),
     }
 }
 
@@ -194,6 +391,12 @@ impl ObjectStore {
             objects_dir: project_root.join(".comline/objects"),
             scratch: None,
         }
+    }
+
+    /// The object store of the store directory `dir` (`.comline/`, or
+    /// `.comline.migrating/` while a migration writes it), not of a project.
+    pub fn at(dir: &Path) -> Self {
+        Self { objects_dir: dir.join("objects"), scratch: None }
     }
 
     /// A store that reads the project's objects but keeps what it writes in

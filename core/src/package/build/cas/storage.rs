@@ -9,7 +9,7 @@ use std::fmt;
 use std::path::PathBuf;
 
 /// 256-bit Blake3 hash for content addressing
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct Hash([u8; 32]);
 
 impl Hash {
