@@ -9,6 +9,7 @@ mod engine_current;
 mod engine_formats;
 mod golden;
 mod live_frozen;
+mod proof;
 mod support;
 
 // Step 1.3's engine (`cas::migrate`): `engine_current` on the format this
